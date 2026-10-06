@@ -36,9 +36,15 @@ for %%f in (run_dashboard.cmd _collector.cmd _server.cmd _python.cmd README.md L
 mkdir "%STAGE%\db"
 echo %VERSION%> "%STAGE%\VERSION"
 
+REM cmd.exe needs CRLF line endings, otherwise "goto :label" fails with "The system cannot find the batch label specified".
+REM Normalize whatever the working copy has (git may have checked them out as LF).
+powershell -NoProfile -Command "Get-ChildItem -Path '%STAGE%' -Recurse -Filter *.cmd | ForEach-Object { $t = [IO.File]::ReadAllText($_.FullName) -replace \"`r?`n\", \"`r`n\"; [IO.File]::WriteAllText($_.FullName, $t, (New-Object Text.UTF8Encoding $false)) }" || exit /b 1
+
 echo [build] mod
 mkdir "%STAGE%\mod" 2>nul
 xcopy /q /y /i /s "mod\tf3_dashboard_export" "%STAGE%\mod\tf3_dashboard_export\" >nul
+REM the mod.io entry id is private to the author (the Mod Hub would try to *update* that entry instead of creating a new one)
+del "%STAGE%\mod\tf3_dashboard_export\_metadata\mod.io_fileid.txt" 2>nul
 
 echo [build] zip
 if exist "%DIST%" del "%DIST%"
@@ -46,7 +52,7 @@ powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%' -DestinationPat
 for /f %%r in ('powershell -NoProfile -Command "(Get-Content 'mod\tf3_dashboard_export\mod.json' | ConvertFrom-Json).revision"') do set REV=%%r
 set MODZIP=%OUT%\tf3_dashboard_export-rev%REV%.zip
 if exist "%MODZIP%" del "%MODZIP%"
-powershell -NoProfile -Command "Compress-Archive -Path 'mod\tf3_dashboard_export' -DestinationPath '%MODZIP%' -CompressionLevel Optimal" || exit /b 1
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\mod\tf3_dashboard_export' -DestinationPath '%MODZIP%' -CompressionLevel Optimal" || exit /b 1
 rmdir /s /q "%STAGE%"
 echo.
 echo [build] done:

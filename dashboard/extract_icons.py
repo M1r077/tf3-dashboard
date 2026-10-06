@@ -1,4 +1,4 @@
-﻿"""Extract UI icons from the Transport Fever 3 game archives into dashboard/static/icons/*.png.
+"""Extract UI icons from the Transport Fever 3 game archives into dashboard/static/icons/*.png.
 
 Grayscale TGA icons (the game tints them at runtime) are converted to white-on-transparent PNG
 (alpha = luminance) so the dashboard can recolor them with CSS masks. Colored icons (cargo) are

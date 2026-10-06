@@ -62,7 +62,7 @@
     return t;
   }
 
-  function empty(ctx, w, h, msg) { ctx.fillStyle = css("--muted"); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(msg || "pas encore de donnÃ©es", w / 2, h / 2); }
+  function empty(ctx, w, h, msg) { ctx.fillStyle = css("--muted"); ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(msg || "no data yet", w / 2, h / 2); }
 
   /** Sparse, non-overlapping x labels: show a label only when it differs from the previous one shown. */
   function xLabelIndices(labels, n, pxAvail) {
@@ -191,7 +191,7 @@
     const old = uplots.get(host);
     if (!n || !hasData || n < 2) {
       if (old) { old.destroy(); uplots.delete(host); }
-      host.innerHTML = `<div class="empty">${n === 1 ? I18N_T("chart_one_point", "1 point â€” the curve appears with the next sample") : I18N_T("no_data_yet", "no data yet")}</div>`;
+      host.innerHTML = `<div class="empty">${n === 1 ? I18N_T("chart_one_point", "1 point - the curve appears with the next sample") : I18N_T("no_data_yet", "no data yet")}</div>`;
       return;
     }
     const xs = opts.ts && opts.ts.length === n ? opts.ts.slice() : Array.from({ length: n }, (_, i) => i);

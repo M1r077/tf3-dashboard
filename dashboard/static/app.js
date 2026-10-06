@@ -751,7 +751,7 @@
     }).join("") || '<span class="muted">–</span>';
     const cols = [
       { key: "name", label: t("th_industry"), icon: "industry", render: i => `${esc(i.name)}<br><small>${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },
-      // upgradeProgress du composant Industry vaut toujours 0 dans TF3 (non utilise par la GUI du jeu) : on montre niveau / max
+      // Industry.upgradeProgress is always 0 in TF3 (TF2 leftover, unused by the game's own GUI): show level / max instead
       { key: "level", label: t("th_level"), num: true, render: i => i.max_level > 0 ? `${i.level ?? "–"}/${i.max_level} ${bar(i.level || 0, i.max_level, i.level >= i.max_level ? "ok" : "")}` : `${i.level ?? "–"}`, sortValue: i => i.max_level > 0 ? (i.level || 0) / i.max_level : -1 },
       { key: "status", label: t("th_status"), render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", i.boost_rule || i.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
       { key: "production_rating", label: t("th_yield"), icon: "production", num: true, render: i => i.production_rating == null ? "–" : bar(i.production_rating, 1, i.production_rating < 0.3 ? "bad" : i.production_rating < 0.7 ? "warn" : "ok") },

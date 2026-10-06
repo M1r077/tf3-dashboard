@@ -1,252 +1,252 @@
-# Catalogue : ce que le dashboard peut faire avec Transport Fever 3
+# Catalogue: what the dashboard can do with Transport Fever 3
 
-Référence unique de tout ce que l'API Lua de TF3 permet depuis un *game script* tournant sur le thread GUI
-(`guiUpdate`), telle qu'utilisée par le mod `tf3_dashboard_export`. Source : `api/tealdef/api/*.d.tl` du jeu
-et les scripts de l'interface dans `base/content/gui.zip` / `game_mechanics.zip` (version du jeu installée le
-2026-10-06). Chaque entrée indique un **statut** :
+Single reference of everything the TF3 Lua API allows from a *game script* running on the GUI thread
+(`guiUpdate`), as used by the `tf3_dashboard_export` mod. Sources: the game's `api/tealdef/api/*.d.tl` and the
+interface scripts in `base/content/gui.zip` / `game_mechanics.zip` (game version installed on 2026-10-06).
+Every entry carries a **status**:
 
-| Statut | Sens |
+| Status | Meaning |
 |---|---|
-| **FAIT** | déjà exposé par le mod (lecture) ou déjà une commande `cmd.lua` + bouton dashboard |
-| **FACILE** | faisable avec une commande simple, aucun risque de casser la partie |
-| **MOYEN** | faisable, mais nécessite une lecture-modification-écriture d'une structure complète ou une validation que seul le jeu peut faire |
-| **RISQUÉ** | possible techniquement mais irréversible / destructeur / argent réel ; à mettre derrière une confirmation |
-| **NON** | hors de portée depuis un script (ou sans intérêt pour le dashboard) |
+| **DONE** | already exposed by the mod (read) or already a `cmd.lua` command + dashboard button |
+| **EASY** | doable with a simple command, no risk of breaking the save |
+| **MEDIUM** | doable, but needs a read-modify-write of a whole structure or a validation only the game can do |
+| **RISKY** | technically possible but irreversible / destructive / real money; must sit behind a confirmation |
+| **NO** | out of reach from a script (or of no interest for the dashboard) |
 
-Convention de nommage des commandes `cmd.lua` : `{ id = <n>, cmd = "<nom>", args = { ... } }`, réponse dans
-`live.lua` → `last_ack = { id, cmd, ok, error, real_time }`.
+Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { ... } }`, answer in
+`live.lua` -> `cmd_ack = { id, cmd, ok, error, real_time }`.
 
 ---
 
-## 1. Mécanique générale
+## 1. General mechanics
 
-### 1.1 Trois canaux distincts
+### 1.1 Three distinct channels
 
-| Canal | API | Thread | Effet |
+| Channel | API | Thread | Effect |
 |---|---|---|---|
-| **Commande simulation** | `api.cmd.sendCommand(api.cmd.makeXxxCmd(...), callback)` | GUI → moteur | modifie la partie (sauvegardé). Le callback reçoit `(cmd, success)` ; l'ack du mod attend ce callback. |
-| **Événement React** | `api.gui.fireReactEvent(name, param)` | GUI | agit sur l'interface du jeu (ouvrir une fenêtre, sélectionner). Pas de retour, pas d'erreur si le nom est faux. |
-| **Caméra / GUI direct** | `api.gui.camera.*`, `api.gui.closeAllWindows()`, `api.gui.byId.*` | GUI | immédiat, rien dans la sauvegarde. |
+| **Simulation command** | `api.cmd.sendCommand(api.cmd.makeXxxCmd(...), callback)` | GUI -> engine | modifies the game (saved). The callback receives `(cmd, success)`; the mod's ack waits for it. |
+| **React event** | `api.gui.fireReactEvent(name, param)` | GUI | acts on the game's interface (open a window, select). No return value, no error if the name is wrong. |
+| **Camera / direct GUI** | `api.gui.camera.*`, `api.gui.closeAllWindows()`, `api.gui.byId.*` | GUI | immediate, nothing in the save. |
 
-### 1.2 Limites structurelles
+### 1.2 Structural limits
 
-- Un game script ne peut **pas** dessiner dans la fenêtre du jeu (pas d'UI custom depuis un game script en TF3 ;
-  l'UI est en React/Teal interne). Tout affichage reste dans le dashboard.
-- Toute écriture passe par **une commande entière** : pas de « changer un seul champ d'un arrêt ». Pour une ligne,
-  on lit `LINE`, on modifie la table, on renvoie tout (`makeLineUpdateCmd`).
-- Les commandes sont validées par le moteur : une ligne dont un arrêt n'est plus accessible est acceptée mais
-  les véhicules passent en « pas de chemin ». La validation « tracé possible » **n'existe que dans le jeu**.
-- Le canal fichier (`cmd.lua` relu 4×/s) impose ~250 ms de latence et **une commande à la fois** (le serveur refuse
-  si un `cmd.lua` est en attente).
-- Argent : les achats/ventes/remplacements sont réels et immédiats, sans « annuler ».
+- A game script **cannot** draw inside the game window (no custom UI from a game script in TF3; the UI is internal
+  React/Teal). Everything is displayed in the dashboard.
+- Every write goes through **a whole command**: there is no "change a single field of a stop". For a line, read
+  `LINE`, modify the table, send everything back (`makeLineUpdateCmd`).
+- Commands are validated by the engine: a line whose stop is no longer reachable is accepted, but the vehicles go
+  to "no path". The "route possible" validation **only exists inside the game**.
+- The file channel (`cmd.lua` re-read 4x/s) implies ~250 ms latency and **one command at a time** (the server
+  refuses while a `cmd.lua` is pending).
+- Money: buying/selling/replacing is real and immediate, with no "undo".
 
 ---
 
-## 2. Lecture (déjà exportée ou disponible)
+## 2. Reading (already exported or available)
 
-### 2.1 Déjà dans `live.lua` (FAIT)
+### 2.1 Already in `live.lua` (DONE)
 
-| Domaine | Fonctions utilisées |
+| Domain | Functions used |
 |---|---|
-| Monde | `GAME_TIME`, `GAME_SPEED`, `getYear`, `getPlayer`, lang |
-| Véhicules | `vehicle.getVehicles/getSpeed/getPosition/getVehicleType/getVehicleCapacities/getVehicleMaintenanceState/getRunningCost/getDepreciatedValue/getVehicleProblems`, `cargo.getNumCargoPerTypeInVehicle`, composant `TRANSPORT_VEHICLE` (état, ligne, arrêt, user_stopped, modèle), `transportVehicleSystem.getDepotVehicles/getGoingToDepotVehicles/getNoPathVehicles`, `landVehicleMoveSystem.getBlockedTrains` |
-| Lignes | composant `LINE` (arrêts, groupes de gares), `COLOR`, `line.getLineCapacityUsages/getMaxFrequency/calcLineStationThroughput/getLineProblems/getLinesIssues/getLineTransportModesUnion`, `cargo.getSummarizedCargoQualityDataForLine` |
-| Villes | `TOWN`, `town.getTownCapacityUsage/getTownHappinessStats/getTownLineUsage/getTownReachability/getTownEmissionDB/getTownStockCargo/getTownProblems/computeTownsTrafficSpeedMap/getTownDistrictCenter` |
-| Industries | `INDUSTRY`, `STOCK_LIST`, `stock.getProductionRating/getCargoProducedPerYear/…/getStockListsWithThrownAwayCargo/getInputsOutputsFromRules`, `industry.getIndustryProductivityInfo/getClosingIndustries` |
-| Gares / dépôts | `station.calculateStationUsage/isStationOfType`, `VEHICLE_DEPOT`, `CONSTRUCTION` |
+| World | `GAME_TIME`, `GAME_SPEED`, `getYear`, `getPlayer`, lang |
+| Vehicles | `vehicle.getVehicles/getSpeed/getPosition/getVehicleType/getVehicleCapacities/getVehicleMaintenanceState/getRunningCost/getDepreciatedValue/getVehicleProblems`, `cargo.getNumCargoPerTypeInVehicle`, component `TRANSPORT_VEHICLE` (state, line, stop, user_stopped, model), `transportVehicleSystem.getDepotVehicles/getGoingToDepotVehicles/getNoPathVehicles`, `landVehicleMoveSystem.getBlockedTrains` |
+| Lines | component `LINE` (stops, station groups), `COLOR`, `line.getLineCapacityUsages/getMaxFrequency/calcLineStationThroughput/getLineProblems/getLinesIssues/getLineTransportModesUnion`, `cargo.getSummarizedCargoQualityDataForLine` |
+| Towns | `TOWN`, `town.getTownCapacityUsage/getTownHappinessStats/getTownLineUsage/getTownReachability/getTownEmissionDB/getTownStockCargo/getTownProblems/computeTownsTrafficSpeedMap/getTownDistrictCenter` |
+| Industries | `INDUSTRY`, `STOCK_LIST`, `stock.getProductionRating/getCargoProducedPerYear/.../getStockListsWithThrownAwayCargo/getInputsOutputsFromRules`, `industry.getIndustryProductivityInfo/getClosingIndustries` |
+| Stations / depots | `station.calculateStationUsage/isStationOfType`, `VEHICLE_DEPOT`, `CONSTRUCTION` |
 | Finances | `ACCOUNT`, `finance.getPlayersBalance/calculateEarnings`, `headquarters.getTransportedData/getCompaniesValue` |
-| Référentiels | `api.res.cargoTypeRep`, `api.res.modelRep` |
+| Repositories | `api.res.cargoTypeRep`, `api.res.modelRep` |
 
-### 2.2 Disponible, pas encore exporté
+### 2.2 Available, not exported yet
 
-| Donnée | Fonction | Intérêt dashboard | Statut |
+| Data | Function | Dashboard interest | Status |
 |---|---|---|---|
-| Détail des problèmes par arrêt d'une ligne | `line.getDetailedLineProblems(line)` → `{{StopState}}` | diagnostiquer « pas de chemin » entre deux arrêts précis | FACILE |
-| Problèmes ligne↔gare | `line.getLineStationProblems()` | gare non desservie / terminal incompatible | FACILE |
-| Raison d'échec du chemin d'un véhicule | `line.getFailedPathReason(vehicle, line)` | texte explicite dans la fiche véhicule | FACILE |
-| Routes sans connexion | `line.getNoRoadConnectionProblems()` | | FACILE |
-| Qualité cargo par arrêt / gare / terminal | `cargo.getCargoQualityDataAtStop/AtStation/AtTerminal` | où les passagers attendent trop | FACILE |
-| Occupation d'un terminal | `station.calculateStationTerminalUsage(station, idx)` | quai saturé | FACILE |
-| Cargo d'un groupe de gares | `station.calculateStationGroupCargo` | | FACILE |
-| Rayons d'attraction qui se chevauchent | `station.findStationGroupWithOverlappingCatchmentOfDifferentCarriers()` | | FACILE |
-| Meilleur dépôt pour une ligne | `vehicle.findBestDepotForLine(carrier, modes, line)` | prérequis pour acheter depuis le dashboard | FACILE |
-| Meilleure ligne/dépôt pour un véhicule | `vehicle.findBestLineAndDepotForVehicle` | | FACILE |
-| Longueur / prix d'une composition | `vehicle.getLength`, `vehicle.getPartPrice` | | FACILE |
-| Pénalités d'entretien | `vehicle.getMaintenance*Penalty` | | FACILE |
-| Livraisons par ville / ligne | `town.getTownDeliveriesStats(town, interval, perLine, …)` | quelle ligne alimente quelle ville | FACILE |
-| Flux origine→destination | `town.getSourceToDestinationCount` | matrice OD simplifiée | MOYEN (coût CPU) |
-| Bruit par district | `town.getTownNoisePerDistrict` | | FACILE |
-| Émetteurs de pollution / bruit | `emission.getPollutionEmittersInSettlementArea`, `getNoiseEmittersNearSettlementLandUses` | | FACILE |
-| Logbooks (séries temporelles natives) | `logbook.getLogValuePerYear/MostRecent`, `getChartDiff` | les mêmes courbes que les stats du jeu, par entité | MOYEN |
-| Tableau financier complet | `finance.computeFinanceTable(player, config)`, `getAccountChart` | onglet Finances identique au jeu | MOYEN |
-| Entités dans un rayon | `octree.findEntitiesInCircle(center, r, componentType)` | « que se passe-t-il autour de ce point » | FACILE |
-| Plus proche ville d'une position | `town.getClosestTown(pos)` | | FAIT (approché) |
-| Chemin théorique | `pathfinding.findPathNodeToNode` | vérifier si deux gares sont reliées | MOYEN |
-| Caméra actuelle | `api.gui.camera.getCameraData()`, `getFollowEntity()` | afficher sur la carte ce que le joueur regarde | FACILE |
-| Vitesse max estimée | `api.gui.game.getEstimatedMaximumGameSpeed()` | griser le bouton ×4 si la machine ne suit pas | FACILE |
-| Performances | `api.gui.benchmark.get*Times()` | mini moniteur FPS/sim | FACILE |
-| Visibilité | `api.gui.byEntity.isVehicleVisible(e)` | savoir si le véhicule est à l'écran | FACILE |
-| Position souris terrain | `api.gui.mouse.getTerrainPosition()` | | FACILE |
-| Mission / campagne | `api.gui.mission.getMission()` | | NON (pas de campagne ici) |
+| Detailed problems per stop of a line | `line.getDetailedLineProblems(line)` -> `{{StopState}}` | diagnose "no path" between two specific stops | EASY |
+| Line <-> station problems | `line.getLineStationProblems()` | unserved station / incompatible terminal | EASY |
+| Reason of a vehicle's failed path | `line.getFailedPathReason(vehicle, line)` | explicit text in the vehicle sheet | EASY |
+| Roads without connection | `line.getNoRoadConnectionProblems()` | | EASY |
+| Cargo quality per stop / station / terminal | `cargo.getCargoQualityDataAtStop/AtStation/AtTerminal` | where passengers wait too long | EASY |
+| Terminal occupancy | `station.calculateStationTerminalUsage(station, idx)` | saturated platform | EASY |
+| Cargo of a station group | `station.calculateStationGroupCargo` | | EASY |
+| Overlapping catchment areas | `station.findStationGroupWithOverlappingCatchmentOfDifferentCarriers()` | | EASY |
+| Best depot for a line | `vehicle.findBestDepotForLine(carrier, modes, line)` | prerequisite for buying from the dashboard | EASY |
+| Best line/depot for a vehicle | `vehicle.findBestLineAndDepotForVehicle` | | EASY |
+| Length / price of a consist | `vehicle.getLength`, `vehicle.getPartPrice` | | EASY |
+| Maintenance penalties | `vehicle.getMaintenance*Penalty` | | EASY |
+| Deliveries per town / line | `town.getTownDeliveriesStats(town, interval, perLine, ...)` | which line feeds which town | EASY |
+| Origin -> destination flows | `town.getSourceToDestinationCount` | simplified OD matrix | MEDIUM (CPU cost) |
+| Noise per district | `town.getTownNoisePerDistrict` | | EASY |
+| Pollution / noise emitters | `emission.getPollutionEmittersInSettlementArea`, `getNoiseEmittersNearSettlementLandUses` | | EASY |
+| Logbooks (native time series) | `logbook.getLogValuePerYear/MostRecent`, `getChartDiff` | the same curves as the game's statistics, per entity | MEDIUM |
+| Full finance table | `finance.computeFinanceTable(player, config)`, `getAccountChart` | Finances tab identical to the game | MEDIUM |
+| Entities within a radius | `octree.findEntitiesInCircle(center, r, componentType)` | "what happens around this point" | EASY |
+| Closest town to a position | `town.getClosestTown(pos)` | | DONE (approximated) |
+| Theoretical path | `pathfinding.findPathNodeToNode` | check whether two stations are connected | MEDIUM |
+| Current camera | `api.gui.camera.getCameraData()`, `getFollowEntity()` | show on the map what the player is looking at | EASY |
+| Estimated max speed | `api.gui.game.getEstimatedMaximumGameSpeed()` | grey out the x4 button when the machine cannot keep up | EASY |
+| Performance | `api.gui.benchmark.get*Times()` | mini FPS/sim monitor | EASY |
+| Visibility | `api.gui.byEntity.isVehicleVisible(e)` | know whether the vehicle is on screen | EASY |
+| Mouse terrain position | `api.gui.mouse.getTerrainPosition()` | | EASY |
+| Mission / campaign | `api.gui.mission.getMission()` | | NO (no campaign here) |
 
 ---
 
-## 3. Caméra et fenêtres du jeu (`api.gui`)
+## 3. Camera and game windows (`api.gui`)
 
-| Action | Appel | Commande dashboard | Statut |
+| Action | Call | Dashboard command | Status |
 |---|---|---|---|
-| Centrer sur une entité | `camera.focusEntity(e)` | `focus_entity {entity}` | FAIT |
-| Centrer sur une position | `camera.focusPosition(Vec3f, distance)` | `focus_position {x,y,z,distance}` | FAIT |
-| Suivre un véhicule | `camera.followEntity(e, jump)` | `follow_entity {entity, jump}` | FAIT |
-| Vue cockpit | `camera.enterFollowCameraCockpit(e)` / `leaveFollowCameraCockpit()` | `cockpit {entity}` / `cockpit_leave` | FACILE |
-| Caméra libre | `camera.toggleFreeCamera()` | | FACILE |
-| Poser la caméra précisément | `camera.setCameraData(Vec5f{x,y,dist,angleH,angleV})`, `setManualCamera(center, dist)` | `set_camera {...}` | FACILE — permet des « vues favorites » enregistrées dans le dashboard |
-| Lire la caméra | `camera.getCameraData()` | export dans live.lua | FACILE |
-| Capture d'écran | `camera.takeScreenshot(scale)` → dossier userdata | `screenshot {scale}` | FACILE (le fichier atterrit côté jeu, pas servi par le dashboard) |
-| Klaxon | `api.gui.sound.letVehicleHorn(e)` | `horn {entity}` | FACILE (gadget) |
-| Ouvrir la fiche d'une entité (ligne, véhicule, gare, ville, industrie, dépôt…) | `fireReactEvent("selectEntity", {entity=e, stack=bool})` | `select_entity {entity, focus, stack}` | FAIT (en test) |
-| Fermer toutes les fenêtres | `api.gui.closeAllWindows()` | `close_windows` | FAIT (en test) |
-| Gestionnaire lignes/véhicules sur une ligne | `fireReactEvent("openVehicleManager", {openWithLineEntity=e})` | `open_line_manager {line}` | FAIT (en test) |
-| Gestionnaire sur un dépôt | `… {openWithDepotEntity=e}` | `open_depot_manager {depot}` | FACILE |
-| Gestionnaire sur des véhicules | `… {openWithVehicleEntities={…}}` | `open_vehicle_manager {vehicles}` | FACILE |
-| Mode « envoyer sur une ligne » | `… {openWithVehicleEntities={…}, sendToLineMode=true}` | | FACILE |
-| Fermer le gestionnaire | `fireReactEvent("closeVehicleManager", {})` | | FACILE |
-| Fenêtre Finances | `fireReactEvent("openFinanceWindow")` / `"closeFinanceWindow"` | `open_finance` | FACILE |
-| Fenêtre Statistiques sur un onglet | `fireReactEvent("openStatisticsWindow", "Line")` — clés : `Line, Vehicle, Station, Town, Industry, Warehouse, Depot` | `open_statistics {tab}` | FACILE |
-| Fenêtre Compagnie | `fireReactEvent("openCompanyWindow", {initialTabKey="Company"})` | | FACILE |
-| Journal des notifications | `fireReactEvent("openNotificationLog")` | | FACILE |
-| Couches (calques) | `fireReactEvent("openLayerRidge", {layer="menu.layers.<id>", stack=true})` — ids : `terrainButton, townsButton, speedButton, trafficButton, cargoButton, cargoFlowButton, mobilityButton, noiseButton, pollutionButton, publicTransportButton, hudFilters` ; `"closeLayerRidge"` | `open_layer {layer}` | FACILE |
-| Configuration d'une couche (ex. cargo filtré) | `fireReactEvent("preferredLayerConfig", {config=LayerConfig})` | | MOYEN (structure LayerConfig à reverse-engineer par couche) |
-| Menu construction sur un onglet | `fireReactEvent("constructionMenuSetTab", {tabIndex=n, sublistId=…})`, `"constructionMenuQuit"` | | FACILE mais peu utile sans souris en jeu |
-| Menu pause | `fireReactEvent("openPauseMenu")` | | FACILE |
-| Désélectionner | `fireReactEvent("selectNothing", {stack=true})` | | FACILE |
-| Marqueur dans le monde (comme les missions) | `api.gui.mission.setMarkerAtEntity(key, e, type, scale)` / `setMarkerAtPosition` / `removeMarker(key)` | `mark {entity}` | FACILE — **très utile** : flèche sur un véhicule bloqué, un arrêt, une industrie |
-| Zone colorée au sol | `api.gui.mission.setZoneCircle(key, center, radius, draw, color, prohibitBuilding)` / `setZone(polygon)` / `removeZone` | `zone {...}` | FACILE — rayon d'attraction, zone de bruit |
-| Icône HUD éphémère | `api.gui.spawnEphemeralHudImage(icon, entity, color, pos, duration)` | | FACILE (feedback visuel d'une commande) |
-| Visualiser le chemin d'un navire | `api.gui.mission.setMovePathVisualizationAtEntity` | | FACILE (navires uniquement) |
-| Afficher/masquer un élément d'UI | `api.gui.byId.setVisible(id, bool)`, `setEnabled` | | NON (ids internes, fragile) |
-| Musique | `api.gui.musicPlayer.*` | | NON (sans rapport) |
+| Center on an entity | `camera.focusEntity(e)` | `focus_entity {entity}` | DONE |
+| Center on a position | `camera.focusPosition(Vec3f, distance)` | `focus_position {x,y,z,distance}` | DONE |
+| Follow a vehicle | `camera.followEntity(e, jump)` | `follow_entity {entity, jump}` | DONE |
+| Cockpit view | `camera.enterFollowCameraCockpit(e)` / `leaveFollowCameraCockpit()` | `cockpit {entity}` / `cockpit_leave` | EASY |
+| Free camera | `camera.toggleFreeCamera()` | | EASY |
+| Place the camera precisely | `camera.setCameraData(Vec5f{x,y,dist,angleH,angleV})`, `setManualCamera(center, dist)` | `set_camera {...}` | EASY — enables "favourite views" stored in the dashboard |
+| Read the camera | `camera.getCameraData()` | export in live.lua | EASY |
+| Screenshot | `camera.takeScreenshot(scale)` -> userdata folder | `screenshot {scale}` | EASY (the file lands on the game side, not served by the dashboard) |
+| Horn | `api.gui.sound.letVehicleHorn(e)` | `horn {entity}` | EASY (gadget) |
+| Open an entity window (line, vehicle, station, town, industry, depot...) | `fireReactEvent("selectEntity", {entity=e, stack=bool})` | `select_entity {entity, focus, stack}` | DONE |
+| Close all windows | `api.gui.closeAllWindows()` | `close_windows` | DONE |
+| Line/vehicle manager on a line | `fireReactEvent("openVehicleManager", {openWithLineEntity=e})` | `open_line_manager {line}` | DONE |
+| Manager on a depot | `... {openWithDepotEntity=e}` | `open_depot_manager {depot}` | EASY |
+| Manager on vehicles | `... {openWithVehicleEntities={...}}` | `open_vehicle_manager {vehicles}` | EASY |
+| "Send to line" mode | `... {openWithVehicleEntities={...}, sendToLineMode=true}` | | EASY |
+| Close the manager | `fireReactEvent("closeVehicleManager", {})` | | EASY |
+| Finance window | `fireReactEvent("openFinanceWindow")` / `"closeFinanceWindow"` | `open_finance` | EASY |
+| Statistics window on a tab | `fireReactEvent("openStatisticsWindow", "Line")` — keys: `Line, Vehicle, Station, Town, Industry, Warehouse, Depot` | `open_statistics {tab}` | EASY |
+| Company window | `fireReactEvent("openCompanyWindow", {initialTabKey="Company"})` | | EASY |
+| Notification log | `fireReactEvent("openNotificationLog")` | | EASY |
+| Layers | `fireReactEvent("openLayerRidge", {layer="menu.layers.<id>", stack=true})` — ids: `terrainButton, townsButton, speedButton, trafficButton, cargoButton, cargoFlowButton, mobilityButton, noiseButton, pollutionButton, publicTransportButton, hudFilters`; `"closeLayerRidge"` | `open_layer {layer}` | EASY |
+| Layer configuration (e.g. filtered cargo) | `fireReactEvent("preferredLayerConfig", {config=LayerConfig})` | | MEDIUM (LayerConfig structure to reverse-engineer per layer) |
+| Construction menu on a tab | `fireReactEvent("constructionMenuSetTab", {tabIndex=n, sublistId=...})`, `"constructionMenuQuit"` | | EASY but of little use without a mouse in the game |
+| Pause menu | `fireReactEvent("openPauseMenu")` | | EASY |
+| Deselect | `fireReactEvent("selectNothing", {stack=true})` | | EASY |
+| World marker (like missions) | `api.gui.mission.setMarkerAtEntity(key, e, type, scale)` / `setMarkerAtPosition` / `removeMarker(key)` | `mark {entity}` | EASY — **very useful**: arrow on a stuck vehicle, a stop, an industry |
+| Colored ground zone | `api.gui.mission.setZoneCircle(key, center, radius, draw, color, prohibitBuilding)` / `setZone(polygon)` / `removeZone` | `zone {...}` | EASY — catchment radius, noise zone |
+| Ephemeral HUD icon | `api.gui.spawnEphemeralHudImage(icon, entity, color, pos, duration)` | | EASY (visual feedback of a command) |
+| Visualise a ship's path | `api.gui.mission.setMovePathVisualizationAtEntity` | | EASY (ships only) |
+| Show/hide a UI element | `api.gui.byId.setVisible(id, bool)`, `setEnabled` | | NO (internal ids, fragile) |
+| Music | `api.gui.musicPlayer.*` | | NO (unrelated) |
 
 ---
 
-## 4. Simulation : commandes (`api.cmd`)
+## 4. Simulation: commands (`api.cmd`)
 
-### 4.1 Jeu
+### 4.1 Game
 
-| Action | Commande | Dashboard | Statut |
+| Action | Command | Dashboard | Status |
 |---|---|---|---|
-| Vitesse 0/1/2/4 | `makeGameSetSpeedCmd(n)` | `set_speed`, `pause`, `toggle_pause` | FAIT |
-| Durée d'un jour (ms) | `makeGameSetCalendarSpeedCmd(ms)` | `set_calendar_speed` | FACILE (option sandbox) |
-| Changer la date | `makeGameSetDateCmd(Date)` | | RISQUÉ (disponibilité des véhicules) |
-| Heure de la journée | `makeGameSetTimeOfDayCmd(sec)` | `set_time_of_day` | FACILE (cosmétique : jour/nuit) |
-| Couverture nuageuse | `makeGameSetCloudCoverageCmd(0..1)` | | FACILE (cosmétique) |
-| Vent | `makeWorldChangeWindCmd(grid, Vec2f)` | | FACILE (cosmétique) |
-| Avancer de N pas de sim | `makeGamePerformSimulationStepsCmd(n)` (debug) | | NON |
+| Speed 0/1/2/4 | `makeGameSetSpeedCmd(n)` | `set_speed`, `pause`, `toggle_pause` | DONE |
+| Day length (ms) | `makeGameSetCalendarSpeedCmd(ms)` | `set_calendar_speed` | EASY (sandbox option) |
+| Change the date | `makeGameSetDateCmd(Date)` | | RISKY (vehicle availability) |
+| Time of day | `makeGameSetTimeOfDayCmd(sec)` | `set_time_of_day` | EASY (cosmetic: day/night) |
+| Cloud coverage | `makeGameSetCloudCoverageCmd(0..1)` | | EASY (cosmetic) |
+| Wind | `makeWorldChangeWindCmd(grid, Vec2f)` | | EASY (cosmetic) |
+| Advance N sim steps | `makeGamePerformSimulationStepsCmd(n)` (debug) | | NO |
 
-### 4.2 Véhicules
+### 4.2 Vehicles
 
-| Action | Commande | Dashboard | Statut |
+| Action | Command | Dashboard | Status |
 |---|---|---|---|
-| Arrêter / démarrer | `makeVehicleSetStoppedByUserCmd(v, bool)` | `vehicle_stop/start` | FAIT |
-| Inverser | `makeVehicleReverseCmd(v)` | `vehicle_reverse` | FAIT |
-| Forcer le départ | `makeVehicleTryToDepartCmd(v)` | `vehicle_depart` | FAIT |
-| Envoyer au dépôt | `makeVehicleSendToDepotCmd(v, sellOnArrival=false)` | `vehicle_to_depot` | FAIT |
-| Envoyer au dépôt **et vendre** | `… sellOnArrival=true` | `vehicle_to_depot {sell=true}` | RISQUÉ (confirmation) |
-| Téléporter au dépôt | `… jumpToDepoEntity=depot` | | RISQUÉ |
-| Départ manuel on/off (ne part jamais seul) | `makeVehicleSetManualDepartureCmd(v, bool)` | `vehicle_manual_departure` | FACILE |
-| Changer de ligne (et aller à l'arrêt n) | `makeVehicleSetLineCmd(v, line, stopIndex)` | `vehicle_set_line {vehicle, line, stop}` | FACILE — vérifier compat carrier avec `line.isLineCompatibleWithCarrier` avant |
-| Retirer de la ligne | `makeVehicleSetLineCmd(v, -1, 0)` (à vérifier en jeu) | | MOYEN |
-| Vendre (au dépôt) | `makeVehicleSellCmd({v,…})` | `vehicle_sell` | RISQUÉ |
-| Acheter | `makeVehicleBuyCmd(player, depot, TransportVehicleConfig)` | `vehicle_buy {depot, model(s)}` | MOYEN/RISQUÉ — il faut composer un `TransportVehicleConfig` (parts, groupes, muFileNames) ; cloner la config d'un véhicule existant est le cas simple et sûr (« +1 identique sur cette ligne ») |
-| Remplacer (nouveau modèle) | `makeVehicleReplaceCmd(v, tvc)` | `vehicle_replace` | MOYEN/RISQUÉ |
-| Modificateurs (vitesse max ×, bruit ×, pollution ×, confort ×) | `makeVehicleSetModifiersCmd(v, Modifiers)` | | NON (triche) |
-| Renommer | `makeEntitySetNameCmd(v, name)` | `rename_entity {entity, name}` | FAIT (commande mod ; pas encore de bouton) |
-| Couleur (livrée) | `makeEntitySetColorCmd(e, Vec3f)` | `set_color {entity, r,g,b}` | FACILE (fonctionne au moins pour lignes ; véhicules à tester) |
+| Stop / start | `makeVehicleSetStoppedByUserCmd(v, bool)` | `vehicle_stop/start` | DONE |
+| Reverse | `makeVehicleReverseCmd(v)` | `vehicle_reverse` | DONE |
+| Force departure | `makeVehicleTryToDepartCmd(v)` | `vehicle_depart` | DONE |
+| Send to depot | `makeVehicleSendToDepotCmd(v, sellOnArrival=false)` | `vehicle_to_depot` | DONE |
+| Send to depot **and sell** | `... sellOnArrival=true` | `vehicle_to_depot {sell=true}` | RISKY (confirmation) |
+| Teleport to depot | `... jumpToDepoEntity=depot` | | RISKY |
+| Manual departure on/off (never leaves on its own) | `makeVehicleSetManualDepartureCmd(v, bool)` | `vehicle_manual_departure` | EASY |
+| Change line (and go to stop n) | `makeVehicleSetLineCmd(v, line, stopIndex)` | `vehicle_set_line {vehicle, line, stop}` | EASY — check carrier compatibility with `line.isLineCompatibleWithCarrier` first |
+| Remove from line | `makeVehicleSetLineCmd(v, -1, 0)` (to verify in game) | | MEDIUM |
+| Sell (in depot) | `makeVehicleSellCmd({v,...})` | `vehicle_sell` | RISKY |
+| Buy | `makeVehicleBuyCmd(player, depot, TransportVehicleConfig)` | `vehicle_buy {depot, model(s)}` | MEDIUM/RISKY — a `TransportVehicleConfig` must be composed (parts, groups, muFileNames); cloning the config of an existing vehicle is the simple and safe case ("+1 identical on this line") |
+| Replace (new model) | `makeVehicleReplaceCmd(v, tvc)` | `vehicle_replace` | MEDIUM/RISKY |
+| Modifiers (max speed x, noise x, pollution x, comfort x) | `makeVehicleSetModifiersCmd(v, Modifiers)` | | NO (cheat) |
+| Rename | `makeEntitySetNameCmd(v, name)` | `rename_entity {entity, name}` | DONE (mod command; no button yet) |
+| Color (livery) | `makeEntitySetColorCmd(e, Vec3f)` | `set_color {entity, r,g,b}` | EASY (works at least for lines; vehicles to test) |
 
-### 4.3 Lignes
+### 4.3 Lines
 
-Le composant `Engine.Component.Line` contient : `stops : {Stop}` (stationGroup, station, terminal,
+The `Engine.Component.Line` component contains: `stops : {Stop}` (stationGroup, station, terminal,
 alternativeTerminals, loadMode, minWaitingTime, maxWaitingTime, maxAdditionalWaitingTime, waypoints,
 stopConfig{load{bool}, maxLoad{0..1}, forceUnload, destroyForConfigChange, destroyForRefresh}),
-`vehicleInfo.transportModes`, `customFilters`, `reservationPriority`. Toute modification =
+`vehicleInfo.transportModes`, `customFilters`, `reservationPriority`. Any modification =
 `makeLineUpdateCmd(line, lineCopy)`.
 
-| Action | Mise en œuvre | Dashboard | Statut |
+| Action | Implementation | Dashboard | Status |
 |---|---|---|---|
-| Renommer | `makeEntitySetNameCmd(line, name)` | `rename_entity` | FAIT (commande mod ; pas encore de bouton) |
-| Couleur | `makeEntitySetColorCmd(line, rgb)` | `set_color` | FACILE |
-| Mode de chargement d'un arrêt (`LOAD_IF_AVAILABLE`, `FULL_LOAD_ANY`, `FULL_LOAD_ALL` ; `LEGACY_UNLOAD_ONLY` non proposé par le jeu) | copier LINE (`api.type.Line.new(comp)`), `stops[i].loadMode = …`, update — même code que `cargofilter_window.tl` | `line_set_stop {line, stop, load_mode}` | **FAIT** (détail de ligne → Arrêts & départs → crayon) |
-| Temps d'attente min / max / additionnel | idem, `minWaitingTime` etc. (0..600 s, max = -1 illimité) | `line_set_stop {…, min_wait, max_wait, max_add_wait}` ; `line_set_all_stops` pour toute la ligne | **FAIT** |
-| Filtres cargo par arrêt (charger/ne pas charger) | idem, `stopConfig.load[k]` (dense, index = id+1), `customFilters=true` | `line_set_stop {…, no_load=[ids]}` | **FAIT** (chips cargo cliquables) ; part max (`maxLoad`) : lecture seule pour l'instant |
-| Décharger de force / détruire pour reconfig | `stopConfig.forceUnload`, `destroyForConfigChange`, `destroyForRefresh` | `line_set_stop {…, force_unload, destroy_for_config_change, destroy_for_refresh}` | **FAIT** (case « décharger de force » ; les deux « destroy » : commande seulement) |
-| Supprimer un arrêt | retirer `stops[i]` puis update | `line_stop_remove` | MOYEN/RISQUÉ (peut couper le chemin) |
-| Réordonner les arrêts | permuter dans `stops` | `line_stops_reorder` | MOYEN/RISQUÉ (idem) |
-| Changer de terminal / terminaux alternatifs | `stops[i].station/terminal` (préféré) + `alternativeTerminals` ; quais listés via `STATION_GROUP.stations[] -> STATION.terminals[]` (type, classe cargo, longueur, modes via `TpNetData`, `checkLineStopForVehicleOverlength`) | `line_set_terminals {line, stop, main={station,terminal}, alternatives=[…]}` | **FAIT** (bloc « Quais » de l'éditeur d'arrêt : case = utilisable, étoile = préféré ; quais incompatibles affichés mais marqués « lent ») |
-| Ajouter un arrêt | construire un `Stop` (stationGroup + station + terminal valides) | `line_stop_add` | RISQUÉ — pas d'aperçu de tracé ; **seulement** sur gares déjà connues, et le jeu peut répondre « pas de chemin » |
-| Waypoints | `stops[i].waypoints` (ids d'arêtes/nœuds) | | NON depuis le dashboard (il faut cliquer dans le monde) |
-| Priorité de réservation | `reservationPriority` | affichée dans le détail de ligne | lecture FAIT ; écriture FACILE |
-| Créer une ligne | `makeLineCreateCmd(name, color, player, Line)` | | RISQUÉ — même limites que l'ajout d'arrêt |
-| Supprimer une ligne | `makeLineDestroyCmd(line)` | `line_delete` | RISQUÉ (véhicules orphelins) |
-| Envoyer tous les véhicules d'une ligne au dépôt | boucle `makeVehicleSendToDepotCmd` | `line_all_to_depot` | **FAIT** (bouton avec confirmation) |
-| Arrêter / redémarrer toute la ligne | boucle `SetStoppedByUser` | `line_stop_all / line_start_all` | **FAIT** |
-| « +1 véhicule identique » | cloner le `TransportVehicleConfig` d'un véhicule de la ligne, `findBestDepotForLine`, `makeVehicleBuyCmd`, puis `makeVehicleSetLineCmd` | `line_add_vehicle {line, like=vehicle}` | MOYEN/RISQUÉ (argent) — c'est la plus utile des actions « gestion » |
+| Rename | `makeEntitySetNameCmd(line, name)` | `rename_entity` | DONE (mod command; no button yet) |
+| Color | `makeEntitySetColorCmd(line, rgb)` | `set_color` | EASY |
+| Load mode of a stop (`LOAD_IF_AVAILABLE`, `FULL_LOAD_ANY`, `FULL_LOAD_ALL`; `LEGACY_UNLOAD_ONLY` not offered by the game) | copy LINE (`api.type.Line.new(comp)`), `stops[i].loadMode = ...`, update — same code as `cargofilter_window.tl` | `line_set_stop {line, stop, load_mode}` | **DONE** (line detail -> Stops & departures -> pencil) |
+| Min / max / additional waiting time | same, `minWaitingTime` etc. (0..600 s, max = -1 unlimited) | `line_set_stop {..., min_wait, max_wait, max_add_wait}`; `line_set_all_stops` for the whole line | **DONE** |
+| Cargo filters per stop (load / do not load) | same, `stopConfig.load[k]` (dense, index = id+1), `customFilters=true` | `line_set_stop {..., no_load=[ids]}` | **DONE** (clickable cargo chips); max share (`maxLoad`): read-only for now |
+| Force unload / destroy for reconfig | `stopConfig.forceUnload`, `destroyForConfigChange`, `destroyForRefresh` | `line_set_stop {..., force_unload, destroy_for_config_change, destroy_for_refresh}` | **DONE** ("force unload" checkbox; both "destroy": command only) |
+| Remove a stop | remove `stops[i]` then update | `line_stop_remove` | MEDIUM/RISKY (may cut the path) |
+| Reorder stops | swap inside `stops` | `line_stops_reorder` | MEDIUM/RISKY (same) |
+| Change terminal / alternative terminals | `stops[i].station/terminal` (preferred) + `alternativeTerminals`; terminals listed via `STATION_GROUP.stations[] -> STATION.terminals[]` (type, cargo class, length, modes via `TpNetData`, `checkLineStopForVehicleOverlength`) | `line_set_terminals {line, stop, main={station,terminal}, alternatives=[...]}` | **DONE** ("Terminals" block of the stop editor: checkbox = usable, star = preferred; incompatible terminals shown but marked "slow") |
+| Add a stop | build a `Stop` (valid stationGroup + station + terminal) | `line_stop_add` | RISKY — no route preview; **only** on already known stations, and the game may answer "no path" |
+| Waypoints | `stops[i].waypoints` (edge/node ids) | | NO from the dashboard (requires clicking in the world) |
+| Reservation priority | `reservationPriority` | shown in the line detail | read DONE; write EASY |
+| Create a line | `makeLineCreateCmd(name, color, player, Line)` | | RISKY — same limits as adding a stop |
+| Delete a line | `makeLineDestroyCmd(line)` | `line_delete` | RISKY (orphan vehicles) |
+| Send every vehicle of a line to the depot | loop `makeVehicleSendToDepotCmd` | `line_all_to_depot` | **DONE** (button with confirmation) |
+| Stop / restart the whole line | loop `SetStoppedByUser` | `line_stop_all / line_start_all` | **DONE** |
+| "+1 identical vehicle" | clone the `TransportVehicleConfig` of a vehicle of the line, `findBestDepotForLine`, `makeVehicleBuyCmd`, then `makeVehicleSetLineCmd` | `line_add_vehicle {line, like=vehicle}` | MEDIUM/RISKY (money) — the most useful "management" action |
 
-### 4.4 Gares, dépôts, constructions
+### 4.4 Stations, depots, constructions
 
-| Action | Commande | Statut |
+| Action | Command | Status |
 |---|---|---|
-| Renommer gare / dépôt | `makeEntitySetNameCmd(e, name, forceSameEntity)` | FACILE |
-| Jeter le cargo en attente d'un stock | `makeStockListDiscardCargoCmd` | RISQUÉ |
-| Forcer le type de cargo d'un stock | `makeStockListSetStocksCargoTypeCmd` | NON |
-| Construire / modifier / démolir (gares, voies, routes, modules) | `makeWorldBuildProposalCmd(proposal, …)` + `util.proposal.*` | NON depuis le dashboard : il faut un `Proposal` géométrique complet ; c'est l'outil de construction du jeu |
-| Marquer démolissable / historique | `makeWorldSetBulldozableCmd`, `makeTownBuildingSetBlockedDevelopmentCmd` | NON |
+| Rename station / depot | `makeEntitySetNameCmd(e, name, forceSameEntity)` | EASY |
+| Discard the waiting cargo of a stock | `makeStockListDiscardCargoCmd` | RISKY |
+| Force the cargo type of a stock | `makeStockListSetStocksCargoTypeCmd` | NO |
+| Build / modify / demolish (stations, tracks, roads, modules) | `makeWorldBuildProposalCmd(proposal, ...)` + `util.proposal.*` | NO from the dashboard: needs a full geometric `Proposal`; that is the game's construction tool |
+| Mark as bulldozable / historic | `makeWorldSetBulldozableCmd`, `makeTownBuildingSetBlockedDevelopmentCmd` | NO |
 
-### 4.5 Industries et villes
+### 4.5 Industries and towns
 
-| Action | Commande | Statut |
+| Action | Command | Status |
 |---|---|---|
-| Industrie : mode manuel (pas de fermeture, pas de niveau auto) | `makeIndustrySetManualDevelopmentCmd(i, bool)` | FACILE mais c'est de la triche → option « sandbox » dans Réglages |
-| Industrie : productivité × | `makeStockListSetModifiersCmd(i, {productivity=n})` | NON (triche) |
-| Industrie : annuler la fermeture | `makeIndustrySetDespawnTimeCmd(i, ts)` | NON (triche) |
-| Industrie : agrandir | `makeCreateIndustryExtendProposalCmd` | NON |
-| Ville : croissance on/off | `makeTownSetDevelopmentActiveCmd(town, bool)` | FACILE (le jeu l'expose dans la fiche ville → légitime) |
-| Ville : besoins cargo, taille, capacités, poids de distribution | `makeTownUpdateCargoNeedsCmd`, `makeTownUpdateSizeCmd`, `makeTownSetInitialLandUseCapacitiesCmd`, `makeTownCustomDistributionWeightsCmd` | NON (éditeur de carte) |
-| Ville : développer à un point, relier aux industries, créer/détruire | `makeTownDevelopAtCmd`, `makeTownConnectWithIndustriesCmd`, `makeTownCreateCmd`, `makeTownDestroyCmd` | NON |
-| Terrain, joueurs, animaux, entités custom, journal, compte | `makeWorldReplaceTerrainCmd`, `makeGameAddPlayerCmd`, `makeAnimal*`, `makeCustomEntity*`, `makeJournal*`, `makeMaintenanceCostUpdateCmd`, `makeEntitySetEmissionsCmd`, `makeEntitySetPlayerCmd` | NON |
-| Debug (`makeSimPersonSetStateCmd`, `makeStockSetCargoAmountCmd`, `makeComponentExchangeCmd`, `makeClearLogbooksCmd`) | | NON |
+| Industry: manual mode (no closing, no auto level) | `makeIndustrySetManualDevelopmentCmd(i, bool)` | EASY but it is cheating -> "sandbox" option in Settings |
+| Industry: productivity x | `makeStockListSetModifiersCmd(i, {productivity=n})` | NO (cheat) |
+| Industry: cancel closing | `makeIndustrySetDespawnTimeCmd(i, ts)` | NO (cheat) |
+| Industry: extend | `makeCreateIndustryExtendProposalCmd` | NO |
+| Town: growth on/off | `makeTownSetDevelopmentActiveCmd(town, bool)` | EASY (the game exposes it in the town window -> legitimate) |
+| Town: cargo needs, size, capacities, distribution weights | `makeTownUpdateCargoNeedsCmd`, `makeTownUpdateSizeCmd`, `makeTownSetInitialLandUseCapacitiesCmd`, `makeTownCustomDistributionWeightsCmd` | NO (map editor) |
+| Town: develop at a point, connect to industries, create/destroy | `makeTownDevelopAtCmd`, `makeTownConnectWithIndustriesCmd`, `makeTownCreateCmd`, `makeTownDestroyCmd` | NO |
+| Terrain, players, animals, custom entities, journal, account | `makeWorldReplaceTerrainCmd`, `makeGameAddPlayerCmd`, `makeAnimal*`, `makeCustomEntity*`, `makeJournal*`, `makeMaintenanceCostUpdateCmd`, `makeEntitySetEmissionsCmd`, `makeEntitySetPlayerCmd` | NO |
+| Debug (`makeSimPersonSetStateCmd`, `makeStockSetCargoAmountCmd`, `makeComponentExchangeCmd`, `makeClearLogbooksCmd`) | | NO |
 
 ### 4.6 Scripting
 
-| Action | Commande | Statut |
+| Action | Command | Status |
 |---|---|---|
-| Diffuser un événement à tous les game scripts | `makeScriptingSendEventCmd(src, id, name, param)` | FACILE — permettrait au dashboard de parler à d'autres mods (ex. déclencher une action d'un mod tiers) |
-| Événement GUI script interne (`fireGuiScriptEvent`) : `management.line/delete`, `vehicleStore/mission.buyVehicle`, `mainView/select`, `entityWindow/locate`, `calendar/onManualTimeChanged` | | NON (API interne instable ; préférer les `api.cmd` équivalents) |
+| Broadcast an event to all game scripts | `makeScriptingSendEventCmd(src, id, name, param)` | EASY — would let the dashboard talk to other mods (e.g. trigger an action of a third-party mod) |
+| Internal GUI script event (`fireGuiScriptEvent`): `management.line/delete`, `vehicleStore/mission.buyVehicle`, `mainView/select`, `entityWindow/locate`, `calendar/onManualTimeChanged` | | NO (unstable internal API; prefer the equivalent `api.cmd`) |
 
 ---
 
-## 5. Feuille de route proposée (par valeur / risque)
+## 5. Proposed roadmap (by value / risk)
 
-1. **Sans risque, gros gain** — ouvrir fiche (`select_entity`), gestionnaire de ligne, marqueur monde (`mark`),
-   zone (`zone`), vues caméra enregistrées (`set_camera`), raison « pas de chemin » et problèmes par arrêt dans
-   la fiche ligne/véhicule, départ manuel, renommer ligne/véhicule/gare, couleur de ligne, statistiques/finances
-   du jeu sur l'onglet voulu, couches (bruit, cargo…).
-2. **Gestion de ligne sans toucher au tracé** — mode de chargement, temps d'attente, filtres cargo par arrêt,
-   arrêter/démarrer toute la ligne, tout envoyer au dépôt, déplacer un véhicule vers une autre ligne.
-3. **Argent (avec confirmation + affichage du prix)** — « +1 véhicule identique », vendre, remplacer par
-   le même modèle neuf.
-4. **Tracé** — supprimer/réordonner un arrêt (avec garde-fou : refus si `getDetailedLineProblems` signale un
-   trou après coup → re-update de l'ancienne ligne = rollback automatique), ajout d'arrêt sur gare connue.
-5. **Jamais** — construction, terrain, triche industries/villes, modificateurs.
+1. **No risk, big win** — open entity window (`select_entity`), line manager, world marker (`mark`), zone (`zone`),
+   stored camera views (`set_camera`), "no path" reason and per-stop problems in the line/vehicle sheet, manual
+   departure, rename line/vehicle/station, line color, game statistics/finances on the wanted tab, layers (noise,
+   cargo...).
+2. **Line management without touching the route** — load mode, waiting times, cargo filters per stop, stop/start the
+   whole line, send everything to the depot, move a vehicle to another line. *(Done except moving a vehicle.)*
+3. **Money (with confirmation + price shown)** — "+1 identical vehicle", sell, replace with the same model new.
+4. **Route** — remove/reorder a stop (with a safeguard: refuse if `getDetailedLineProblems` reports a gap afterwards
+   -> re-update of the old line = automatic rollback), add a stop on a known station.
+5. **Never** — construction, terrain, industry/town cheats, modifiers.
 
 ---
 
-## 6. Pièges connus (vérifiés)
+## 6. Known pitfalls (verified)
 
-- `getLineCapacityUsages` renvoie en pratique un **tableau dense 1-based** malgré la déclaration `{CargoTypeId : …}` :
-  id cargo = clé − 1 (corrigé, `SCHEMA = 2`). Supposer le même piège pour `stopConfig.load/maxLoad`.
-- `fireReactEvent` ne renvoie rien : l'ack `ok=true` signifie « envoyé », pas « fenêtre ouverte ».
-- `app.loadUserdata` journalise un warning si le fichier manque → toujours lister avec `app.getAllUserdata` avant.
-- Les `Engine.Entity` sont réutilisés : vérifier `api.engine.entityExists(e)` avant toute commande (le mod le fait).
-- Commandes simulation côté `guiUpdate` : OK ; en revanche `api.gui.*` est **indisponible** côté `update()` moteur.
-- `makeVehicleSetLineCmd` avec `stopIndex` hors bornes : comportement non documenté → borner côté mod.
-- Les events React dont le nom est faux échouent **silencieusement**.
+- `getLineCapacityUsages` actually returns a **dense 1-based array** despite the `{CargoTypeId : ...}` declaration:
+  cargo id = key - 1 (fixed, `SCHEMA = 2`). Assume the same pitfall for `stopConfig.load/maxLoad`.
+- `fireReactEvent` returns nothing: the ack `ok=true` means "sent", not "window opened".
+- `app.loadUserdata` logs a warning when the file is missing -> always list with `app.getAllUserdata` first.
+- `Engine.Entity` ids are reused: check `api.engine.entityExists(e)` before any command (the mod does).
+- Simulation commands from `guiUpdate`: OK; however `api.gui.*` is **unavailable** from the engine-side `update()`.
+- `makeVehicleSetLineCmd` with `stopIndex` out of bounds: undocumented behaviour -> clamp on the mod side.
+- React events with a wrong name fail **silently**.
+- `Industry.upgradeProgress` is always 0 in TF3 (TF2 leftover, not used by the game's own GUI): show level/max instead.

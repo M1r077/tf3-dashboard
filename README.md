@@ -25,7 +25,7 @@ which is why the companion lives here.
 
 1. **Mod** — in the game, open the Mod Hub, search *Second Screen Dashboard*, subscribe, then enable it in your
    savegame's mod list (like any script mod). Or copy `mod/tf3_dashboard_export` to
-   `<Steam>\userdata\<id>\3493540\local\mods\` (see [docs](docs/)).
+   `<Steam>\userdata\<id>\3493540\local\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere (e.g. `D:\Games\TF3 Dashboard`).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
@@ -80,7 +80,7 @@ stations, towns, industries — default 30 s), export vehicles on/off, accept co
 collector/      collector.py (live.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export)
-docs/           README.fr.md (detailed, French), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
+docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
 test/           make_fake_data.py (demo data, run_dashboard_demo.cmd)
 ```
 

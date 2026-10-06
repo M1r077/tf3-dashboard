@@ -81,7 +81,7 @@ collector/      collector.py (live.lua -> SQLite), luatable.py (Lua parser), tf3
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export)
 docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
-test/           make_fake_data.py (demo data, run_dashboard_demo.cmd)
+test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip)
 ```
 
 ## Building a release

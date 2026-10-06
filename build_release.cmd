@@ -30,9 +30,9 @@ xcopy /q /y /i "collector\schema.sql" "%STAGE%\collector\" >nul
 xcopy /q /y /i "collector\run_collector.cmd" "%STAGE%\collector\" >nul
 xcopy /q /y /i "dashboard\*.py" "%STAGE%\dashboard\" >nul
 xcopy /q /y /i /s "dashboard\static\*" "%STAGE%\dashboard\static\" /exclude:build_exclude.txt >nul
-xcopy /q /y /i "test\make_fake_data.py" "%STAGE%\test\" >nul
 xcopy /q /y /i /s "docs\*" "%STAGE%\docs\" >nul
-for %%f in (run_dashboard.cmd run_dashboard_demo.cmd _collector.cmd _server.cmd _python.cmd README.md LICENSE config.example.json) do copy /y "%%f" "%STAGE%\" >nul
+REM test\ (demo data generator, run_dashboard_demo.cmd) is a developer tool and stays out of the release zip
+for %%f in (run_dashboard.cmd _collector.cmd _server.cmd _python.cmd README.md LICENSE config.example.json) do copy /y "%%f" "%STAGE%\" >nul
 mkdir "%STAGE%\db"
 echo %VERSION%> "%STAGE%\VERSION"
 

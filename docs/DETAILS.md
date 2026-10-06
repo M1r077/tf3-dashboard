@@ -8,7 +8,7 @@ otherwise the default profile) then http://127.0.0.1:8765/. On a second monitor:
 window stops everything. Without Windows Terminal: two classic console windows.
 Python: `python_embedded\python.exe` from the release zip if present, otherwise `py -3` / `python` (3.10+, stdlib only;
 see `_python.cmd`). Nothing to install.
-Demo without the game: `run_dashboard_demo.cmd` (simulated data, port 8766).
+Developer demo without the game (repository only, not in the release zip): `run_dashboard_demo.cmd` regenerates `test\fake.db` with simulated data and serves it on port 8766 with commands disabled.
 Pane helpers: `_collector.cmd`, `_server.cmd [--port N] [--db PATH]` (stay open on error, any key = retry;
 `_server.cmd` refuses to start if the port is already taken, so an old instance never keeps serving stale code).
 

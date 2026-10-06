@@ -15,9 +15,9 @@ where wt.exe >nul 2>nul
 if errorlevel 1 goto :legacy
 
 if defined WT_SESSION (
-    wt -w 0 new-tab %WTPROFILE% --title "Demo server" cmd /c "%~dp0_server.cmd" --db test\fake.db --port %PORT% --no-cmd
+    wt -w 0 new-tab %WTPROFILE% --title "TF3 Dashboard Demo" cmd /c "%~dp0_server.cmd" --db test\fake.db --port %PORT% --no-cmd
 ) else (
-    wt -w new %WTPROFILE% --title "Demo server" cmd /c "%~dp0_server.cmd" --db test\fake.db --port %PORT% --no-cmd
+    wt -w new %WTPROFILE% --title "TF3 Dashboard Demo" cmd /c "%~dp0_server.cmd" --db test\fake.db --port %PORT% --no-cmd
 )
 timeout /t 3 >nul
 start "" "%URL%"

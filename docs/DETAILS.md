@@ -20,8 +20,15 @@ Three independent parts:
    - fast sections (default 2 s): `time`, `finance`, `alerts`, `vehicles`
    - slow sections (default 30 s): `company`, `lines`, `stations`, `towns`, `industries`, `depots`, `cargo_types`
    - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest
-   - mod parameters (Mods menu of the savegame): fast / slow interval, vehicle export on/off,
-     **accept dashboard commands** on/off (off by default), debug log
+   - mod parameters (Mods menu of the savegame): fast / slow export, vehicles on/off,
+     **Permit game control** on/off (off by default), debug log. Names are kept short on purpose: the game's settings
+     panel puts the widget to the right of the name on a fixed width, long names push the buttons out of view.
+   - **publishing / updating on mod.io** (author only): edit `mod/tf3_dashboard_export` in this repo (bump
+     `revision` in `mod.json`, update `_metadata/description.html` and the gallery images `1.png`, `2.png`...), then
+     mirror it to the game's staging area: `robocopy mod\tf3_dashboard_export "<Steam>\userdata\<id>\3493540\local\staging_area\tf3_dashboard_export" /MIR`.
+     `_metadata\mod.io_fileid.txt` (git-ignored, written by the Mod Hub at the first upload) must be present in the
+     staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
+     changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
    - must be enabled in the savegame (Mods menu), like any script mod
    - also exports the game language (`time.lang`), the icon type of each vehicle (icon_type: Bus, Truck,
      TrainSteam/Electric/Diesel, Tram, Aircraft, Helicopter, Ship), the localized model name (`model`), the neutral model

@@ -21,23 +21,23 @@ if errorlevel 1 goto :legacy
 if defined WT_SESSION goto :inside_wt
 
 REM --- launched from Explorer / shortcut: open a new WT window with both panes
-wt -w new %WTPROFILE% --title "Collector" cmd /c "%~dp0_collector.cmd" ; split-pane -V %WTPROFILE% --title "Server" cmd /c "%~dp0_server.cmd" --port %PORT%
+wt -w new %WTPROFILE% --title "TF3 Dashboard Collector" cmd /c "%~dp0_collector.cmd" ; split-pane -V %WTPROFILE% --title "TF3 Dashboard Server" cmd /c "%~dp0_server.cmd" --port %PORT%
 timeout /t 3 >nul
 start "" "%URL%"
 exit /b 0
 
 :inside_wt
 REM --- launched from a WT tab: split this tab, run the server in the new pane, the collector here
-wt -w 0 split-pane -V %WTPROFILE% --title "Server" cmd /c "%~dp0_server.cmd" --port %PORT%
+wt -w 0 split-pane -V %WTPROFILE% --title "TF3 Dashboard Server" cmd /c "%~dp0_server.cmd" --port %PORT%
 timeout /t 3 >nul
 start "" "%URL%"
-title Collector
+title TF3 Dashboard Collector
 call "%~dp0_collector.cmd"
 exit /b 0
 
 :legacy
 REM --- Windows Terminal not installed: two classic console windows
-start "TF3 Collector" cmd /c "%~dp0_collector.cmd"
-start "TF3 Server" cmd /c "%~dp0_server.cmd" --port %PORT%
+start "TF3 Dashboard Collector" cmd /c "%~dp0_collector.cmd"
+start "TF3 Dashboard Server" cmd /c "%~dp0_server.cmd" --port %PORT%
 timeout /t 3 >nul
 start "" "%URL%"

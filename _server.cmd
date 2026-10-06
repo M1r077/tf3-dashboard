@@ -4,7 +4,7 @@ REM Usage: _server.cmd [--port N] [--db PATH] [--no-cmd]
 cd /d "%~dp0"
 call "%~dp0_python.cmd" || (pause & exit /b 1)
 set ARGS=%*
-title TF3 Server
+title TF3 Dashboard Server
 echo [TF3 Server] %ARGS%
 
 REM find --port value (default 8765)

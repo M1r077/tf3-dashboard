@@ -39,7 +39,7 @@ No pip, no venv, no packages.
 
 ### Remote control (optional)
 
-In the game: Mods ▸ Second Screen Dashboard ▸ **Accept dashboard commands = On** (off by default). The dashboard
+In the game: Mods ▸ Second Screen Dashboard ▸ **Permit game control = On** (off by default). The dashboard
 then shows the game controls (pause / speed, camera, vehicle actions, stop and terminal editor on each line).
 Every command does exactly what the matching click in the game does; nothing is ever bought, sold or demolished,
 and no route is changed. The channel is a local file (`cmd.lua`) read by the mod four times a second.

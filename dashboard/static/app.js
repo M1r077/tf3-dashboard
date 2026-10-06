@@ -197,7 +197,7 @@
     }
     if (off) { st.textContent = ""; }
   }
-  // Explains greyed-out command buttons: the mod ships with "Accept dashboard commands" = Off (rev 2+).
+  // Explains greyed-out command buttons: the mod ships with "Permit game control" = Off (rev 2+).
   const cmdOff = () => !cmd.enabled || cmd.accepted === 0;
   const cmdHint = () => cmdOff() ? `<div class="cmdhint">${ico("alert", "sm")}<span>${t(cmd.enabled ? "commands_off_hint" : "commands_na")}</span></div>` : "";
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));

@@ -197,12 +197,15 @@
     }
     if (off) { st.textContent = ""; }
   }
+  // Explains greyed-out command buttons: the mod ships with "Accept dashboard commands" = Off (rev 2+).
+  const cmdOff = () => !cmd.enabled || cmd.accepted === 0;
+  const cmdHint = () => cmdOff() ? `<div class="cmdhint">${ico("alert", "sm")}<span>${t(cmd.enabled ? "commands_off_hint" : "commands_na")}</span></div>` : "";
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));
   window.addEventListener("keydown", e => { if (!settings.keys || e.target.matches("input,select,textarea")) return; if (e.code === "Space") { e.preventDefault(); sendCmd("toggle_pause", {}); } else if (["Digit1", "Digit2", "Digit3"].includes(e.code)) { sendCmd("set_speed", { speed: { Digit1: 1, Digit2: 2, Digit3: 4 }[e.code] }); } });
   const vehActions = (v) => {
     const off = !cmd.enabled || cmd.accepted === 0;
     const b = (name, icon, label, extra = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${v.vehicle_id}" ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
-    return `<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger")}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger")}</div>`;
+    return `${cmdHint()}<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger")}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger")}</div>`;
   };
   // compact icon buttons for any entity: camera (focus) + select (opens the game window); lines also get "manage"
   const entBtns = (id, o = {}) => {
@@ -244,10 +247,23 @@
       const r = (typeof va === "number" && typeof vb === "number") ? va - vb : String(va).localeCompare(String(vb), loc());
       return sort.asc ? r : -r;
     });
-    const thead = `<thead><tr>${cols.map(c => `<th class="${c.num ? "num" : ""} ${c.key === "act" ? "act" : ""} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
-    const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map(c => `<td class="${c.num ? "num" : ""} ${c.key === "act" ? "act" : ""} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
+    // c.sticky: column pinned to the left while the table scrolls horizontally (the last pinned one gets a shadow)
+    const lastStick = cols.map(c => !!c.sticky).lastIndexOf(true);
+    const cls = (c, i) => `${c.num ? "num" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
+    const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
     if (!sorted.length) table.innerHTML += `<tbody><tr><td colspan="${cols.length}" class="empty">${t("no_data")}</td></tr></tbody>`;
+    if (lastStick >= 0) requestAnimationFrame(() => {
+      // left offsets depend on the rendered widths of the previous pinned columns
+      let left = 0;
+      for (let i = 0; i <= lastStick; i++) {
+        if (!cols[i].sticky) continue;
+        const th = table.rows[0] && table.rows[0].cells[i]; if (!th) break;
+        $$(`tr > :nth-child(${i + 1}).stick`, table).forEach(cell => cell.style.left = left + "px");
+        left += th.getBoundingClientRect().width;
+      }
+    });
     $$("th", table).forEach(th => th.addEventListener("click", () => {
       const k = th.dataset.key; if (sort.col === k) sort.asc = !sort.asc; else { sort.col = k; sort.asc = !(cols.find(c => c.key === k)?.num); }
       renderTable(table, cols, rows, opts);
@@ -628,7 +644,7 @@
         <div class="stopbtns"><button class="btn stop-apply" data-stop="${st.stop_index}">${ico("check", "sm")}${t("apply")}</button><button class="btn stop-apply-all" data-stop="${st.stop_index}" title="${esc(t("apply_all_stops"))}">${ico("line_stations", "sm")}${t("apply_all_stops")}</button><button class="btn stop-cancel">${t("cancel")}</button></div>
       </div></td></tr>`;
     };
-    root.innerHTML = `<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
+    root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
       <tbody>${stops.map(st => (editing === st.stop_index ? editRow(st) : viewRow(st))).join("")}</tbody></table>`;
     $$(".stop-edit", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = { line: l.line_id, stop: +b.dataset.stop }; renderStops(l, root); }));
     $$(".stop-cancel", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = null; renderStops(l, root); }));
@@ -744,17 +760,18 @@
     const d = await api("/api/industries"); const inds = d.industries || [];
     const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
     const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !i.producing || i.closure_time > 0 || i.cargo.some(c => c.direction === "out" && !c.shipped_year)));
+    // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
     const cargoCell = (i, dir) => i.cargo.filter(c => c.direction === dir).map(c => {
       const a = dir === "out" ? c.produced_year : c.consumed_year, m = dir === "out" ? c.max_prod_year : c.max_cons_year;
       const shipped = dir === "out" ? c.shipped_year : c.delivered_year;
-      return `<div>${cargoChip(c)} ${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)} <small>${dir === "out" ? t("shipped") : t("delivered")} ${int(shipped)}</small></div>`;
+      return `<span class="indcargo">${cargoChip(c)}${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)}<small class="muted" title="${esc(dir === "out" ? t("shipped") : t("delivered"))}">${ico(dir === "out" ? "cargo_supplied" : "cargo_received", "sm")}${int(shipped)}</small></span>`;
     }).join("") || '<span class="muted">–</span>';
     const cols = [
-      { key: "name", label: t("th_industry"), icon: "industry", render: i => `${esc(i.name)}<br><small>${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },
+      { key: "name", label: t("th_industry"), icon: "industry", sticky: true, render: i => `${esc(i.name)} <small class="muted">${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },
       // Industry.upgradeProgress is always 0 in TF3 (TF2 leftover, unused by the game's own GUI): show level / max instead
-      { key: "level", label: t("th_level"), num: true, render: i => i.max_level > 0 ? `${i.level ?? "–"}/${i.max_level} ${bar(i.level || 0, i.max_level, i.level >= i.max_level ? "ok" : "")}` : `${i.level ?? "–"}`, sortValue: i => i.max_level > 0 ? (i.level || 0) / i.max_level : -1 },
-      { key: "status", label: t("th_status"), render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", i.boost_rule || i.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
-      { key: "production_rating", label: t("th_yield"), icon: "production", num: true, render: i => i.production_rating == null ? "–" : bar(i.production_rating, 1, i.production_rating < 0.3 ? "bad" : i.production_rating < 0.7 ? "warn" : "ok") },
+      { key: "level", label: t("th_level"), num: true, sticky: true, render: i => i.max_level > 0 ? `${i.level ?? "–"}/${i.max_level} ${bar(i.level || 0, i.max_level, i.level >= i.max_level ? "ok" : "")}` : `${i.level ?? "–"}`, sortValue: i => i.max_level > 0 ? (i.level || 0) / i.max_level : -1 },
+      { key: "status", label: t("th_status"), sticky: true, render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", i.boost_rule || i.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
+      { key: "production_rating", label: t("th_yield"), icon: "production", num: true, sticky: true, render: i => i.production_rating == null ? "–" : bar(i.production_rating, 1, i.production_rating < 0.3 ? "bad" : i.production_rating < 0.7 ? "warn" : "ok") },
       { key: "in", label: t("th_inputs"), icon: "cargo_received", render: i => cargoCell(i, "in") },
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },

@@ -2,16 +2,13 @@
 
 Version courte en anglais : [../README.md](../README.md). Depot : https://github.com/M1r077/tf3-dashboard
 
-Demarrage rapide (jeu lance, mod « Dashboard Export » actif dans la partie) : `run_dashboard.cmd`
--> ouvre une fenetre Windows Terminal (profil « TF3 Dashboard », 2 volets : collecteur | serveur) puis
-http://127.0.0.1:8765/. Sur un second ecran : navigateur en plein ecran (F11). Fermer la fenetre arrete tout.
-Le profil « TF3 Dashboard » est aussi dans le menu « + » de Windows Terminal (icone TF3, meme style que BTG Server) ;
-il lance `run_dashboard.cmd` dans l'onglet courant. Sans Windows Terminal : repli sur deux consoles classiques.
+Demarrage rapide (jeu lance, mod « Second Screen Dashboard » actif dans la partie) : `run_dashboard.cmd`
+-> ouvre une fenetre Windows Terminal (2 volets : collecteur | serveur ; profil « TF3 Dashboard » utilise s'il existe,
+sinon profil par defaut) puis http://127.0.0.1:8765/. Sur un second ecran : navigateur en plein ecran (F11). Fermer la
+fenetre arrete tout. Sans Windows Terminal : repli sur deux consoles classiques.
+Python : `python_embedded\python.exe` du zip de release si present, sinon `py -3` / `python` (3.10+, stdlib seule ;
+voir `_python.cmd`). Rien a installer.
 Demo sans le jeu : `run_dashboard_demo.cmd` (donnees simulees, port 8766).
-Lancer le jeu **sans les logos d'intro** : `launch_tf3.cmd` (raccourcis bureau « Transport Fever 3 (sans intro) » et
-« Transport Fever 3 + Dashboard »). Le jeu n'a pas d'option de ligne de commande pour ca ; le script met
-`showSplashScreen = false` et `splashMusicEnabled = false` dans `userdata\...\local\settings.lua` juste avant de
-lancer Steam (le jeu reecrit ce fichier a chaque demarrage, d'ou le patch systematique). Reglages caches, absents du menu.
 Helpers de volet : `_collector.cmd`, `_server.cmd [--port N] [--db PATH]` (restent ouverts en cas d'erreur, touche = relance ;
 `_server.cmd` refuse de demarrer si le port est deja pris, pour ne pas laisser tourner une vieille instance).
 

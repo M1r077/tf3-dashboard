@@ -1,0 +1,108 @@
+<h2>English</h2>
+<p>Turn a second monitor into a <strong>live control room</strong> for your company: finances, every line and vehicle, stations, towns, industries, depots and alerts, with the game's own icons and history charts. Keep the game full screen and manage from the other screen.</p>
+
+<h3>What you get</h3>
+<ul>
+<li><strong>Operations</strong>: fleet in service, load factor and average speed over time, per-carrier summary, stuck or idle vehicles, wear (service first), most unhappy and busiest lines, alerts with jump-to-entity.</li>
+<li><strong>Vehicles</strong>: every vehicle with its model icon, line, state, load, speed, condition and history. Filter by type.</li>
+<li><strong>Lines</strong>: load, headway, waiting passengers and cargo, history, and a <strong>stop editor</strong>: load mode, min/max waiting time, cargo filter, preferred and alternative terminals, whole-line actions.</li>
+<li><strong>Map</strong>, <strong>Towns</strong>, <strong>Industries</strong>, <strong>Stations &amp; depots</strong>, <strong>Finances</strong>.</li>
+<li>English, French and German; follows the game language automatically.</li>
+</ul>
+
+<h3>How it works</h3>
+<p>This mod is the in-game half. Every few seconds it writes a snapshot of the game state to <strong>userdata/dashboard_export/live.lua</strong>. A small, free and open source <strong>companion program</strong> (Windows, nothing to install) reads that file, keeps the history in a local SQLite database and shows the dashboard in your web browser. Everything stays on your computer.</p>
+<p><strong>Download the companion program:</strong> https://github.com/M1r077/tf3-dashboard</p>
+
+<h3>Setup in three steps</h3>
+<ul>
+<li><strong>1.</strong> Enable this mod in your savegame (like any script mod).</li>
+<li><strong>2.</strong> Download TF3-Dashboard.zip from the link above and unzip it anywhere.</li>
+<li><strong>3.</strong> Start the game, then double-click <strong>run_dashboard.cmd</strong>. Put the browser on your second monitor and press F11.</li>
+</ul>
+
+<h3>Optional: control the game from the dashboard</h3>
+<p>Switch <strong>Accept dashboard commands</strong> to On in the mod settings (off by default). The dashboard then offers: game speed and pause, camera focus, open an entity window, stop / start / reverse a vehicle or send it to the depot, rename, and line management (load mode, waiting times, cargo filters, terminals of a stop). Each command does exactly what the matching click in the game does. <strong>Nothing is ever bought, sold or demolished, and no route is changed.</strong></p>
+
+<h3>Cost and safety</h3>
+<ul>
+<li>A little CPU time each time a snapshot is written. Both intervals are configurable; the vehicle export can be switched off on very large networks.</li>
+<li>The mod <strong>never modifies the savegame</strong>, the game rules, prices, vehicles or the economy. Removing it has no effect on the save.</li>
+<li>PC only (Windows). On consoles the mod loads but has no visible effect.</li>
+</ul>
+
+<p><strong>Credits</strong>: Miro | Open source (GPL-3.0): https://github.com/M1r077/tf3-dashboard | Not affiliated with Urban Games.</p>
+
+<hr>
+
+<h2>Français</h2>
+<p>Transformez un second écran en <strong>salle de contrôle en direct</strong> de votre compagnie : finances, chaque ligne et véhicule, gares, villes, industries, dépôts et alertes, avec les icônes du jeu et des graphiques d'historique. Gardez le jeu en plein écran et gérez depuis l'autre écran.</p>
+
+<h3>Ce que vous obtenez</h3>
+<ul>
+<li><strong>Exploitation</strong> : flotte en service, taux de remplissage et vitesse moyenne dans le temps, résumé par mode de transport, véhicules bloqués ou inactifs, usure (à réviser en premier), lignes les plus mécontentes et les plus chargées, alertes avec saut vers l'entité.</li>
+<li><strong>Véhicules</strong> : chaque véhicule avec l'icône de son modèle, ligne, état, charge, vitesse, condition et historique. Filtre par type.</li>
+<li><strong>Lignes</strong> : charge, cadence, voyageurs et marchandises en attente, historique, et un <strong>éditeur d'arrêts</strong> : mode de chargement, temps d'attente min/max, filtre cargo, quai préféré et quais alternatifs, actions sur toute la ligne.</li>
+<li><strong>Carte</strong>, <strong>Villes</strong>, <strong>Industries</strong>, <strong>Gares &amp; dépôts</strong>, <strong>Finances</strong>.</li>
+<li>Anglais, français et allemand ; suit automatiquement la langue du jeu.</li>
+</ul>
+
+<h3>Comment ça marche</h3>
+<p>Ce mod est la moitié « dans le jeu ». Toutes les quelques secondes, il écrit un instantané de l'état de la partie dans <strong>userdata/dashboard_export/live.lua</strong>. Un petit <strong>programme compagnon</strong>, gratuit et open source (Windows, rien à installer), lit ce fichier, garde l'historique dans une base SQLite locale et affiche le tableau de bord dans votre navigateur. Tout reste sur votre ordinateur.</p>
+<p><strong>Télécharger le programme compagnon :</strong> https://github.com/M1r077/tf3-dashboard</p>
+
+<h3>Installation en trois étapes</h3>
+<ul>
+<li><strong>1.</strong> Activez ce mod dans votre partie (comme tout mod de script).</li>
+<li><strong>2.</strong> Téléchargez TF3-Dashboard.zip via le lien ci-dessus et décompressez-le où vous voulez.</li>
+<li><strong>3.</strong> Lancez le jeu, puis double-cliquez sur <strong>run_dashboard.cmd</strong>. Placez le navigateur sur votre second écran et appuyez sur F11.</li>
+</ul>
+
+<h3>Option : piloter le jeu depuis le tableau de bord</h3>
+<p>Passez <strong>Accepter les commandes du dashboard</strong> sur Activé dans les paramètres du mod (désactivé par défaut). Le tableau de bord propose alors : vitesse du jeu et pause, caméra, ouverture d'une fiche, arrêter / démarrer / inverser un véhicule ou l'envoyer au dépôt, renommer, et gestion de ligne (mode de chargement, temps d'attente, filtres cargo, quais d'un arrêt). Chaque commande fait exactement ce que ferait le clic correspondant dans le jeu. <strong>Rien n'est jamais acheté, vendu ni détruit, aucun tracé n'est modifié.</strong></p>
+
+<h3>Coût et sécurité</h3>
+<ul>
+<li>Un peu de processeur à chaque écriture d'instantané. Les deux intervalles se règlent ; l'export des véhicules peut être coupé sur les très grands réseaux.</li>
+<li>Le mod <strong>ne modifie jamais la sauvegarde</strong>, les règles du jeu, les prix, les véhicules ni l'économie. Le retirer n'a aucun effet sur la partie.</li>
+<li>PC uniquement (Windows). Sur console, le mod se charge mais n'a aucun effet visible.</li>
+</ul>
+
+<p><strong>Crédits</strong> : Miro | Open source (GPL-3.0) : https://github.com/M1r077/tf3-dashboard | Sans lien avec Urban Games.</p>
+
+<hr>
+
+<h2>Deutsch</h2>
+<p>Machen Sie aus einem zweiten Monitor eine <strong>Live-Leitstelle</strong> für Ihre Firma: Finanzen, jede Linie und jedes Fahrzeug, Stationen, Städte, Industrien, Depots und Warnungen, mit den Icons des Spiels und Verlaufsdiagrammen. Das Spiel bleibt im Vollbild, verwaltet wird vom anderen Bildschirm aus.</p>
+
+<h3>Was Sie bekommen</h3>
+<ul>
+<li><strong>Betrieb</strong>: Flotte im Einsatz, Auslastung und Durchschnittsgeschwindigkeit im Zeitverlauf, Übersicht pro Verkehrsträger, blockierte oder untätige Fahrzeuge, Verschleiss (zuerst warten), unzufriedenste und meistgenutzte Linien, Warnungen mit Sprung zur Entität.</li>
+<li><strong>Fahrzeuge</strong>: jedes Fahrzeug mit Modell-Icon, Linie, Zustand, Ladung, Geschwindigkeit, Zustand und Verlauf. Filter nach Typ.</li>
+<li><strong>Linien</strong>: Auslastung, Taktabstand, wartende Fahrgäste und Fracht, Verlauf und ein <strong>Halt-Editor</strong>: Lademodus, minimale/maximale Wartezeit, Frachtfilter, bevorzugtes und alternative Terminals, Aktionen für die ganze Linie.</li>
+<li><strong>Karte</strong>, <strong>Städte</strong>, <strong>Industrien</strong>, <strong>Stationen &amp; Depots</strong>, <strong>Finanzen</strong>.</li>
+<li>Englisch, Französisch und Deutsch; folgt automatisch der Spielsprache.</li>
+</ul>
+
+<h3>So funktioniert es</h3>
+<p>Dieser Mod ist die Hälfte im Spiel. Alle paar Sekunden schreibt er einen Schnappschuss des Spielzustands nach <strong>userdata/dashboard_export/live.lua</strong>. Ein kleines, kostenloses Open-Source-<strong>Begleitprogramm</strong> (Windows, keine Installation) liest diese Datei, speichert den Verlauf in einer lokalen SQLite-Datenbank und zeigt das Dashboard im Browser. Alles bleibt auf Ihrem Rechner.</p>
+<p><strong>Begleitprogramm herunterladen:</strong> https://github.com/M1r077/tf3-dashboard</p>
+
+<h3>Einrichtung in drei Schritten</h3>
+<ul>
+<li><strong>1.</strong> Aktivieren Sie diesen Mod in Ihrem Spielstand (wie jeden Skript-Mod).</li>
+<li><strong>2.</strong> Laden Sie TF3-Dashboard.zip über den obigen Link herunter und entpacken Sie es an einem beliebigen Ort.</li>
+<li><strong>3.</strong> Starten Sie das Spiel, dann Doppelklick auf <strong>run_dashboard.cmd</strong>. Browser auf den zweiten Monitor schieben und F11 drücken.</li>
+</ul>
+
+<h3>Optional: das Spiel vom Dashboard aus steuern</h3>
+<p>Stellen Sie <strong>Dashboard-Befehle annehmen</strong> in den Mod-Einstellungen auf Ein (standardmässig aus). Das Dashboard bietet dann: Spielgeschwindigkeit und Pause, Kamera, Fenster einer Entität öffnen, Fahrzeug anhalten / starten / wenden oder ins Depot schicken, umbenennen, sowie Linienverwaltung (Lademodus, Wartezeiten, Frachtfilter, Terminals eines Halts). Jeder Befehl tut genau das, was der entsprechende Klick im Spiel tut. <strong>Es wird nie etwas gekauft, verkauft oder abgerissen, keine Strecke wird geändert.</strong></p>
+
+<h3>Kosten und Sicherheit</h3>
+<ul>
+<li>Etwas CPU-Zeit bei jedem Schnappschuss. Beide Intervalle sind einstellbar; der Fahrzeugexport kann bei sehr grossen Netzen abgeschaltet werden.</li>
+<li>Der Mod <strong>ändert nie den Spielstand</strong>, die Spielregeln, Preise, Fahrzeuge oder die Wirtschaft. Das Entfernen hat keine Auswirkung auf den Spielstand.</li>
+<li>Nur PC (Windows). Auf Konsolen lädt der Mod, hat aber keine sichtbare Wirkung.</li>
+</ul>
+
+<p><strong>Credits</strong>: Miro | Open Source (GPL-3.0): https://github.com/M1r077/tf3-dashboard | Nicht mit Urban Games verbunden.</p>

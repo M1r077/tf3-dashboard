@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>TF3 Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="icons/veh_train.png">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><i class="ico" data-ico="veh_train"></i>TF3 <span>Dashboard</span></div>
+  <div id="vital" class="vital">
+    <div class="kpi"><div class="k"><i class="ico sm" data-ico="calendar"></i><span data-i18n="kpi_date"></span></div><div class="v" id="k-date">–</div><div class="s" id="k-speed"></div></div>
+    <div class="kpi wide"><div class="k"><i class="ico sm" data-ico="vehicles"></i><span data-i18n="kpi_vehicles"></span></div><div class="v" id="k-veh">–</div><div class="s" id="k-veh-detail"></div></div>
+    <div class="kpi"><div class="k"><i class="ico sm" data-ico="cargo"></i><span data-i18n="kpi_fill"></span></div><div class="v" id="k-fill">–</div><div class="s" id="k-fill-detail"></div></div>
+    <div class="kpi"><div class="k"><i class="ico sm" data-ico="wrench"></i><span data-i18n="kpi_maint"></span></div><div class="v" id="k-maint">–</div><div class="s" id="k-maint-detail"></div></div>
+    <div class="kpi alert-kpi"><div class="k"><i class="ico sm" data-ico="alert"></i><span data-i18n="kpi_alerts"></span></div><div class="v" id="k-alerts">–</div><div class="s" id="k-alerts-detail"></div></div>
+    <div class="kpi"><div class="k"><i class="ico sm" data-ico="passengers"></i><span data-i18n="kpi_transported"></span></div><div class="v" id="k-pax">–</div><div class="s" id="k-cargo"></div></div>
+    <div class="kpi dim"><div class="k"><i class="ico sm" data-ico="money"></i><span data-i18n="kpi_balance"></span></div><div class="v" id="k-balance">–</div><div class="s" id="k-balance-delta"></div></div>
+  </div>
+  <div class="controls">
+    <div id="game-speed" class="speedbar" title="">
+      <button data-speed="0" class="sbtn"><i class="ico" data-ico="play_pause"></i></button>
+      <button data-speed="1" class="sbtn"><i class="ico" data-ico="play_1"></i></button>
+      <button data-speed="2" class="sbtn"><i class="ico" data-ico="play_2"></i></button>
+      <button data-speed="4" class="sbtn"><i class="ico" data-ico="play_4"></i></button>
+      <span id="cmd-status" class="cmdstatus"></span>
+    </div>
+    <button id="layout-btn" class="gearbtn" data-i18n-title="layout_edit"><i class="ico" data-ico="edit"></i></button>
+    <button id="gear" class="gearbtn" data-i18n-title="settings"><i class="ico" data-ico="settings"></i></button>
+    <div class="status"><span id="st-dot" class="dot"></span><span id="st-text" data-i18n="connecting"></span></div>
+  </div>
+</header>
+
+<div id="settings">
+  <h2><i class="ico sm" data-ico="settings"></i><span data-i18n="settings"></span><span class="close" id="settings-close"><i class="ico sm" data-ico="close"></i></span></h2>
+  <div class="setrow"><span class="lbl" data-i18n="set_lang"></span>
+    <select id="lang"><option value="auto" data-i18n="lang_auto"></option><option value="fr">Français</option><option value="en">English</option><option value="de">Deutsch</option></select></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_icons"></span>
+    <span class="seg" data-set="ico"><button data-v="16">S</button><button data-v="22">M</button><button data-v="28">L</button><button data-v="36">XL</button></span></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_font"></span>
+    <span class="seg" data-set="fs"><button data-v="12">S</button><button data-v="14">M</button><button data-v="16">L</button><button data-v="18">XL</button></span></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_density"></span>
+    <span class="seg" data-set="rowpad"><button data-v="3" data-i18n="dense"></button><button data-v="6" data-i18n="normal"></button><button data-v="10" data-i18n="airy"></button></span></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_refresh"></span>
+    <span><input type="range" id="set-refresh" min="1" max="15" step="1"><span class="val" id="set-refresh-val"></span></span></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_history"></span>
+    <span><input type="range" id="set-history" min="60" max="1200" step="60"><span class="val" id="set-history-val"></span></span></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_finance"></span>
+    <label><input type="checkbox" id="set-finance"> <span data-i18n="set_finance_hint"></span></label></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_keys"></span>
+    <label><input type="checkbox" id="set-keys"> <span data-i18n="set_keys_hint"></span></label></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_default_tab"></span>
+    <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option></select></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_layout"></span>
+    <span class="btns"><button class="btn" id="set-layout-edit"><i class="ico sm" data-ico="edit"></i><span data-i18n="layout_edit"></span></button><button class="btn" id="set-layout-reset"><i class="ico sm" data-ico="reset"></i><span data-i18n="layout_reset_all"></span></button></span></div>
+  <div class="setrow"><span class="lbl"></span><button class="btn" id="set-reset" data-i18n="set_reset"></button></div>
+  <p class="setnote" data-i18n="set_note"></p>
+</div>
+
+<nav id="tabs">
+  <button data-tab="overview" class="active"><i class="ico" data-ico="vehicles"></i><span data-i18n="tab_overview"></span></button>
+  <button data-tab="vehicles"><i class="ico" data-ico="veh_bus"></i><span data-i18n="tab_vehicles"></span></button>
+  <button data-tab="lines"><i class="ico" data-ico="line"></i><span data-i18n="tab_lines"></span></button>
+  <button data-tab="map"><i class="ico" data-ico="locate"></i><span data-i18n="tab_map"></span></button>
+  <button data-tab="towns"><i class="ico" data-ico="town"></i><span data-i18n="tab_towns"></span></button>
+  <button data-tab="industries"><i class="ico" data-ico="industry"></i><span data-i18n="tab_industries"></span></button>
+  <button data-tab="stations"><i class="ico" data-ico="station"></i><span data-i18n="tab_stations"></span></button>
+  <button data-tab="finance" class="dim"><i class="ico" data-ico="money"></i><span data-i18n="tab_finance"></span></button>
+  <div id="range-bar" class="rangebar" data-i18n-title="range_title"><i class="ico sm" data-ico="clock"></i>
+    <button data-range="15m">15m</button><button data-range="1h">1h</button><button data-range="3h">3h</button><button data-range="6h">6h</button><button data-range="12h">12h</button><button data-range="24h">24h</button><button data-range="7d">7d</button><button data-range="all" data-i18n="range.all"></button>
+  </div>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------ overview = operations -->
+  <section id="tab-overview" class="tab active">
+    <div class="panels" data-layout="overview">
+      <div class="card" data-panel="fleet-state" data-w="5">
+        <h2><i class="ico" data-ico="vehicles"></i><span data-i18n="fleet_in_service"></span> <small id="fleet-sub"></small></h2>
+        <canvas id="chart-fleet-state" data-h="240"></canvas>
+      </div>
+      <div class="card" data-panel="by-carrier" data-w="4">
+        <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="by_carrier"></span></h2>
+        <table class="data compact" id="fleet-carrier"></table>
+      </div>
+      <div class="card" data-panel="alerts" data-w="3">
+        <h2><i class="ico" data-ico="alert"></i><span data-i18n="alerts"></span> <small id="alerts-count"></small></h2>
+        <div id="alerts-list" class="alerts tall"></div>
+      </div>
+      <div class="card" data-panel="fleet-perf" data-w="4">
+        <h2><i class="ico" data-ico="speed"></i><span data-i18n="fill_speed"></span></h2>
+        <canvas id="chart-fleet-perf" data-h="200"></canvas>
+      </div>
+      <div class="card" data-panel="idle" data-w="4">
+        <h2><i class="ico" data-ico="eye"></i><span data-i18n="watch_idle"></span> <small id="idle-count"></small></h2>
+        <div id="idle-list" class="minilist"></div>
+      </div>
+      <div class="card" data-panel="worn" data-w="4">
+        <h2><i class="ico" data-ico="wrench"></i><span data-i18n="worn_first"></span></h2>
+        <canvas id="chart-worn"></canvas>
+      </div>
+      <div class="card" data-panel="stuck" data-w="4">
+        <h2><i class="ico" data-ico="stop"></i><span data-i18n="stuck_title"></span> <small data-i18n="stuck_sub"></small></h2>
+        <div id="stuck-list" class="minilist"></div>
+      </div>
+      <div class="card" data-panel="lines-bad" data-w="4">
+        <h2><i class="ico" data-ico="unhappy"></i><span data-i18n="lines_unhappy"></span></h2>
+        <canvas id="chart-lines-bad"></canvas>
+      </div>
+      <div class="card" data-panel="lines-load" data-w="4">
+        <h2><i class="ico" data-ico="terminal_full"></i><span data-i18n="lines_loaded"></span></h2>
+        <canvas id="chart-lines-load"></canvas>
+      </div>
+    </div>
+    <div class="card" id="errors-card" style="display:none">
+      <h2><i class="ico" data-ico="warning"></i><span data-i18n="export_errors"></span></h2>
+      <pre id="errors-list"></pre>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ vehicles -->
+  <section id="tab-vehicles" class="tab">
+    <div class="toolbar">
+      <input id="veh-filter" data-i18n-ph="filter_vehicles">
+      <span id="veh-types" class="typebar"></span>
+      <select id="veh-state"><option value="" data-i18n="all_states"></option><option value="EN_ROUTE" data-i18n="state.EN_ROUTE"></option><option value="AT_TERMINAL" data-i18n="state.AT_TERMINAL"></option><option value="IN_DEPOT" data-i18n="state.IN_DEPOT"></option><option value="GOING_TO_DEPOT" data-i18n="state.GOING_TO_DEPOT"></option></select>
+      <label><input type="checkbox" id="veh-worn"> <span data-i18n="worn_filter"></span></label>
+      <label><input type="checkbox" id="veh-problem"> <span data-i18n="problems"></span></label>
+      <span class="hint" id="veh-count"></span>
+    </div>
+    <div class="panels" data-layout="vehicles">
+      <div class="card tablecard" data-panel="veh-table" data-w="7"><table id="veh-table" class="data"></table></div>
+      <div class="card sticky" id="veh-detail" data-panel="veh-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="click_vehicle"></p></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ lines -->
+  <section id="tab-lines" class="tab">
+    <div class="toolbar">
+      <input id="lines-filter" data-i18n-ph="filter">
+      <span id="lines-types" class="typebar"></span>
+      <label><input type="checkbox" id="lines-problems-only"> <span data-i18n="problems_only"></span></label>
+      <span class="hint" data-i18n="click_line_hint"></span>
+    </div>
+    <div class="panels" data-layout="lines">
+      <div class="card tablecard" data-panel="lines-table" data-w="7"><table id="lines-table" class="data"></table></div>
+      <div class="card sticky" id="line-detail" data-panel="line-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_line"></p></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ map -->
+  <section id="tab-map" class="tab">
+    <div class="toolbar">
+      <label><input type="checkbox" id="map-lines" checked> <span data-i18n="map_lines"></span></label>
+      <label><input type="checkbox" id="map-veh" checked> <span data-i18n="map_vehicles"></span></label>
+      <label><input type="checkbox" id="map-st" checked> <span data-i18n="map_stations"></span></label>
+      <label><input type="checkbox" id="map-ind" checked> <span data-i18n="map_industries"></span></label>
+      <label><input type="checkbox" id="map-towns" checked> <span data-i18n="map_towns"></span></label>
+      <label><input type="checkbox" id="map-alerts" checked> <span data-i18n="map_alerts"></span></label>
+      <label><input type="checkbox" id="map-labels"> <span data-i18n="map_labels"></span></label>
+      <select id="map-line-filter"><option value="" data-i18n="all_lines"></option></select>
+      <button id="map-fit" class="btn"><i class="ico sm" data-ico="locate"></i><span data-i18n="recenter"></span></button>
+      <span class="hint" data-i18n="map_hint"></span>
+    </div>
+    <div class="panels" data-layout="map"><div class="card mapcard" data-panel="map" data-w="12"><canvas id="map"></canvas><div id="map-tip" class="tip"></div><div id="map-legend" class="maplegend"></div></div></div>
+  </section>
+
+  <!-- ------------------------------------------------ towns -->
+  <section id="tab-towns" class="tab">
+    <div class="panels" data-layout="towns">
+      <div class="card tablecard" data-panel="towns-table" data-w="7"><table id="towns-table" class="data"></table></div>
+      <div class="card sticky" id="town-detail" data-panel="town-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_town"></p></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ industries -->
+  <section id="tab-industries" class="tab">
+    <div class="toolbar">
+      <input id="ind-filter" data-i18n-ph="filter">
+      <label><input type="checkbox" id="ind-unserved"> <span data-i18n="unserved"></span></label>
+    </div>
+    <div class="panels" data-layout="industries"><div class="card tablecard" data-panel="ind-table" data-w="12"><table id="ind-table" class="data"></table></div></div>
+  </section>
+
+  <!-- ------------------------------------------------ stations -->
+  <section id="tab-stations" class="tab">
+    <div class="panels" data-layout="stations">
+      <div class="card tablecard" data-panel="st-table" data-w="7"><h2><i class="ico" data-ico="station"></i><span data-i18n="stations"></span></h2><table id="st-table" class="data"></table></div>
+      <div class="card tablecard" data-panel="dep-table" data-w="5"><h2><i class="ico" data-ico="depot"></i><span data-i18n="depots"></span></h2><table id="dep-table" class="data"></table></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ finance (secondary) -->
+  <section id="tab-finance" class="tab">
+    <div class="panels" data-layout="finance">
+      <div class="card" data-panel="balance" data-w="7">
+        <h2><i class="ico" data-ico="money"></i><span data-i18n="balance"></span> <small id="fin-range"></small></h2>
+        <canvas id="chart-balance" data-h="240"></canvas>
+      </div>
+      <div class="card" data-panel="earnings" data-w="5">
+        <h2><i class="ico" data-ico="chart"></i><span data-i18n="earnings_title"></span></h2>
+        <canvas id="chart-earn" data-h="240"></canvas>
+      </div>
+      <div class="card" data-panel="transport" data-w="4">
+        <h2><i class="ico" data-ico="passengers"></i><span data-i18n="transport_cum"></span></h2>
+        <canvas id="chart-transport" data-h="200"></canvas>
+      </div>
+      <div class="card" data-panel="company" data-w="4">
+        <h2><i class="ico" data-ico="info"></i><span data-i18n="company"></span></h2>
+        <table class="kv" id="company-table"></table>
+      </div>
+      <div class="card" data-panel="costs" data-w="4">
+        <h2><i class="ico" data-ico="running_cost"></i><span data-i18n="costs_by_carrier"></span> <small data-i18n="per_year"></small></h2>
+        <canvas id="chart-costs"></canvas>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="layout-bar">
+  <i class="ico" data-ico="edit"></i><span class="hintt" data-i18n="layout_hint"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="layout-reset"><i class="ico sm" data-ico="reset"></i><span data-i18n="layout_reset_tab"></span></button>
+  <button class="btn primary" id="layout-done"><i class="ico sm" data-ico="check"></i><span data-i18n="layout_done"></span></button>
+</div>
+
+<script src="i18n.js"></script>
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="charts.js"></script>
+<script src="layout.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

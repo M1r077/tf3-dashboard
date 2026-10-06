@@ -1,0 +1,44 @@
+{
+    "en": {
+        "param_interval_fast_name": "Fast export interval",
+        "param_interval_fast_tooltip": "How often time, finances, alerts and vehicles are written to dashboard_export/live.lua.",
+        "param_interval_slow_name": "Slow export interval",
+        "param_interval_slow_tooltip": "How often lines, stations, towns, industries and depots are refreshed (heavier).",
+        "param_export_vehicles_name": "Export vehicles",
+        "param_export_vehicles_tooltip": "Include every vehicle (position, speed, load, state) in the fast export. Disable on very large networks.",
+        "param_accept_commands_name": "Accept dashboard commands",
+        "param_accept_commands_tooltip": "Let the companion program send commands back to the game: speed and pause, camera, open an entity window, stop/start/reverse a vehicle or send it to the depot, rename, line management (load mode, waiting times, cargo filters, terminals of a stop). Each one does exactly what the matching click in the game does. Nothing is bought, sold or demolished, no route is changed. Off = export only.",
+        "param_debug_log_name": "Debug log",
+        "param_debug_log_tooltip": "Write one line per export to stdout.txt.",
+        "param_on": "On",
+        "param_off": "Off"
+    },
+    "fr": {
+        "param_interval_fast_name": "Intervalle d'export rapide",
+        "param_interval_fast_tooltip": "Fréquence d'écriture de l'heure, des finances, des alertes et des véhicules dans dashboard_export/live.lua.",
+        "param_interval_slow_name": "Intervalle d'export lent",
+        "param_interval_slow_tooltip": "Fréquence de rafraîchissement des lignes, gares, villes, industries et dépôts (plus lourd).",
+        "param_export_vehicles_name": "Exporter les véhicules",
+        "param_export_vehicles_tooltip": "Inclure chaque véhicule (position, vitesse, charge, état) dans l'export rapide. À désactiver sur les très grands réseaux.",
+        "param_accept_commands_name": "Accepter les commandes du dashboard",
+        "param_accept_commands_tooltip": "Autorise le programme compagnon à renvoyer des commandes au jeu : vitesse et pause, caméra, ouverture d'une fiche, arrêter/démarrer/inverser un véhicule ou l'envoyer au dépôt, renommer, gestion de ligne (mode de chargement, temps d'attente, filtres cargo, quais d'un arrêt). Chacune fait exactement ce que ferait le clic correspondant dans le jeu. Rien n'est acheté, vendu ni détruit, aucun tracé n'est modifié. Désactivé = export seul.",
+        "param_debug_log_name": "Journal de débogage",
+        "param_debug_log_tooltip": "Écrit une ligne par export dans stdout.txt.",
+        "param_on": "Activé",
+        "param_off": "Désactivé"
+    },
+    "de": {
+        "param_interval_fast_name": "Schnelles Exportintervall",
+        "param_interval_fast_tooltip": "Wie oft Zeit, Finanzen, Warnungen und Fahrzeuge nach dashboard_export/live.lua geschrieben werden.",
+        "param_interval_slow_name": "Langsames Exportintervall",
+        "param_interval_slow_tooltip": "Wie oft Linien, Stationen, Städte, Industrien und Depots aktualisiert werden (aufwendiger).",
+        "param_export_vehicles_name": "Fahrzeuge exportieren",
+        "param_export_vehicles_tooltip": "Jedes Fahrzeug (Position, Geschwindigkeit, Ladung, Zustand) im schnellen Export mitschreiben. Bei sehr grossen Netzen abschalten.",
+        "param_accept_commands_name": "Dashboard-Befehle annehmen",
+        "param_accept_commands_tooltip": "Erlaubt dem Begleitprogramm, Befehle ans Spiel zurückzuschicken: Geschwindigkeit und Pause, Kamera, Fenster einer Entität öffnen, Fahrzeug anhalten/starten/wenden oder ins Depot schicken, umbenennen, Linienverwaltung (Lademodus, Wartezeiten, Frachtfilter, Terminals eines Halts). Jeder Befehl tut genau das, was der entsprechende Klick im Spiel tut. Nichts wird gekauft, verkauft oder abgerissen, keine Strecke geändert. Aus = nur Export.",
+        "param_debug_log_name": "Debug-Protokoll",
+        "param_debug_log_tooltip": "Schreibt eine Zeile pro Export in stdout.txt.",
+        "param_on": "Ein",
+        "param_off": "Aus"
+    }
+}

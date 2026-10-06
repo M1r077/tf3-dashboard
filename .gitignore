@@ -1,0 +1,27 @@
+# runtime data (your own game history)
+db/
+*.db
+*.db-shm
+*.db-wal
+collector_errors.log
+config.json
+
+# icons are extracted from YOUR game installation at first start (not redistributed)
+dashboard/static/icons/
+
+# real snapshots captured from the game (private, large)
+test/live_real_*.lua
+
+# python
+__pycache__/
+*.pyc
+python_embedded/
+
+# release artefacts
+release/
+
+# local tooling / scratch
+dashboard/static/_probe*.html
+*.ico
+Thumbs.db
+desktop.ini

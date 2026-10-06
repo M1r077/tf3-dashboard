@@ -1,0 +1,7 @@
+{
+    "_comment": "Optional. Copy to config.json and keep only the keys you need. Everything is auto-detected by default.",
+    "export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<your steam id>\\3493540\\local\\dashboard_export",
+    "game_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Transport Fever 3",
+    "db": "db\\tf3_dashboard.db",
+    "port": 8765
+}

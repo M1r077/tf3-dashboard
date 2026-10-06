@@ -1,0 +1,51 @@
+{
+    "modId": "tf3_dashboard_export",
+    "revision": 2,
+    "severityAdd": "None",
+    "severityRemove": "None",
+    "cosmetic": true,
+    "params": [
+        {
+            "key": "interval_fast",
+            "name": "param_interval_fast_name",
+            "tooltip": "param_interval_fast_tooltip",
+            "uiType": "Slider",
+            "values": ["1 s", "2 s", "5 s", "10 s"],
+            "numbers": [1.0, 2.0, 5.0, 10.0],
+            "defaultIndex": 1
+        },
+        {
+            "key": "interval_slow",
+            "name": "param_interval_slow_name",
+            "tooltip": "param_interval_slow_tooltip",
+            "uiType": "Slider",
+            "values": ["10 s", "30 s", "60 s", "120 s"],
+            "numbers": [10.0, 30.0, 60.0, 120.0],
+            "defaultIndex": 1
+        },
+        {
+            "key": "export_vehicles",
+            "name": "param_export_vehicles_name",
+            "tooltip": "param_export_vehicles_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "accept_commands",
+            "name": "param_accept_commands_name",
+            "tooltip": "param_accept_commands_tooltip",
+            "uiType": "Button",
+            "values": ["param_off", "param_on"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "debug_log",
+            "name": "param_debug_log_name",
+            "tooltip": "param_debug_log_tooltip",
+            "uiType": "Button",
+            "values": ["param_off", "param_on"],
+            "defaultIndex": 0
+        }
+    ]
+}

@@ -20,6 +20,9 @@ python_embedded/
 # release artefacts
 release/
 
+# mod.io entry id written by the in-game Mod Hub after upload (identifies the author's own mod.io entry; never share it)
+mod/**/_metadata/mod.io_fileid.txt
+
 # local tooling / scratch
 dashboard/static/_probe*.html
 *.ico

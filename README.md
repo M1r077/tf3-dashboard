@@ -7,6 +7,8 @@ the game stays full screen.
 
 Everything runs locally on your PC. Nothing leaves your computer. No account, no installation, no admin rights.
 
+**Get it:** mod [on mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) · companion program on the [Releases](https://github.com/M1r077/tf3-dashboard/releases/latest) page.
+
 ![Overview](mod/tf3_dashboard_export/_metadata/0.png)
 
 ## How it works
@@ -15,7 +17,7 @@ Two halves:
 
 | Part | Where | What it does |
 |---|---|---|
-| **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/dashboard_export/live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
+| **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/dashboard_export/live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
 | **Companion program (this repo)** | Your PC, Windows | `collector.py` watches `live.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python 3.12 standard library only — the release zip ships a bundled Python, nothing to install. |
 
 The mod alone does nothing visible; the companion alone has nothing to show. mod.io cannot distribute programs,
@@ -23,7 +25,7 @@ which is why the companion lives here.
 
 ## Install (3 steps)
 
-1. **Mod** — in the game, open the Mod Hub, search *Second Screen Dashboard*, subscribe, then enable it in your
+1. **Mod** — in the game, open the Mod Hub, search *Second Screen Dashboard* ([mod.io page](https://mod.io/g/transportfever3/m/second-screen-dashboard)), subscribe, then enable it in your
    savegame's mod list (like any script mod). Or copy `mod/tf3_dashboard_export` to
    `<Steam>\userdata\<id>\3493540\local\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
@@ -79,7 +81,7 @@ stations, towns, industries — default 30 s), export vehicles on/off, accept co
 ```
 collector/      collector.py (live.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
-mod/            the mod as published on mod.io (tf3_dashboard_export)
+mod/            the mod as published on mod.io (tf3_dashboard_export) — https://mod.io/g/transportfever3/m/second-screen-dashboard
 docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
 test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip)
 ```

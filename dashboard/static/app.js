@@ -365,10 +365,15 @@
       const code = codeTable && a.type_code != null ? (codeTable[a.type_code] ?? ("code " + a.type_code)) : "";
       const extra = [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
       const who = a.entity_name || (a.entity_id != null ? "#" + a.entity_id : "");
-      const focus = a.entity_id != null && a.kind !== "thrown_away_cargo" ? entBtns(a.entity_id) : "";
+      // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
+      // industry and an extra button opens the Industries tab on it
+      const focus = a.kind === "thrown_away_cargo"
+        ? (a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
+        : a.entity_id != null ? entBtns(a.entity_id) : "";
       return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}</div>${focus}</div>`;
     }).join("");
     bindActions(el);
+    $$("button.goto[data-ind]", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); $("#ind-filter").value = b.dataset.ind; showTab("industries"); }));
   }
 
   // ------------------------------------------------------------ vehicles

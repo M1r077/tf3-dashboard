@@ -183,4 +183,8 @@ WHERE state IN ('IN_DEPOT','AT_TERMINAL') ORDER BY days_in_depot + days_at_termi
 - `line_problem`: ZERO_OR_ONE_STATION / DOUBLE_STATIONS / INCOMPATIBLE_STATIONS / NO_PATH / BAD_ALTERNATIVE_TERMINAL (game enum, type.d.tl ~L2140)
 - `vehicle_problem`: NoPathElectric / NoPathShip / NoPathAircraft / NoPathGeneric / Blocked (~L2158)
 - `line_issue`: NowhereToLoad / NowhereToUnload / NoVehicleToLoadCargo / VehicleUseless / LineCargoConfig (~L5716)
-- `town_problem`: Disconnected / Overlength
+- `town_problem`: Disconnected / Overlength. Stored but **not displayed**: `getTownProblems()` flags towns as
+  "Disconnected" without saying from what, the game's own UI has no such message, and on a test map it reported two
+  towns that were served normally. Query the `alert` table directly if you want to see it.
+- `thrown_away_cargo`: `entity_id` is a *stock list* entity, i.e. an industry (`industry.stock_list`), not a line:
+  the industry discards cargo it cannot store. The dashboard shows the industry name and links to the Industries tab.

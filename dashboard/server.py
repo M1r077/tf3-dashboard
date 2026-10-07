@@ -143,7 +143,7 @@ def api_overview(q: dict) -> dict:
                  SUM(vs.user_stopped) stopped, SUM(vs.load) load, SUM(v.capacity) capacity, AVG(vs.maintenance) maint,
                  SUM(vs.maintenance < 0.5) worn
                  FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=? WHERE vs.snapshot_id=?""", (gid, sid)) or {}
-    alerts = rows("SELECT kind, COUNT(*) n FROM alert WHERE snapshot_id=? GROUP BY kind", (sid,))
+    alerts = rows("SELECT kind, COUNT(*) n FROM alert WHERE snapshot_id=? AND kind<>'town_problem' GROUP BY kind", (sid,))
     errors = rows("SELECT section, error FROM snapshot_error WHERE snapshot_id=?", (sid,))
     game = one("SELECT * FROM game WHERE game_id=?", (gid,))
     ack = None
@@ -182,14 +182,19 @@ def api_alerts(q: dict) -> dict:
         return {"alerts": []}
     sid = snap["snapshot_id"]
     gid = _gid()
+    # thrown_away_cargo: the game reports stock lists (= industries, through industry.stock_list), not lines
+    # town_problem: api.engine.util.town.getTownProblems() flags towns as "Disconnected" with no further detail and the
+    # game's own UI never shows it; it is still stored but not displayed (see docs/DETAILS.md)
     al = rows("""SELECT a.*, 
-                 COALESCE(l.name, v.name, t.name, i.name, '') AS entity_name
+                 COALESCE(l.name, v.name, t.name, i.name, si.name, '') AS entity_name,
+                 si.industry_id AS industry_id
                  FROM alert a
                  LEFT JOIN line l ON l.game_id=? AND l.line_id=a.entity_id AND a.kind IN ('line_problem','line_issue')
                  LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=a.entity_id AND a.kind IN ('vehicle_problem','blocked_train','no_path_vehicle')
                  LEFT JOIN town t ON t.game_id=? AND t.town_id=a.entity_id AND a.kind='town_problem'
                  LEFT JOIN industry i ON i.game_id=? AND i.industry_id=a.entity_id AND a.kind='closing_industry'
-                 WHERE a.snapshot_id=? ORDER BY a.kind, entity_name""", (gid, gid, gid, gid, sid))
+                 LEFT JOIN industry si ON si.game_id=? AND si.stock_list=a.entity_id AND a.kind='thrown_away_cargo'
+                 WHERE a.snapshot_id=? AND a.kind<>'town_problem' ORDER BY a.kind, entity_name""", (gid, gid, gid, gid, gid, sid))
     # how long each alert has been present (consecutive snapshots)
     hist = rows("""SELECT kind, entity_id, COUNT(DISTINCT snapshot_id) n, MIN(s.real_time) since
                    FROM alert a JOIN snapshot s USING(snapshot_id)

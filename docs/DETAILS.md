@@ -152,7 +152,7 @@ Three independent parts:
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
-  `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, 1 = commercial, 2 = industrial), `town_top_line`,
+  `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`

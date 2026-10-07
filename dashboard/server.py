@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.1.1"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.0"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -37,7 +37,7 @@ _cmd_seq = [int(__import__("time").time() * 1000) % 1_000_000_000]
 
 # commands the mod accepts (mirror of COMMANDS in dashboard_export.script.lua) -> required args
 ALLOWED_CMDS = {
-    "set_speed": ("speed",), "pause": (), "toggle_pause": (), "ping": (),
+    "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
@@ -100,6 +100,29 @@ def write_command(cmd: str, args: dict) -> dict:
         tmp.write_text(body, encoding="utf-8")
         tmp.replace(CMD_DIR / "cmd.lua")  # atomic rename: the mod never sees a half-written file
     return {"id": cid, "cmd": cmd}
+
+
+_activity_seq = [0]
+
+
+def write_activity() -> dict:
+    """Write activity.lua: a hint that the player is interacting with the dashboard. The mod uses it to do its heavy
+    work (slow cycle, big file writes) right now, while the player looks at the second screen. Not a command: it is
+    sent whatever 'Permit game control' says, and the mod only changes *when* it works, never what it does."""
+    global CMD_DIR
+    if CMD_DIR is None:
+        CMD_DIR = tf3paths.export_dir()
+        if CMD_DIR is None:
+            raise ValueError("Transport Fever 3 userdata folder not found")
+    with _cmd_lock:
+        _activity_seq[0] += 1
+        aid = _activity_seq[0]
+        body = "function data()\nreturn " + lua_literal({"id": aid, "t": time.time()}) + "\nend\n"
+        CMD_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = CMD_DIR / "activity.lua.tmp"
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(CMD_DIR / "activity.lua")
+    return {"id": aid}
 
 
 def db() -> sqlite3.Connection:
@@ -561,12 +584,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path != "/api/cmd":
+        if u.path not in ("/api/cmd", "/api/activity"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             self._send(403, json.dumps({"error": "local only"}).encode(), "application/json")
+            return
+        if u.path == "/api/activity":
+            try:
+                res = write_activity()
+                self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
+            except (ValueError, OSError) as e:
+                self._send(200, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)

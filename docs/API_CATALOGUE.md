@@ -136,7 +136,7 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Action | Command | Dashboard | Status |
 |---|---|---|---|
 | Speed 0/1/2/4 | `makeGameSetSpeedCmd(n)` | `set_speed`, `pause`, `toggle_pause` | DONE |
-| Day length (ms) | `makeGameSetCalendarSpeedCmd(ms)` | `set_calendar_speed` | EASY (sandbox option) |
+| Calendar speed 0.25x..4x | `makeGameSetCalendarSpeedCmd(ms)` (1x = 4000 ms/day) | `set_calendar_speed` | DONE (rev 6) |
 | Change the date | `makeGameSetDateCmd(Date)` | | RISKY (vehicle availability) |
 | Time of day | `makeGameSetTimeOfDayCmd(sec)` | `set_time_of_day` | EASY (cosmetic: day/night) |
 | Cloud coverage | `makeGameSetCloudCoverageCmd(0..1)` | | EASY (cosmetic) |

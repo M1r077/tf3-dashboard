@@ -5,7 +5,7 @@ window.I18N = {
     _locale: "en-GB", _months: ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     // top bar
     kpi_date: "Date", kpi_vehicles: "Vehicles", kpi_fill: "Load factor", kpi_maint: "Condition", kpi_alerts: "Alerts", kpi_transported: "Transported", kpi_balance: "Balance",
-    pause: "paused", speed_x: "×{n}", en_route: "en route", at_terminal: "terminal", in_depot: "depot", no_path: "no path", seats: "{a} / {b} seats",
+    sim_speed: "Simulation speed", calendar_speed: "Calendar speed", pause: "paused", speed_x: "×{n}", en_route: "en route", at_terminal: "terminal", in_depot: "depot", no_path: "no path", seats: "{a} / {b} seats",
     worn_count: "{n} vehicle(s) < 50 %", pax: "pax", cargo: "cargo", connecting: "connecting…", empty_db: "empty database: start the collector and enable the mod in game",
     snapshot_status: "snapshot #{id} · {ago} ago", errors_n: "{n} error(s)", server_down: "server unreachable: {msg}",
     // tabs
@@ -82,7 +82,7 @@ window.I18N = {
   fr: {
     _locale: "fr-CH", _months: ["", "jan", "fév", "mar", "avr", "mai", "jun", "jul", "aoû", "sep", "oct", "nov", "déc"],
     kpi_date: "Date", kpi_vehicles: "Véhicules", kpi_fill: "Remplissage", kpi_maint: "État technique", kpi_alerts: "Alertes", kpi_transported: "Transporté", kpi_balance: "Trésorerie",
-    pause: "pause", speed_x: "×{n}", en_route: "en route", at_terminal: "terminal", in_depot: "dépôt", no_path: "sans chemin", seats: "{a} / {b} places",
+    sim_speed: "Vitesse de simulation", calendar_speed: "Vitesse du calendrier", pause: "pause", speed_x: "×{n}", en_route: "en route", at_terminal: "terminal", in_depot: "dépôt", no_path: "sans chemin", seats: "{a} / {b} places",
     worn_count: "{n} véhicule(s) < 50 %", pax: "pax", cargo: "cargo", connecting: "connexion…", empty_db: "base vide : lance le collecteur et active le mod en jeu",
     snapshot_status: "snapshot #{id} · il y a {ago}", errors_n: "{n} erreur(s)", server_down: "serveur injoignable : {msg}",
     tab_overview: "Exploitation", tab_vehicles: "Véhicules", tab_lines: "Lignes", tab_map: "Carte", tab_towns: "Villes", tab_industries: "Industries", tab_stations: "Gares & dépôts", tab_finance: "Finances",
@@ -148,7 +148,7 @@ window.I18N = {
   de: {
     _locale: "de-CH", _months: ["", "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"],
     kpi_date: "Datum", kpi_vehicles: "Fahrzeuge", kpi_fill: "Auslastung", kpi_maint: "Zustand", kpi_alerts: "Warnungen", kpi_transported: "Befördert", kpi_balance: "Kontostand",
-    pause: "Pause", speed_x: "×{n}", en_route: "unterwegs", at_terminal: "Terminal", in_depot: "Depot", no_path: "kein Weg", seats: "{a} / {b} Plätze",
+    sim_speed: "Simulationsgeschwindigkeit", calendar_speed: "Kalendergeschwindigkeit", pause: "Pause", speed_x: "×{n}", en_route: "unterwegs", at_terminal: "Terminal", in_depot: "Depot", no_path: "kein Weg", seats: "{a} / {b} Plätze",
     worn_count: "{n} Fahrzeug(e) < 50 %", pax: "Pers.", cargo: "Fracht", connecting: "verbinde…", empty_db: "Datenbank leer: Collector starten und Mod im Spiel aktivieren",
     snapshot_status: "Snapshot #{id} · vor {ago}", errors_n: "{n} Fehler", server_down: "Server nicht erreichbar: {msg}",
     tab_overview: "Betrieb", tab_vehicles: "Fahrzeuge", tab_lines: "Linien", tab_map: "Karte", tab_towns: "Städte", tab_industries: "Industrien", tab_stations: "Stationen & Depots", tab_finance: "Finanzen",

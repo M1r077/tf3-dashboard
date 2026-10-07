@@ -159,6 +159,21 @@
     return r.json();
   }
 
+  // ------------------------------------------------------------ activity hint (dashboard -> mod)
+  // Every real interaction with the dashboard (click, key, wheel, tab change) tells the mod "the player is looking at
+  // the second screen now": the mod then collects and writes its heavy data immediately with a relaxed per-frame
+  // budget, so the unavoidable hitch happens while nobody watches the game, and the data shown is fresh. Throttled;
+  // independent from "Permit game control" (it changes timing only, not the game).
+  let lastHint = 0;
+  function activityHint() {
+    const now = Date.now();
+    if (now - lastHint < 1500) return;
+    lastHint = now;
+    fetch("/api/activity", { method: "POST" }).catch(() => {});
+    setTimeout(() => refresh(), 1200);  // the mod flushes its slow files within ~1 s of the hint
+  }
+  ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, activityHint, { passive: true, capture: true }));
+
   // ------------------------------------------------------------ commands (dashboard -> game)
   const cmd = { enabled: true, accepted: null, lastSent: null, pendingId: null };
   async function sendCmd(name, args, el) {
@@ -186,6 +201,10 @@
     const off = !cmd.enabled || cmd.accepted === 0;
     btns.forEach(b => { b.disabled = off; b.classList.toggle("active", o && o.snapshot && String(o.snapshot.speed) === b.dataset.speed); });
     bar.title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : "";
+    const mpd = o && o.snapshot ? o.snapshot.millis_per_day : null;
+    const calFactor = mpd ? Math.round(4000 / mpd * 100) / 100 : null;
+    $$("#cal-speed .cbtn").forEach(b => { b.disabled = off; b.classList.toggle("active", calFactor != null && +b.dataset.cal === calFactor); });
+    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor != null ? ` · ${calFactor}x` : "");
     const st = $("#cmd-status");
     if (c.ack && cmd.lastSent && c.ack.id === cmd.lastSent.id) {
       st.textContent = `${c.ack.cmd} · ${c.ack.ok ? t("act_done") : t("act_failed", { msg: c.ack.error || "" })}`; st.className = "cmdstatus " + (c.ack.ok ? "ok" : "bad");
@@ -201,6 +220,8 @@
   const cmdOff = () => !cmd.enabled || cmd.accepted === 0;
   const cmdHint = () => cmdOff() ? `<div class="cmdhint">${ico("alert", "sm")}<span>${t(cmd.enabled ? "commands_off_hint" : "commands_na")}</span></div>` : "";
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));
+  // calendar speed (the game's slider, 0.25x..4x): the engine reports it as millis_per_day, 1x = 4000 ms
+  $$("#cal-speed .cbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_calendar_speed", { factor: +b.dataset.cal }, b)));
   window.addEventListener("keydown", e => { if (!settings.keys || e.target.matches("input,select,textarea")) return; if (e.code === "Space") { e.preventDefault(); sendCmd("toggle_pause", {}); } else if (["Digit1", "Digit2", "Digit3"].includes(e.code)) { sendCmd("set_speed", { speed: { Digit1: 1, Digit2: 2, Digit3: 4 }[e.code] }); } });
   const vehActions = (v) => {
     const off = !cmd.enabled || cmd.accepted === 0;
@@ -290,7 +311,10 @@
     dot.className = "dot " + (age < 15 ? "live" : age < 120 ? "stale" : "dead");
     txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(s.received_at) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
     $("#k-date").textContent = date(s);
-    $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" : `${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}`;
+    // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
+    const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
+    $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
+      `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${t("speed_x", { n: cal })}</span>` : ""}`;
     $("#k-veh").textContent = int(v.n);
     $("#k-veh-detail").innerHTML = v.n ? `<span style="color:${STATE_COLOR.EN_ROUTE}">${v.en_route} ${t("en_route")}</span> · ${v.at_terminal} ${t("at_terminal")} · ${v.in_depot} ${t("in_depot")}${v.no_path ? ` · <span class="neg">${v.no_path} ${t("no_path")}</span>` : ""}` : "";
     const fillEl = $("#k-fill");
@@ -452,6 +476,12 @@
     }
     return found[0] || null;
   }
+  // what a line carries, from its capacities (cargo_id 0 = passengers); a line without any capacity yet (no
+  // vehicle) is treated as both so nothing is hidden by mistake. Passenger statistics on a freight line (and
+  // cargo statistics on a passenger line) are meaningless and are not shown.
+  const carriesPax = (l) => !(l.capacities || []).length || (l.capacities || []).some(c => c.cargo_id === 0);
+  const carriesCargo = (l) => !(l.capacities || []).length || (l.capacities || []).some(c => c.cargo_id !== 0);
+  const NA = '<span class="muted">·</span>';
   const lineTypeIcon = (l, cls = "sm") => { const ty = lineType(l); return ty ? `<span class="vehicon" style="color:${LINE_TYPE_COLOR[ty]}">${ico(LINE_TYPE_ICON[ty], cls, t("line_type." + ty))}</span>` : ""; };
   state.lineTypes = new Set(); state.vehTypes = new Set();  // active type filters per tab (empty = all)
   // Icon toggle bar (one button per vehicle type present, with a count). Click toggles the type; several can be active.
@@ -483,9 +513,9 @@
       { key: "vehicles", label: t("th_veh"), num: true, render: l => `${l.vehicles ?? "–"}${l.live ? ` <small>(${l.live.en_route} ${t("en_route")})</small>` : ""}` },
       { key: "max_frequency", label: t("th_headway"), num: true, render: l => headway(l.max_frequency), sortValue: l => l.max_frequency },
       { key: "load", label: t("th_load"), num: true, render: l => { const c = loadOf(l); return c.c ? bar(c.u, c.c, fillCls(pct(c.u, c.c))) : "–"; }, sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
-      { key: "persons_on_line", label: t("th_onboard"), num: true },
-      { key: "pax", label: t("th_pax_unhappy"), render: l => barQuality(l.pax_bad, l.pax_total), sortValue: l => l.pax_total ? l.pax_bad / l.pax_total : null },
-      { key: "cargo", label: t("th_cargo_late"), render: l => barQuality(l.cargo_bad, l.cargo_total), sortValue: l => l.cargo_total ? l.cargo_bad / l.cargo_total : null },
+      { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
+      { key: "pax", label: t("th_pax_unhappy"), render: l => carriesPax(l) ? barQuality(l.pax_bad, l.pax_total) : NA, sortValue: l => carriesPax(l) && l.pax_total ? l.pax_bad / l.pax_total : null },
+      { key: "cargo", label: t("th_cargo_late"), render: l => carriesCargo(l) ? barQuality(l.cargo_bad, l.cargo_total) : NA, sortValue: l => carriesCargo(l) && l.cargo_total ? l.cargo_bad / l.cargo_total : null },
       { key: "cargos", label: t("th_carries"), wrap: true, render: l => l.capacities.map(c => cargoChip(c)).join("") },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
     ];
@@ -508,7 +538,7 @@
       <h2 style="margin-top:12px">${ico("vehicles")}${t("line_vehicles")} <small>${(h.vehicles || []).length}</small></h2>
       <div class="actions">${lineBulkBtns(l, (h.vehicles || []).length)}</div>
       <div id="line-veh-wrap">${(h.vehicles || []).length ? "" : `<p class="muted">${t("no_line_vehicles")}</p>`}</div>
-      <h2 style="margin-top:12px">${ico("vehicles")}${t("veh_and_pax")}</h2><canvas id="chart-line-1" data-h="170"></canvas>
+      <h2 style="margin-top:12px">${ico("vehicles")}${t(carriesPax(l) ? "veh_and_pax" : "kpi_vehicles")}</h2><canvas id="chart-line-1" data-h="170"></canvas>
       <h2>${ico("unhappy")}${t("service_quality")}</h2><canvas id="chart-line-2" data-h="150"></canvas>`;
     if ((h.vehicles || []).length) {
       const vcols = [
@@ -525,8 +555,13 @@
     }
     if (keepStops) $("#line-stops-wrap").replaceWith(keepStops); else renderStops(l, $("#line-stops-wrap"));
     const hist = h.history || [], labels = hist.map(x => dateLabel(x));
-    Charts.lineChart($("#chart-line-1"), [{ name: t("kpi_vehicles"), values: hist.map(x => x.vehicles), color: "#4f8a8a", step: true }, { name: t("th_onboard"), values: hist.map(x => x.persons_on_line), axis: "right", color: "#58a6ff", area: true }], labels, { rightAxis: true, zeroBase: true, ...tsOpts(hist, "line") });
-    Charts.lineChart($("#chart-line-2"), [{ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" }, { name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" }], labels, { percent: true, ...tsOpts(hist, "line") });
+    const s1 = [{ name: t("kpi_vehicles"), values: hist.map(x => x.vehicles), color: "#4f8a8a", step: true }];
+    if (carriesPax(l)) s1.push({ name: t("th_onboard"), values: hist.map(x => x.persons_on_line), axis: "right", color: "#58a6ff", area: true });
+    Charts.lineChart($("#chart-line-1"), s1, labels, { rightAxis: carriesPax(l), zeroBase: true, ...tsOpts(hist, "line") });
+    const s2 = [];
+    if (carriesPax(l)) s2.push({ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" });
+    if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" });
+    Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     bindActions(el);
   }

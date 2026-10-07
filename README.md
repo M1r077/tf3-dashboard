@@ -69,8 +69,11 @@ stations, towns, industries — default 30 s), export vehicles on/off, accept co
 
 ## Performance and privacy
 
-- Each snapshot costs a little CPU in the game's script thread; on very large networks increase the intervals or
-  disable the vehicle export.
+- Each snapshot is computed by the game's script thread and costs it some milliseconds (about 10-20 ms on a fast PC
+  with a medium network, more on a slow PC or a big network). **If the game stutters at a regular rhythm after
+  enabling the mod**, open the mod settings in the savegame and raise the fast interval (5 or 10 s), the slow interval
+  (60 or 120 s); on very large networks disable the vehicle export. The defaults (2 s / 30 s) target a reasonably
+  recent PC.
 - The database keeps per-snapshot detail for 2 hours and per-minute aggregates for 14 days (configurable, see
   `collector.py --help`). Only the most recent savegame is kept.
 - The server listens on `127.0.0.1` only. Commands are refused from any other address.

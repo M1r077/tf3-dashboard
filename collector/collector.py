@@ -733,11 +733,16 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         say("waiting for the game to create it...")
     else:
-        say(f"watching: {args.live}")
+        dg = tf3paths.diag(args.live.parent)
+        say(f"watching: {args.live}  ({dg['store'] or 'configured'} userdata folder)")
+        if not dg["live_exists"]:
+            say("live.lua is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
+                "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded")
     last_mtime = -1.0
     imported = 0
     next_rollup = 0.0
     next_detect = 0.0
+    next_wait_msg = time.time() + 30
     slow_files: SlowFiles | None = None
     warned_incomplete = False
     try:
@@ -750,6 +755,12 @@ def main(argv: list[str] | None = None) -> int:
                     if found is not None and found.exists() and found != args.live:
                         args.live = found
                         say(f"watching: {args.live}")
+                if time.time() >= next_wait_msg:
+                    next_wait_msg = time.time() + 30
+                    if args.live is None:
+                        say("still no Transport Fever 3 userdata folder found (is the game installed on this PC?)")
+                    else:
+                        say(f"still waiting for {args.live} (mod enabled in the savegame? map loaded?)")
                 if args.live is None:
                     if args.once:
                         return 1

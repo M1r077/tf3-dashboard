@@ -12,6 +12,8 @@ they are not distributed with the dashboard.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import struct
 import sys
 import zipfile
@@ -92,9 +94,17 @@ class Image:
         Path(path).write_bytes(png)
 
 
+def _is_game(g: Path) -> bool:
+    return (g / "base" / "content" / "gui.zip").exists()
+
+
 def find_game() -> Path | None:
-    """Transport Fever 3 install folder: every Steam library (libraryfolders.vdf), then the default one."""
+    """Transport Fever 3 install folder: config.json game_dir, every Steam library (libraryfolders.vdf), the Epic
+    launcher manifests, the GOG registry keys, then a few usual folders."""
     import re
+    cfg = tf3paths.load_config().get("game_dir")
+    if cfg and _is_game(Path(cfg)):
+        return Path(cfg)
     for root in tf3paths.steam_roots():
         libs = [root]
         vdf = root / "steamapps" / "libraryfolders.vdf"
@@ -104,11 +114,54 @@ def find_game() -> Path | None:
             pass
         for lib in libs:
             g = lib / "steamapps" / "common" / "Transport Fever 3"
-            if (g / "base" / "content" / "gui.zip").exists():
+            if _is_game(g):
                 return g
-    cfg = tf3paths.load_config().get("game_dir")
-    if cfg and (Path(cfg) / "base" / "content" / "gui.zip").exists():
-        return Path(cfg)
+    if sys.platform == "win32":
+        # Epic Games Launcher: one JSON manifest per installed game
+        manifests = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests"
+        try:
+            for item in manifests.glob("*.item"):
+                try:
+                    m = json.loads(item.read_text(encoding="utf-8", errors="replace"))
+                except ValueError:
+                    continue
+                loc = m.get("InstallLocation")
+                if loc and "transport fever 3" in (m.get("DisplayName") or loc).lower() and _is_game(Path(loc)):
+                    return Path(loc)
+        except OSError:
+            pass
+        # GOG Galaxy: HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\<id>\path
+        try:
+            import winreg
+            for hive, key in ((winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\GOG.com\Games"),
+                              (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GOG.com\Games")):
+                try:
+                    with winreg.OpenKey(hive, key) as games:
+                        i = 0
+                        while True:
+                            try:
+                                sub = winreg.EnumKey(games, i)
+                            except OSError:
+                                break
+                            i += 1
+                            try:
+                                with winreg.OpenKey(games, sub) as k:
+                                    p, _ = winreg.QueryValueEx(k, "path")
+                                if p and _is_game(Path(p)):
+                                    return Path(p)
+                            except OSError:
+                                continue
+                except OSError:
+                    pass
+        except ImportError:
+            pass
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            if not base:
+                continue
+            for g in (Path(base) / "Epic Games" / "TransportFever3", Path(base) / "Epic Games" / "Transport Fever 3",
+                      Path(base) / "GOG Galaxy" / "Games" / "Transport Fever 3", Path(base) / "GOG Games" / "Transport Fever 3"):
+                if _is_game(g):
+                    return g
     return None
 
 # output name -> (zip relative to base/content, path inside zip)

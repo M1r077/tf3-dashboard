@@ -69,6 +69,18 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .hidden-bar .chip.restore:hover { border-color: var(--accent); color: var(--text); }
 .card.sticky { position: sticky; top: 0; max-height: calc(100vh - 230px); overflow: auto; }
 .alerts.tall { max-height: 300px; }
+
+/* empty-database checklist */
+.card.setup { max-width: 900px; margin: 0 auto 14px; border-color: var(--warn); }
+.setup .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.setup .steps li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 10px; background: var(--panel2); border-radius: 6px; }
+.setup .steps .mark { font-weight: 700; font-size: 16px; text-align: center; color: var(--muted); }
+.setup .steps li.ok .mark { color: var(--ok); }
+.setup .steps li.bad .mark { color: var(--bad); }
+.setup .steps .n { font-weight: 600; }
+.setup .steps .d { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.setup code { font-family: var(--mono); font-size: 12px; background: var(--bg); padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+.setup .small { font-size: 12px; margin: 10px 0 0; }
 .minilist { display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow: auto; }
 .minilist .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 5px 8px; background: var(--panel2); border-radius: 6px; font-size: 13px; cursor: pointer; }
 .minilist .row:hover { outline: 1px solid var(--accent); }

@@ -26,14 +26,29 @@ which is why the companion lives here.
 ## Install (3 steps)
 
 1. **Mod** — in the game, open the Mod Hub, search *Second Screen Dashboard* ([mod.io page](https://mod.io/g/transportfever3/m/second-screen-dashboard)), subscribe, then enable it in your
-   savegame's mod list (like any script mod). Or copy `mod/tf3_dashboard_export` to
-   `<Steam>\userdata\<id>\3493540\local\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
+   savegame's mod list (like any script mod — **subscribing is not enough, the mod must be ticked in the savegame**).
+   Or copy `mod/tf3_dashboard_export` to `<userdata>\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere (e.g. `D:\Games\TF3 Dashboard`).
    Mod rev 6+ needs companion 0.2.0+ (the export was split into several files).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
    press `F11`. Close the window to stop everything.
+
+Steam, Epic and GOG are supported; the game's userdata folder is detected automatically
+(`<Steam>\userdata\<id>\3493540\local` or `%APPDATA%\Transport Fever 3`).
+
+### Nothing shows up?
+
+While the database is empty the dashboard displays a **checklist** that tells which link of the chain is missing:
+game folder found → `live.lua` written by the mod → snapshots stored by the collector. The usual causes:
+
+- the mod is subscribed but **not enabled in the savegame** (Mods menu of the savegame): no `live.lua`;
+- the game is in the main menu: the mod only exports while a map is loaded;
+- the game is installed in an unusual place: create `config.json` (see Configuration).
+
+The "TF3 Dashboard Collector" pane says the same thing in text (`watching: ...live.lua`, then one
+`snapshot #N seq=...` line per export). When reporting a problem, copy the checklist or that pane.
 
 Running from source instead of the release zip: you need Python 3.10+ on the PATH (`winget install Python.Python.3.12`).
 No pip, no venv, no packages.
@@ -57,12 +72,17 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
 
 ## Configuration
 
-Nothing to configure in the normal case: the Steam userdata folder and the game installation are detected
-automatically (registry + library folders). For Epic/GOG/unusual setups, copy `config.example.json` to `config.json`:
+Nothing to configure in the normal case: the game's userdata folder (Steam: registry + `userdata`; Epic/GOG:
+`%APPDATA%\Transport Fever 3`) and the game installation (Steam libraries, Epic manifests, GOG registry — used
+only to extract the icons) are detected automatically. For unusual setups, copy `config.example.json` to
+`config.json` and keep the keys you need:
 
 ```json
-{ "export_dir": "C:\\...\\3493540\\local\\dashboard_export", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
+{ "export_dir": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\dashboard_export", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
 ```
+
+Steam: `"export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<id>\\3493540\\local\\dashboard_export"`.
+`python collector\tf3paths.py` prints what is detected.
 
 Mod settings (in-game): fast interval (time, finances, alerts, vehicles — default 2 s), slow interval (lines,
 stations, towns, industries — default 30 s), export vehicles on/off, accept commands on/off, debug log.

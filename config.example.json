@@ -1,5 +1,7 @@
 {
-    "_comment": "Optional. Copy to config.json and keep only the keys you need. Everything is auto-detected by default.",
+    "_comment": "Optional. Copy to config.json and keep only the keys you need. Everything is auto-detected by default (Steam, Epic, GOG).",
+    "_export_dir_steam": "C:\\Program Files (x86)\\Steam\\userdata\\<your steam id>\\3493540\\local\\dashboard_export",
+    "_export_dir_epic_gog": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\dashboard_export",
     "export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<your steam id>\\3493540\\local\\dashboard_export",
     "game_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Transport Fever 3",
     "db": "db\\tf3_dashboard.db",

@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.0"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.1"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -540,11 +540,33 @@ def _gid() -> int:
     return r["game_id"] if r else -1
 
 
+def api_diag(q: dict) -> dict:
+    """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
+    is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
+    d = tf3paths.diag(CMD_DIR if CMD_DIR and CMD_DIR.is_dir() else None)
+    d["version"] = VERSION
+    d["db"] = str(DB_PATH)
+    d["db_exists"] = DB_PATH.exists()
+    d["snapshots"] = 0
+    d["last_snapshot_age_s"] = None
+    if d["db_exists"]:
+        try:
+            r = one("SELECT COUNT(*) n, MAX(received_at) last FROM snapshot")
+            d["snapshots"] = (r or {}).get("n") or 0
+            last = (r or {}).get("last")
+            if last:
+                dt = datetime.datetime.fromisoformat(last)
+                d["last_snapshot_age_s"] = max(0.0, (datetime.datetime.now() - dt).total_seconds())
+        except sqlite3.Error as e:
+            d["db_error"] = str(e)
+    return d
+
+
 ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
-    "/api/depots": api_depots, "/api/map": api_map,
+    "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

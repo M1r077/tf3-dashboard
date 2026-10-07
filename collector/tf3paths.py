@@ -4,8 +4,11 @@ Resolution order:
   1. ROOT/config.json  -> {"export_dir": "...", "port": 8765}   (written by the user, optional)
   2. environment TF3_EXPORT_DIR
   3. Steam: <SteamPath>/userdata/<any id>/3493540/local/dashboard_export   (registry, then default folders)
-  4. Epic / GOG / Microsoft Store: %LOCALAPPDATA%/Transport Fever 3/...  (best effort, scanned for dashboard_export)
-When several candidates exist, the one whose live.lua was modified most recently wins.
+  4. Epic / GOG (Windows): %APPDATA%/Transport Fever 3/dashboard_export  (the game keeps save/, settings.lua,
+     profile.lua there when it is not the Steam build; %LOCALAPPDATA% is scanned too, best effort)
+  5. macOS: ~/Library/Application Support/Transport Fever 3 ; Linux: ~/.local/share/Transport Fever 3
+When several candidates exist, the one whose live.lua was modified most recently wins; a candidate whose
+dashboard_export folder does not exist yet is kept (the game creates it at the first export).
 Stdlib only.
 """
 from __future__ import annotations
@@ -71,27 +74,45 @@ def steam_roots() -> list[Path]:
     return out
 
 
-def candidate_export_dirs() -> list[Path]:
-    """All dashboard_export folders that exist (or could exist) on this machine, most recent first."""
-    cands: list[Path] = []
+def userdata_roots() -> list[tuple[str, Path]]:
+    """Every folder that may be the game's userdata root on this machine, as (store, path). Only folders that
+    exist are returned (the game creates its userdata folder at the first start), the dashboard_export subfolder
+    may not exist yet."""
+    roots: list[tuple[str, Path]] = []
     for root in steam_roots():
         ud = root / "userdata"
         if ud.is_dir():
             for acct in ud.iterdir():
                 local = acct / APP_ID / "local"
                 if local.is_dir():
-                    cands.append(local / EXPORT_SUBDIR)
-    # non-Steam stores keep userdata under the user profile; scan one level for a dashboard_export folder
-    for env in ("LOCALAPPDATA", "APPDATA"):
-        base = os.environ.get(env)
-        if not base:
-            continue
-        for name in ("Transport Fever 3", "TransportFever3"):
-            p = Path(base) / name
-            if p.is_dir():
-                for sub in [p] + [d for d in p.iterdir() if d.is_dir()]:
-                    if (sub / EXPORT_SUBDIR).is_dir() or sub.name == "local":
-                        cands.append(sub / EXPORT_SUBDIR)
+                    roots.append(("Steam", local))
+    if sys.platform == "win32":
+        # Epic / GOG builds keep save/, settings.lua, profile.lua under %APPDATA%\Transport Fever 3
+        for env in ("APPDATA", "LOCALAPPDATA"):
+            base = os.environ.get(env)
+            if not base:
+                continue
+            for name in ("Transport Fever 3", "TransportFever3"):
+                p = Path(base) / name
+                if p.is_dir():
+                    roots.append(("Epic/GOG", p))
+                    for d in p.iterdir():
+                        if d.is_dir() and (d.name == "local" or (d / EXPORT_SUBDIR).is_dir()):
+                            roots.append(("Epic/GOG", d))
+    elif sys.platform == "darwin":
+        p = Path.home() / "Library" / "Application Support" / "Transport Fever 3"
+        if p.is_dir():
+            roots.append(("macOS", p))
+    else:
+        p = Path.home() / ".local" / "share" / "Transport Fever 3"
+        if p.is_dir():
+            roots.append(("Linux", p))
+    return roots
+
+
+def candidate_export_dirs() -> list[Path]:
+    """All dashboard_export folders that exist (or could exist) on this machine, most recent first."""
+    cands = [root / EXPORT_SUBDIR for _, root in userdata_roots()]
 
     def mtime(d: Path) -> float:
         try:
@@ -120,6 +141,9 @@ def export_dir(explicit: str | os.PathLike | None = None) -> Path | None:
 
 
 def live_path(explicit: str | os.PathLike | None = None) -> Path | None:
+    """Path of live.lua. `explicit` may be the file itself or its folder."""
+    if explicit and str(explicit).lower().endswith(".lua"):
+        return Path(explicit)
     d = export_dir(explicit)
     return d / "live.lua" if d else None
 
@@ -145,18 +169,51 @@ def port(explicit: int | None = None) -> int:
 
 
 def not_found_hint() -> str:
+    appdata = os.environ.get("APPDATA", r"C:\Users\<you>\AppData\Roaming").replace("\\", "\\\\")
     return (
-        "Could not find the Transport Fever 3 userdata folder.\n"
-        "  - Start the game once with the 'Second Screen Dashboard' mod enabled in your save, or\n"
-        f"  - create {CONFIG.name} next to run_dashboard.cmd with:\n"
-        '    { "export_dir": "C:\\\\Program Files (x86)\\\\Steam\\\\userdata\\\\<id>\\\\3493540\\\\local\\\\dashboard_export" }'
+        "Could not find the Transport Fever 3 userdata folder (neither Steam nor Epic/GOG).\n"
+        "  - Start the game once with the 'Second Screen Dashboard' mod enabled in your savegame, or\n"
+        f"  - create {CONFIG.name} next to run_dashboard.cmd with the folder of your installation:\n"
+        '      Steam:    { "export_dir": "C:\\\\Program Files (x86)\\\\Steam\\\\userdata\\\\<id>\\\\3493540\\\\local\\\\dashboard_export" }\n'
+        f'      Epic/GOG: {{ "export_dir": "{appdata}\\\\Transport Fever 3\\\\dashboard_export" }}'
     )
+
+
+def diag(explicit: str | os.PathLike | None = None) -> dict:
+    """What the dashboard needs to explain an empty database: where the game's export is looked for and what was
+    found there. Cheap (a few stat calls), safe to call on every poll."""
+    import time
+    d = export_dir(explicit)
+    source = "explicit" if explicit else "config" if load_config().get("export_dir") else \
+        "env" if os.environ.get("TF3_EXPORT_DIR") else "auto"
+    stores = {str(r / EXPORT_SUBDIR).lower(): s for s, r in userdata_roots()}
+    out: dict = {
+        "export_dir": str(d) if d else None,
+        "source": source,
+        "store": stores.get(str(d).lower()) if d else None,
+        "dir_exists": bool(d and d.is_dir()),
+        "live_exists": False,
+        "live_age_s": None,
+        "live_size": None,
+        "candidates": [{"store": s, "dir": str(r / EXPORT_SUBDIR), "exists": (r / EXPORT_SUBDIR).is_dir()}
+                       for s, r in userdata_roots()],
+        "config_present": CONFIG.exists(),
+    }
+    if d:
+        try:
+            st = (d / "live.lua").stat()
+            out.update(live_exists=True, live_age_s=max(0.0, time.time() - st.st_mtime), live_size=st.st_size)
+        except OSError:
+            pass
+    return out
 
 
 if __name__ == "__main__":
     print("config:", CONFIG, "(present)" if CONFIG.exists() else "(absent)")
     print("steam roots:", *[str(r) for r in steam_roots()] or ["-"], sep="\n  ")
+    print("userdata roots:", *[f"{s}: {r}" for s, r in userdata_roots()] or ["-"], sep="\n  ")
     print("candidates:", *[str(c) for c in candidate_export_dirs()] or ["-"], sep="\n  ")
     print("export_dir:", export_dir())
     print("db:", db_path())
     print("port:", port())
+    print("diag:", json.dumps(diag(), indent=1))

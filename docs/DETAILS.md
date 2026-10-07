@@ -118,7 +118,10 @@ Three independent parts:
    - **Vehicles**: text/carrier/state/wear/problem filter; line, state (no path, stopped), speed, load, condition, idle
      days, cost/year, value, nearest town; click -> sheet + speed/load/condition history
    - **Towns**: res/com/ind capacities (used/total), unhappy, public transport share, traffic, noise, pollution,
-     growth; click -> happiness per mode, reachability, cargo needs, most used lines, history
+     growth; click -> happiness per mode, reachability, cargo needs, most used lines, history.
+     Cargo needs show the same "supplied / needed" figures as the game's town window (mod rev 4+,
+     `townBuildingSystem.getCargoSupplyAndLimit`), with the warehouse stock/capacity (`getTownStockCargo`) as a
+     secondary figure; with an older mod only the warehouse stock is available, which is not what the game shows.
    - **Industries**: level, status (producing, closing, boost, manual, discarding), production rating, inputs/outputs
      per year with max and shipped/delivered; filter "unserved / closing"
    - **Stations & depots**: waiting, occupancy, overflow, lines; parked vehicles, approaching, maintenance pool
@@ -131,7 +134,8 @@ Three independent parts:
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
-  `town_state`, `town_cargo`, `town_top_line`, `industry_state`, `industry_cargo`, `depot_state`
+  `town_state`, `town_cargo`, `town_supply` (supplied / needed, whole town + per land use), `town_top_line`,
+  `industry_state`, `industry_cargo`, `depot_state`
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);

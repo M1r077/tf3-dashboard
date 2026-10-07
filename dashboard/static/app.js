@@ -732,6 +732,7 @@
       { key: "development_active", label: t("th_growth"), icon: "town_growth", render: x => x.development_active ? `<span class="chip ok">${t("growth_active")}</span>` : `<span class="chip warn">${t("growth_frozen")}</span>` },
       { key: "act", label: "", render: x => entBtns(x.town_id) },
     ];
+    if (!state.selTown) { const u = +new URLSearchParams(location.search).get("town"); if (u && towns.some(x => x.town_id === u)) state.selTown = u; }  // deep link ?tab=towns&town=<id>
     renderTable($("#towns-table"), cols, towns, { id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
     if (state.selTown) renderTownDetail(state.selTown);
   }
@@ -745,7 +746,11 @@
       <table class="kv">${hap.map(([k, b, tot]) => `<tr><td>${k}</td><td>${barQuality(b || 0, tot || 0)}</td></tr>`).join("")}</table>
       <p class="muted" style="font-size:12px">${t("reach", { a: tw.reach_com_private ?? "–", b: tw.reach_com_public ?? "–", c: tw.reach_ind_private ?? "–", d: tw.reach_ind_public ?? "–" })}</p>
       <h2>${ico("town_supplies")}${t("cargo_needs")}</h2>
-      <table class="kv">${tw.cargo.length ? tw.cargo.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.stock, c.capacity, pct(c.stock, c.capacity) < 30 ? "bad" : pct(c.stock, c.capacity) < 70 ? "warn" : "ok", `${int(c.stock)} / ${int(c.capacity)}`)}</td></tr>`).join("") : `<tr><td class="muted">${t("none_m")}</td><td></td></tr>`}</table>
+      <table class="kv">${tw.cargo.length ? tw.cargo.map(c => {
+        // Game window figure ("supplied / needed", mod schema 3+) when available, otherwise the warehouse stock.
+        const game = c.needed != null && c.needed > 0, a = game ? c.supplied : c.stock, b = game ? c.needed : c.capacity, p = pct(a, b);
+        return `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td title="${game ? t("tip_town_supplied") : t("tip_town_stock")}">${bar(a, b, p < 30 ? "bad" : p < 70 ? "warn" : "ok", `${int(a)} / ${int(b)}`)}${game ? ` <span class="muted" style="font-size:11px">${t("stock_short", { a: int(c.stock), b: int(c.capacity) })}</span>` : ""}</td></tr>`;
+      }).join("") : `<tr><td class="muted">${t("none_m")}</td><td></td></tr>`}</table>
       ${tw.top_lines.length ? `<h2>${ico("line")}${t("top_lines")}</h2><table class="kv">${tw.top_lines.map(l => `<tr><td>${esc(l.name || "#" + l.line_id)}</td><td>${barQuality((l.resident_unhappy || 0) + (l.nonresident_unhappy || 0), (l.resident_total || 0) + (l.nonresident_total || 0))}</td></tr>`).join("")}</table>` : ""}
       <h2 style="margin-top:12px">${ico("town_people")}${t("capacities")}</h2><canvas id="chart-town-1" data-h="160"></canvas>
       <h2>${ico("town_happiness")}${t("satisfaction_pt")}</h2><canvas id="chart-town-2" data-h="150"></canvas>`;

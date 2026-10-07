@@ -409,6 +409,10 @@ class Store:
                 if isinstance(sc, dict) and sc.get("cargo_type") is not None:
                     self.con.execute("INSERT OR REPLACE INTO town_cargo VALUES (?,?,?,?,?)",
                                      (sid, tid, sc["cargo_type"], sc.get("stock"), sc.get("capacity")))
+            for sp in as_list(t.get("supply")):  # mod schema 3+
+                if isinstance(sp, dict) and sp.get("cargo_type") is not None:
+                    self.con.execute("INSERT OR REPLACE INTO town_supply VALUES (?,?,?,?,?,?,?)",
+                                     (sid, tid, sp.get("land_use") or 0, sp["cargo_type"], sp.get("v1"), sp.get("v2"), sp.get("v3")))
             for tl in as_list(t.get("top_lines")):
                 if isinstance(tl, dict) and tl.get("line") is not None:
                     ru, rt = pair(tl.get("resident"))

@@ -272,6 +272,19 @@ CREATE TABLE IF NOT EXISTS town_cargo (
     PRIMARY KEY (snapshot_id, town_id, cargo_id)
 );
 
+-- townBuildingSystem.getCargoSupplyAndLimit(town[, landUse]) = the "supplied / needed" figures of the town window.
+-- land_use 0 = whole town, 1 = residential, 2 = commercial, 3 = industrial. v1/v2/v3 raw (supply, limit, ?).
+CREATE TABLE IF NOT EXISTS town_supply (
+    snapshot_id INTEGER NOT NULL REFERENCES snapshot(snapshot_id) ON DELETE CASCADE,
+    town_id     INTEGER NOT NULL,
+    land_use    INTEGER NOT NULL,
+    cargo_id    INTEGER NOT NULL,
+    v1          REAL,
+    v2          REAL,
+    v3          REAL,
+    PRIMARY KEY (snapshot_id, town_id, land_use, cargo_id)
+);
+
 CREATE TABLE IF NOT EXISTS town_top_line (
     snapshot_id         INTEGER NOT NULL REFERENCES snapshot(snapshot_id) ON DELETE CASCADE,
     town_id             INTEGER NOT NULL,

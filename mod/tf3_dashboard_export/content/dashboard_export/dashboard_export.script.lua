@@ -8,7 +8,7 @@
 -- rest of the snapshot is still written. Read-only: no api.cmd is ever sent.
 
 local MOD_ID = "tf3_dashboard_export"
-local SCHEMA = 2  -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one)
+local SCHEMA = 3  -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply
 local DIR = "dashboard_export"
 local FILE = "live"
 
@@ -30,11 +30,18 @@ local function options()
 	local raw = (ok and all and all[MOD_ID]) or {}
 	local o = {}
 	for key, values in pairs(PARAM_VALUES) do
-		local idx = raw[key]
-		if type(idx) ~= "number" then idx = PARAM_DEFAULT_INDEX[key] end
-		-- mod.json params arrive as 1-based index; tolerate 0-based just in case
-		local v = values[idx]
-		if v == nil then v = values[idx + 1] end
+		local r = raw[key]
+		local v
+		if type(r) == "number" then
+			-- params declared with "numbers" in mod.json come back as the number itself (1, 2, 5, 10...),
+			-- the others as an index (1-based observed on Button params; tolerate 0-based).
+			-- Match the value first, then fall back to index. Both conventions give the right slider value.
+			for _, cand in ipairs(values) do
+				if cand == r then v = cand; break end
+			end
+			if v == nil then v = values[r] end
+			if v == nil then v = values[r + 1] end
+		end
 		if v == nil then v = values[PARAM_DEFAULT_INDEX[key]] end
 		o[key] = v
 	end
@@ -588,6 +595,24 @@ local function collectTowns(cargoNames)
 				p = arr(p)
 				rec.stock[#rec.stock + 1] = { cargo_type = num(ct), cargo = cargoNames[num(ct)], stock = num(p[1]), capacity = num(p[2]) }
 			end
+		end)
+		-- What the town window shows ("supplied / needed"): townBuildingSystem.getCargoSupplyAndLimit(town[, landUse])
+		-- -> { cargoType = { supply, limit, n } }. Exported raw as v1/v2/v3, one flat list: land_use 0 = whole town,
+		-- 1/2/3 = residential/commercial/industrial. The dashboard shows the same figures as the game; the exact
+		-- meaning of v3 is not documented, so it is exported as is.
+		pcall(function()
+			rec.supply = {}
+			local function dump(landUse)
+				local m
+				if landUse then m = sys.townBuildingSystem.getCargoSupplyAndLimit(t, landUse)
+				else m = sys.townBuildingSystem.getCargoSupplyAndLimit(t) end
+				for ct, p in pairs(m) do
+					p = arr(p)
+					rec.supply[#rec.supply + 1] = { land_use = landUse or 0, cargo_type = num(ct), v1 = num(p[1]), v2 = num(p[2]), v3 = num(p[3]) }
+				end
+			end
+			dump(nil)
+			for lu = 1, 3 do pcall(dump, lu) end
 		end)
 		pcall(function() rec.pos = vec3(api.engine.util.town.getTownDistrictCenter(t, 1)) end)
 		pcall(function() rec.stations = count(sys.stationSystem.getStations(t)) end)

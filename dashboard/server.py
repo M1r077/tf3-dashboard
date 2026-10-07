@@ -344,6 +344,15 @@ def api_towns(q: dict) -> dict:
     cmap: dict[int, list] = {}
     for c in cargo:
         cmap.setdefault(c["town_id"], []).append(c)
+    # "supplied / needed" of the town window (mod schema 3+), whole town only (land_use 0); per land use stays in the DB
+    supply = rows("""SELECT town_id, cargo_id, v1, v2, v3 FROM town_supply
+                     WHERE land_use=0 AND snapshot_id=(SELECT MAX(snapshot_id) FROM town_supply)""")
+    smap: dict[tuple, dict] = {(s["town_id"], s["cargo_id"]): s for s in supply}
+    for c in cargo:
+        s = smap.get((c["town_id"], c["cargo_id"]))
+        c["supplied"] = s["v1"] if s else None
+        c["needed"] = s["v2"] if s else None
+        c["supply_v3"] = s["v3"] if s else None
     top = rows("""SELECT tl.town_id, tl.line_id, l.name, tl.resident_unhappy, tl.resident_total, tl.nonresident_unhappy, tl.nonresident_total
                   FROM town_top_line tl LEFT JOIN line l ON l.game_id=? AND l.line_id=tl.line_id
                   WHERE tl.snapshot_id=(SELECT MAX(snapshot_id) FROM town_top_line)""", (gid,))

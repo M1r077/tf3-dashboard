@@ -164,6 +164,8 @@ for k in range(N):
                                   "noise_db": 45 + (tid - 100) * 2, "pollution_db": 30 + (tid - 100), "area_km2": 1.2 + (tid - 100) * 0.4,
                                   "reach": {"com_private": 3, "com_public": 2, "ind_private": 2, "ind_public": 1}, "line_usage": 0.25 + 0.3 * (k / N) * (1 if tid < 105 else 0.3),
                                   "traffic_speed": 12 - (k / N) * 4, "congestion_levels": [40, 20, 8, 2], "stock": [{"cargo_type": 6, "cargo": "GOODS", "stock": int(30 * (k / N)), "capacity": 60}, {"cargo_type": 7, "cargo": "FOOD", "stock": 5, "capacity": 40}],
+                                  "supply": [{"land_use": 0, "cargo_type": 6, "v1": int(120 * (k / N)), "v2": 300, "v3": 2}, {"land_use": 0, "cargo_type": 7, "v1": 15, "v2": 200, "v3": 1},
+                                             {"land_use": 1, "cargo_type": 6, "v1": int(70 * (k / N)), "v2": 180, "v3": 1}, {"land_use": 2, "cargo_type": 6, "v1": int(50 * (k / N)), "v2": 120, "v3": 1}],
                                   "top_lines": [{"line": 400, "resident": {"unhappy": unhappy // 2, "total": 90}, "non_resident": {"unhappy": 1, "total": 20}}],
                                   "pos": {"x": x, "y": y, "z": 400}, "stations": 2, "buildings": cap // 6})
         snap["industries"] = []

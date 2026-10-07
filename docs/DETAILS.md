@@ -41,12 +41,16 @@ Three independent parts:
      staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
      changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
      After an update the Mod Hub silently unsubscribes the author (the mod.io copy disappears from
-     `C:\Users\Public\mod.io\<game>\mods\<id>`): subscribe again, then in the savegame enable the mod.io entry and disable
-     the staging one.
-   - **testing a new revision in game before publishing**: the staging copy is itself loadable. In the savegame's mod
-     manager two "Second Screen Dashboard" entries appear: disable the mod.io one, enable the staging one, reload.
-     Settings are kept (same modId). Never copy the mod into `local\mods\` as well: three entries with the same modId
-     are indistinguishable in the list.
+     `C:\Users\Public\mod.io\<game>\mods\<id>`): subscribe again.
+   - **staging always wins over mod.io**: when two installed mods share the same `modId`, the game loads only one of
+     them, and it is the staging copy (`stdout.txt`: `Multiple (2) mods with same id found tf3_dashboard_export, the
+     one from .../staging_area/tf3_dashboard_export/ has been selected`). The two "Second Screen Dashboard" entries
+     in the savegame's mod manager are therefore *not* two selectable copies: whichever is ticked, the staging code
+     runs. To test what subscribers actually get, move the staging folder out of `staging_area` (e.g. to a parking
+     folder next to the repo), restart the game; move it back to continue developing. The savegame is unaffected (one
+     modId, settings kept). Never copy the mod into `local\mods\` as well.
+   - **testing a new revision in game before publishing**: mirror the repo to the staging copy (robocopy above),
+     reload the savegame; the staging code is what runs (see previous point).
    - must be enabled in the savegame (Mods menu), like any script mod
    - also exports the game language (`time.lang`), the icon type of each vehicle (icon_type: Bus, Truck,
      TrainSteam/Electric/Diesel, Tram, Aircraft, Helicopter, Ship), the localized model name (`model`), the neutral model

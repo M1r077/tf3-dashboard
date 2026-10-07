@@ -1,6 +1,14 @@
 -- Dashboard Export : periodically writes a snapshot of the game state to
---   <userdata>\dashboard_export\live.lua
+--   <userdata>\dashboard_export\live.lua          (fast: time, finance, alerts, moving vehicle data; every 1-10 s)
+--   <userdata>\dashboard_export\slow_<section>.lua (lines, stations, towns, industries, depots, static vehicle data,
+--                                                   company, cargo types; every 10-120 s, one file per frame)
 -- via app.saveUserdata, for an external dashboard / collector (second monitor).
+--
+-- Why two kinds of files (rev 6): app.saveUserdata serialises and writes the whole table in the calling frame.
+-- Up to rev 5 everything went into live.lua, i.e. ~300 KB rewritten every second on a mid-size map, of which 90 %
+-- (lines with their terminals, industries, towns...) only changes every slow cycle. That cost 20 ms per second on a
+-- fast machine and a visible stutter every second on slower ones. Now live.lua is ~30 KB and the big sections are
+-- written only when they were re-collected, spread over several frames.
 --
 -- Everything runs on the GUI thread (guiUpdate): the GUI state has read access to the whole
 -- engine state, "app" is available there, and nothing is stored in the savegame.
@@ -8,9 +16,12 @@
 -- rest of the snapshot is still written. Read-only: no api.cmd is ever sent.
 
 local MOD_ID = "tf3_dashboard_export"
-local SCHEMA = 3  -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply
+-- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
+-- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
+local SCHEMA = 4
 local DIR = "dashboard_export"
 local FILE = "live"
+local SLOW_FILE_PREFIX = "slow_"
 -- The slow sections (lines, stations, towns, industries, depots) are collected one item per step, a few steps per
 -- frame, so that a slow cycle never stalls the game: this is the CPU budget per guiUpdate call, in seconds.
 -- A step is started only while the budget is not exhausted, so a frame costs at most budget + one step.
@@ -279,36 +290,21 @@ local function modelKey(modelId)
 	return k or nil
 end
 
+-- Vehicles are exported in two parts (rev 6). Fast (every snapshot, live.lua): what moves — state, line, stop,
+-- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
+-- what the game only changes when the player edits the vehicle — name, consist, model, capacity, icon, costs. The
+-- collector merges both on vehicle id. Before rev 6 all of it was fetched and written every second.
 local function collectVehicles()
 	local out = {}
 	local sys = api.engine.system
 	for _, v in ipairs(arr(api.engine.util.vehicle.getVehicles())) do
 		local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 		if tv then
-			local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier),
-				state = enumName("TransportVehicleState", VSTATES, tv.state), line = num(tv.line), stop_index = num(tv.stopIndex),
+			local rec = { id = v, state = enumName("TransportVehicleState", VSTATES, tv.state), line = num(tv.line), stop_index = num(tv.stopIndex),
 				user_stopped = tv.userStopped and true or false, no_path = tv.noPath and true or false, depot = num(tv.depot),
 				days_in_depot = num(tv.daysInDepot), days_at_terminal = num(tv.daysAtTerminal), doors_open = tv.doorsOpen and true or false }
 			pcall(function() rec.speed = num(api.engine.util.vehicle.getSpeed(v)) end)
 			pcall(function() rec.pos = vec3(api.engine.util.vehicle.getPosition(v)) end)
-			pcall(function() rec.icon_type = vehicleIconType(v) end)
-			pcall(function()
-				-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
-				local part = tv.transportVehicleConfig.vehicles[1]
-				local model = api.res.modelRep.get(part.part.modelId)
-				local d = model and model.metadata and model.metadata.description
-				if d and d.name and d.name ~= "" then rec.model = d.name end
-			end)
-			pcall(function()
-				-- language-neutral model keys of every part ("train/alco_hh600", "waggon/bilevel"...) for icons;
-				-- parts are in consist order, "-" prefix marks a reversed part
-				local parts = {}
-				for i, p in ipairs(arr(tv.transportVehicleConfig.vehicles)) do
-					local k = modelKey(p.part.modelId)
-					if k then parts[#parts + 1] = (p.part.reversed and "-" or "") .. k end
-				end
-				if #parts > 0 then rec.model_key = parts[1]:gsub("^%-", ""); rec.parts = table.concat(parts, ",") end
-			end)
 			local okL, loadN = pcall(sys.simEntityAtVehicleSystem.getVehicleSimEntitiesCount, v)
 			if okL and num(loadN) then rec.load = num(loadN)
 			else
@@ -319,18 +315,47 @@ local function collectVehicles()
 				end)
 			end
 			pcall(function() rec.maintenance = num(api.engine.util.vehicle.getVehicleMaintenanceState(v)) end)
-			pcall(function() rec.running_cost = num(api.engine.util.vehicle.getRunningCost(v)) end)
-			pcall(function() rec.value = num(api.engine.util.vehicle.getDepreciatedValue(v)) end)
 			pcall(function() rec.closest_town = num(tv.closestTown) end)
-			pcall(function()
-				local caps = arr(api.engine.util.vehicle.getVehicleCapacities(v)); local total = 0
-				for _, c in ipairs(caps) do total = total + (num(c) or 0) end
-				rec.capacity = total
-			end)
 			out[#out + 1] = rec
 		end
 	end
 	return out
+end
+
+local function vehiclesBegin()
+	return arr(api.engine.util.vehicle.getVehicles()), {}
+end
+
+local function vehicleStaticItem(v)
+	local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+	if not tv then return nil end
+	local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
+	pcall(function() rec.icon_type = vehicleIconType(v) end)
+	pcall(function()
+		-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
+		local part = tv.transportVehicleConfig.vehicles[1]
+		local model = api.res.modelRep.get(part.part.modelId)
+		local d = model and model.metadata and model.metadata.description
+		if d and d.name and d.name ~= "" then rec.model = d.name end
+	end)
+	pcall(function()
+		-- language-neutral model keys of every part ("train/alco_hh600", "waggon/bilevel"...) for icons;
+		-- parts are in consist order, "-" prefix marks a reversed part
+		local parts = {}
+		for i, p in ipairs(arr(tv.transportVehicleConfig.vehicles)) do
+			local k = modelKey(p.part.modelId)
+			if k then parts[#parts + 1] = (p.part.reversed and "-" or "") .. k end
+		end
+		if #parts > 0 then rec.model_key = parts[1]:gsub("^%-", ""); rec.parts = table.concat(parts, ",") end
+	end)
+	pcall(function() rec.running_cost = num(api.engine.util.vehicle.getRunningCost(v)) end)
+	pcall(function() rec.value = num(api.engine.util.vehicle.getDepreciatedValue(v)) end)
+	pcall(function()
+		local caps = arr(api.engine.util.vehicle.getVehicleCapacities(v)); local total = 0
+		for _, c in ipairs(caps) do total = total + (num(c) or 0) end
+		rec.capacity = total
+	end)
+	return rec
 end
 
 -- ---------------------------------------------------------------- terminals of a station group
@@ -790,10 +815,13 @@ local SLOW_SECTIONS = {
 	  label = function(it) return tostring(it[1]) .. "/" .. tostring(it[2]) end },
 	{ name = "industries", begin = function(c) return industriesBegin(c.names) end, item = industryItem },
 	{ name = "depots", begin = function(c) return depotsBegin(c.player) end, item = depotItem },
+	{ name = "vehicles", begin = function() return vehiclesBegin() end, item = vehicleStaticItem },
 }
 
 local slowJob = nil    -- cycle in progress
-local slowCache = nil  -- last complete cycle, merged into every fast snapshot
+local slowCache = nil  -- last cycle whose slow_*.lua files are all written: what the fast snapshots refer to
+local slowPending = nil    -- a finished cycle whose files are still being written (one per frame)
+local slowWriteQueue = {}  -- section names of slowPending still to be written
 
 local function slowJobStart(player, names, keys, seqNow)
 	local slow = { errors = {} }
@@ -898,14 +926,10 @@ local function buildSnapshot(player, names)
 		section(snap, "vehicles", collectVehicles)
 	end
 
-	for k, v in pairs(slowCache) do
-		if k == "errors" then
-			for _, e in ipairs(v) do snap.errors[#snap.errors + 1] = e end
-		else
-			snap[k] = v
-		end
-	end
+	-- the slow sections live in their own files; the fast snapshot only says which cycle they belong to, so the
+	-- collector knows when a new set is complete (slow_seq changes once all slow_*.lua of a cycle are written)
 	snap.slow_seq = slowCache.collected_seq
+	snap.slow_errors = slowCache.errors
 	snap.cmd_ack = lastAck
 	snap.accept_commands = options().accept_commands and true or false
 	return snap
@@ -916,6 +940,31 @@ local function writeSnapshot(snap)
 	if not ok then
 		log("saveUserdata failed:", tostring(err))
 		return false
+	end
+	return true
+end
+
+-- Slow sections are written one file per frame after a cycle completes: slow_lines.lua, slow_stations.lua...
+-- Each file carries the cycle number (slow_seq) so the collector can tell a complete set from a half-written one.
+-- Returns true when something was written this frame.
+local SLOW_FILE_SECTIONS = { "company", "cargo_types", "lines", "stations", "towns", "industries", "depots", "vehicles" }
+
+local function slowWriteNext()
+	if slowPending == nil then return false end
+	local name = table.remove(slowWriteQueue, 1)
+	if name == nil then
+		-- every file of the cycle is on disk: the next fast snapshot may now point at it
+		slowCache = slowPending
+		slowPending = nil
+		return false
+	end
+	local body = { schema = SCHEMA, mod = MOD_ID, slow_seq = slowPending.collected_seq, section = name, items = slowPending[name] or {} }
+	local t0 = os.clock()
+	local ok, err = pcall(app.saveUserdata, DIR, SLOW_FILE_PREFIX .. name, body)
+	if not ok then log("saveUserdata failed for " .. name .. ":", tostring(err))
+	elseif options().debug_log then
+		local dt = os.clock() - t0
+		if dt > 0.01 then log(string.format("slow file %s written in %.0fms", name, dt * 1000)) end
 	end
 	return true
 end
@@ -974,6 +1023,13 @@ local COMMANDS = {
 		local s = num(args and args.speed)
 		if s == nil or s < 0 or s > 4 then error("speed must be 0..4") end
 		return sendCmd(api.cmd.makeGameSetSpeedCmd(math.floor(s)))
+	end,
+	-- calendar speed (the game's "Calendar speed" slider: 0.25x .. 4x), independent from the simulation speed.
+	-- The engine stores it as the length of a day in ms; 1x = 4000 ms/day (observed: 16000 = 0.25x ... 1000 = 4x).
+	set_calendar_speed = function(args)
+		local f = num(args and args.factor)
+		if f == nil or f < 0.25 or f > 4 then error("factor must be 0.25..4") end
+		return sendCmd(api.cmd.makeGameSetCalendarSpeedCmd(math.floor(4000 / f + 0.5)))
 	end,
 	pause = function() return sendCmd(api.cmd.makeGameSetSpeedCmd(0)) end,
 	toggle_pause = function()
@@ -1149,19 +1205,40 @@ local COMMANDS = {
 	ping = function() return true end,
 }
 
-local function cmdFileExists()
+-- names present in the export folder (without .lua); loadUserdata logs a warning when a file is missing, so the
+-- listing is checked first. One listing per poll serves both cmd.lua and activity.lua.
+local function listUserdata()
+	local present = {}
 	local ok, list = pcall(app.getAllUserdata, DIR)
-	if not ok or type(list) ~= "table" then return false end
-	for _, n in pairs(list) do
-		if n == CMD_FILE or n == CMD_FILE .. ".lua" then return true end
-	end
-	return false
+	if not ok or type(list) ~= "table" then return present end
+	for _, n in pairs(list) do present[tostring(n):gsub("%.lua$", "")] = true end
+	return present
+end
+
+-- ---------------------------------------------------------------- activity hint (dashboard -> mod)
+-- The dashboard tells the mod when the player is interacting with it (click, key, wheel): their attention is on the
+-- second screen, so for ACTIVITY_WINDOW seconds the mod may do its heavy work (collect the slow cycle, write the
+-- slow_*.lua files) without anybody noticing a hitch in the game, and the dashboard gets fresh data right when it is
+-- being looked at. Not a command: works whatever "Permit game control" is set to, changes timing only.
+local ACTIVITY_FILE = "activity"
+local ACTIVITY_WINDOW = 2.0      -- seconds of relaxed budget after a hint
+local ACTIVITY_BUDGET = 0.05     -- per-frame budget for slow steps during the window (50 ms = a frame nobody sees)
+local ACTIVITY_MIN_AGE = 5.0     -- restart the slow cycle on a hint only if the last one is older than this
+local activityUntil = -1e9
+local lastActivityId = nil
+
+local function pollActivity(now)
+	local ok, a = pcall(app.loadUserdata, DIR, ACTIVITY_FILE)
+	pcall(app.removeUserdata, DIR, ACTIVITY_FILE)
+	if not ok or type(a) ~= "table" then return false end
+	if a.id ~= nil and a.id == lastActivityId then return false end
+	lastActivityId = a.id
+	activityUntil = now + ACTIVITY_WINDOW
+	return true
 end
 
 local function pollCommands()
 	if not options().accept_commands then return end
-	-- loadUserdata logs a warning when the file is missing: check the listing first
-	if not cmdFileExists() then return end
 	local ok, c = pcall(app.loadUserdata, DIR, CMD_FILE)
 	if not ok or type(c) ~= "table" or c.cmd == nil then return end
 	local id = c.id
@@ -1194,12 +1271,25 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	local o = options()
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
-		local okP, errP = pcall(pollCommands)
-		if not okP then debug("pollCommands failed:", tostring(errP)) end
+		local present = listUserdata()
+		if present[ACTIVITY_FILE] then
+			local okA, hinted = pcall(pollActivity, now)
+			if not okA then debug("pollActivity failed:", tostring(hinted))
+			elseif hinted then debug("activity hint: relaxed budget for " .. ACTIVITY_WINDOW .. "s") end
+		end
+		if present[CMD_FILE] then
+			local okP, errP = pcall(pollCommands)
+			if not okP then debug("pollCommands failed:", tostring(errP)) end
+		end
 	end
+	local active = now < activityUntil
 
-	-- slow cycle: start a job when due, then advance it a little on every frame
-	if slowJob == nil and (now - lastSlow) >= o.interval_slow then
+	-- slow cycle: start a job when due, then advance it a little on every frame; a finished cycle is then written
+	-- to its slow_*.lua files one per frame (slowWriteNext) before the fast snapshots start referring to it.
+	-- While the player is busy on the dashboard (activity hint) a cycle is started early and run with a much larger
+	-- per-frame budget, and the slow files are flushed in one go: the hitch lands while nobody watches the game.
+	local due = (now - lastSlow) >= o.interval_slow or (active and (now - lastSlow) >= ACTIVITY_MIN_AGE)
+	if slowJob == nil and slowPending == nil and due then
 		lastSlow = now
 		local ok, err = pcall(function()
 			local names, keys = cargoNames(true)
@@ -1210,16 +1300,29 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 	if slowJob ~= nil then
 		-- the very first cycle runs unthrottled so that the dashboard gets a complete picture right away
-		local ok, done = pcall(slowJobRun, slowCache == nil and 1e9 or SLOW_BUDGET)
+		local budget = SLOW_BUDGET
+		if slowCache == nil then budget = 1e9 elseif active then budget = ACTIVITY_BUDGET end
+		local ok, done = pcall(slowJobRun, budget)
 		if not ok then
 			log("slow cycle failed:", tostring(done))
 			slowJob = nil
 		elseif done then
-			slowCache = done
-			debug(string.format("slow cycle %d collected in %.2fs (%d lines, %d stations, %d towns, %d industries, %d depots)",
+			slowPending = done
+			slowWriteQueue = {}
+			for _, name in ipairs(SLOW_FILE_SECTIONS) do slowWriteQueue[#slowWriteQueue + 1] = name end
+			debug(string.format("slow cycle %d collected in %.2fs (%d lines, %d stations, %d towns, %d industries, %d depots, %d vehicles)",
 				done.collected_seq, done.collect_duration or 0, #(done.lines or {}), #(done.stations or {}), #(done.towns or {}),
-				#(done.industries or {}), #(done.depots or {})))
+				#(done.industries or {}), #(done.depots or {}), #(done.vehicles or {})))
 		end
+	end
+	if slowPending ~= nil then
+		-- one slow file per frame; on the very first cycle, or while the player is on the dashboard, write them all
+		-- now so that live.lua can follow at once
+		local okW, errW = pcall(function()
+			if slowCache == nil or active then while slowWriteNext() do end; slowWriteNext() else slowWriteNext() end
+		end)
+		if not okW then log("slow write failed:", tostring(errW)); slowPending = nil; slowWriteQueue = {} end
+		if slowPending ~= nil then return end  -- do not write live.lua in the same frame as a slow file
 	end
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
 

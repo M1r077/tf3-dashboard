@@ -18,7 +18,7 @@ Two halves:
 | Part | Where | What it does |
 |---|---|---|
 | **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/dashboard_export/live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
-| **Companion program (this repo)** | Your PC, Windows | `collector.py` watches `live.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python 3.12 standard library only — the release zip ships a bundled Python, nothing to install. |
+| **Companion program (this repo)** | Your PC, Windows | `collector.py` watches `live.lua` / `slow_*.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python 3.12 standard library only — the release zip ships a bundled Python, nothing to install. |
 
 The mod alone does nothing visible; the companion alone has nothing to show. mod.io cannot distribute programs,
 which is why the companion lives here.
@@ -30,6 +30,7 @@ which is why the companion lives here.
    `<Steam>\userdata\<id>\3493540\local\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere (e.g. `D:\Games\TF3 Dashboard`).
+   Mod rev 6+ needs companion 0.2.0+ (the export was split into several files).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
    press `F11`. Close the window to stop everything.
@@ -79,7 +80,7 @@ stations, towns, industries — default 30 s), export vehicles on/off, accept co
 ## Repository layout
 
 ```
-collector/      collector.py (live.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
+collector/      collector.py (live.lua + slow_*.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export) — https://mod.io/g/transportfever3/m/second-screen-dashboard
 docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)

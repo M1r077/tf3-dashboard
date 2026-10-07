@@ -301,8 +301,9 @@ class Store:
             self.con.execute(
                 """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, first_seen, last_seen, icon_type, model, model_key, parts)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                   ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier,
-                   capacity=excluded.capacity, last_seen=excluded.last_seen,
+                   ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=COALESCE(excluded.name, vehicle.name),
+                   carrier=COALESCE(excluded.carrier, vehicle.carrier), capacity=COALESCE(excluded.capacity, vehicle.capacity),
+                   last_seen=excluded.last_seen,
                    icon_type=COALESCE(excluded.icon_type, vehicle.icon_type), model=COALESCE(excluded.model, vehicle.model),
                    model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts)""",
                 (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now, now,
@@ -611,6 +612,80 @@ def read_live(path: Path, retries: int = 5, delay: float = 0.2) -> dict | None:
     return None
 
 
+# Mod schema 4 (rev 6+): live.lua only holds the fast part (time, finance, alerts, moving vehicle fields). The slow
+# sections are in slow_<section>.lua next to it, each tagged with the slow_seq of the cycle it belongs to. The mod
+# writes them one per frame and only then lets live.lua point at the new slow_seq, so when live.lua says slow_seq N
+# every slow_*.lua is either already N or about to be re-read. SlowFiles re-reads a file when its mtime changes and
+# assembles a schema-3-shaped snapshot (everything in one dict) so that Store.ingest did not have to change.
+SLOW_SECTIONS = ("company", "cargo_types", "lines", "stations", "towns", "industries", "depots", "vehicles")
+# static vehicle fields moved to slow_vehicles.lua in schema 4
+VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_key", "parts", "running_cost", "value")
+
+
+class SlowFiles:
+    def __init__(self, live: Path):
+        self.dir = live.parent
+        self.mtime: dict[str, float] = {}
+        # section -> {slow_seq: items}; the two most recent cycles are kept because the mod may already be
+        # writing cycle N+1 while live.lua still refers to N
+        self.data: dict[str, dict[Any, Any]] = {}
+
+    def refresh(self) -> None:
+        for name in SLOW_SECTIONS:
+            p = self.dir / f"slow_{name}.lua"
+            try:
+                m = os.path.getmtime(p)
+            except OSError:
+                continue
+            if m == self.mtime.get(name):
+                continue
+            for _ in range(3):
+                try:
+                    d = luatable.load(str(p))
+                    if isinstance(d, dict) and "slow_seq" in d:
+                        # keep the two most recently *read* cycles (dict order = insertion order); not the two
+                        # highest: slow_seq restarts at 1 when a save is (re)loaded
+                        versions = self.data.setdefault(name, {})
+                        versions.pop(d["slow_seq"], None)
+                        versions[d["slow_seq"]] = d.get("items")
+                        while len(versions) > 2:
+                            del versions[next(iter(versions))]
+                        self.mtime[name] = m
+                        break
+                except (luatable.LuaParseError, OSError, ValueError):
+                    pass
+                time.sleep(0.1)
+
+    def complete_for(self, slow_seq: Any) -> bool:
+        return all(slow_seq in self.data.get(n, {}) for n in SLOW_SECTIONS)
+
+    def merge(self, snap: dict) -> dict:
+        """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
+        ss = snap.get("slow_seq")
+        out = dict(snap)
+        errors = list(as_list(snap.get("errors")))
+        errors.extend(as_list(snap.get("slow_errors")))
+        out["errors"] = errors
+        for name in SLOW_SECTIONS:
+            if name == "vehicles":
+                continue
+            out[name] = self.data.get(name, {}).get(ss)
+        static = {g(v, "id"): v for v in as_list(self.data.get("vehicles", {}).get(ss)) if isinstance(v, dict)}
+        merged = []
+        for v in as_list(snap.get("vehicles")):
+            if not isinstance(v, dict):
+                continue
+            s = static.get(v.get("id"))
+            if s:
+                v = dict(v)
+                for k in VEHICLE_STATIC:
+                    if k in s and k not in v:
+                        v[k] = s[k]
+            merged.append(v)
+        out["vehicles"] = merged
+        return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--live", type=Path, default=None, help="path to live.lua written by the mod (default: auto-detect Steam userdata / config.json)")
@@ -663,6 +738,8 @@ def main(argv: list[str] | None = None) -> int:
     imported = 0
     next_rollup = 0.0
     next_detect = 0.0
+    slow_files: SlowFiles | None = None
+    warned_incomplete = False
     try:
         while True:
             if args.live is None or (last_mtime < 0 and not args.live.exists()):
@@ -694,6 +771,24 @@ def main(argv: list[str] | None = None) -> int:
                 if snap is None:
                     say("could not parse live.lua (will retry)")
                 else:
+                    schema = snap.get("schema") or 1
+                    if schema >= 4:
+                        # mod rev 6+: slow sections in slow_*.lua; wait until the set matching live.lua is complete
+                        if slow_files is None:
+                            slow_files = SlowFiles(args.live)
+                        slow_files.refresh()
+                        if not slow_files.complete_for(snap.get("slow_seq")):
+                            if not warned_incomplete or time.time() >= warned_incomplete:
+                                have = {n: sorted(v) for n, v in slow_files.data.items()}
+                                say(f"waiting for the mod's slow_*.lua files to reach slow_seq {snap.get('slow_seq')} "
+                                    f"(normal for a few seconds after loading a save); have: {have}")
+                                warned_incomplete = time.time() + 30
+                            # re-check the live file on the next loop even if its mtime did not change
+                            last_mtime = -1.0
+                            time.sleep(args.poll)
+                            continue
+                        warned_incomplete = False
+                        snap = slow_files.merge(snap)
                     try:
                         sid = store.ingest(snap)
                     except Exception as e:  # noqa: BLE001 - one bad snapshot must not kill the collector

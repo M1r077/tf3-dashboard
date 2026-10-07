@@ -15,12 +15,25 @@ Pane helpers: `_collector.cmd`, `_server.cmd [--port N] [--db PATH]` (stay open 
 Three independent parts:
 
 1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *Second Screen Dashboard*): a game
-   script that writes `<Steam>\userdata\<id>\3493540\local\dashboard_export\live.lua` via `app.saveUserdata` (folder
-   auto-detected by `collector\tf3paths.py`: Steam registry, or `config.json`).
-   - fast sections (default 2 s): `time`, `finance`, `alerts`, `vehicles`
-   - slow sections (default 30 s): `company`, `lines`, `stations`, `towns`, `industries`, `depots`, `cargo_types`
+   script that writes `<Steam>\userdata\<id>\3493540\local\dashboard_export\live.lua` and `slow_<section>.lua` via
+   `app.saveUserdata` (folder auto-detected by `collector\tf3paths.py`: Steam registry, or `config.json`).
+   - fast sections (default 2 s, `live.lua`): `time`, `finance`, `alerts`, `vehicles` (moving fields only: state,
+     line, stop, position, speed, load, maintenance)
+   - slow sections (default 30 s, one file each: `slow_company.lua`, `slow_cargo_types.lua`, `slow_lines.lua`,
+     `slow_stations.lua`, `slow_towns.lua`, `slow_industries.lua`, `slow_depots.lua`, `slow_vehicles.lua` = static
+     vehicle fields: name, consist, model, capacity, icon, costs)
+   - **why separate files (rev 6, schema 4)**: `app.saveUserdata` serialises and writes the whole table in the calling
+     frame. Up to rev 5 everything went into `live.lua`: ~300 KB rewritten every 1-2 s on a 35-line map, of which 90 %
+     only changes every slow cycle. Measured 4-5 ms build + 15-19 ms write per snapshot on a fast PC, which we did not
+     feel; on a slower PC (disk, antivirus rescanning the file) it was a stutter every second. The author's machine
+     hid the problem, a tester's machine showed it. Now `live.lua` is ~30 KB, and after a slow cycle completes its
+     files are written **one per frame** (largest: `slow_lines.lua`, ~130-180 KB, once per cycle), then `live.lua`
+     starts referring to the new `slow_seq`. The collector waits until every `slow_*.lua` carries the `slow_seq`
+     announced by `live.lua` before ingesting (it keeps the two latest cycles per file), then merges everything back
+     into one snapshot so the database layer did not change. Mod rev 6 needs companion >= 0.2.0; an older companion
+     would see snapshots without lines/towns and log "waiting for the mod's slow_*.lua files".
    - the slow cycle is **time-sliced** (rev 5): it is a job that collects one entity (line, station, town...) per step
-     and `guiUpdate` only runs steps for `SLOW_BUDGET` (3 ms) per frame, then resumes on the next frame. A cycle
+     and `guiUpdate` only runs steps for `SLOW_BUDGET` (2 ms) per frame, then resumes on the next frame. A cycle
      therefore spreads over a few dozen frames instead of stalling one frame for several hundred ms. The result replaces
      the previous slow data atomically when the job is complete (`slow_seq` semantics unchanged); only the very first
      cycle after loading runs unthrottled so that the first snapshot is complete. Shared lookups (`getTpNetData`,
@@ -61,10 +74,20 @@ Three independent parts:
      dashboard follows the game language while the selector is on "auto")
    - **return channel (dashboard -> game)**: the mod reads `dashboard_export\cmd.lua` 4x/s (`app.loadUserdata`),
      executes the command if it is in the whitelist, deletes the file and reports `cmd_ack` in the next snapshot.
-     Commands: set_speed (0 = pause, 1, 2, 4), pause, toggle_pause, focus_entity, focus_position, follow_entity,
+     Commands: set_speed (0 = pause, 1, 2, 4), set_calendar_speed (factor 0.25..4 = the game's "Calendar speed"
+     slider; the engine stores a day length in ms, 1x = 4000 ms/day, so 0.25x = 16000 and 4x = 1000 — observed in
+     the exported `millis_per_day`), pause, toggle_pause, focus_entity, focus_position, follow_entity,
      select_entity (opens the entity window in the game, like a click), open_line_manager (line/vehicle manager on a
      line), close_windows, vehicle_stop, vehicle_start, vehicle_reverse, vehicle_depart, vehicle_to_depot, ping.
      Nothing irreversible (no buying, selling, demolishing).
+   - **activity hint (dashboard -> mod, rev 6)**: on every real interaction with the dashboard (click, key, wheel,
+     throttled to one per 1.5 s) the server writes `dashboard_export\activity.lua` (`POST /api/activity`). The mod
+     polls it with the same folder listing as `cmd.lua`, deletes it, and for `ACTIVITY_WINDOW` (2 s) relaxes its
+     timing: a slow cycle is started at once if the previous one is older than `ACTIVITY_MIN_AGE` (5 s), slow steps
+     run with `ACTIVITY_BUDGET` (50 ms per frame instead of 2 ms) and all `slow_*.lua` files are flushed in the same
+     frame. Rationale: the only moments when a hitch in the game is invisible are the moments when the player is
+     looking at the second screen — and those are exactly the moments when fresh data is wanted. It is not a
+     command: it works whatever *Permit game control* says and never changes the game state, only when the mod works.
      **Line management**: line_set_stop (load mode, min/max stop time, extra wait, cargos not loaded, forced unload
      at a stop; the mod copies the Line component, changes the given fields and sends makeLineUpdateCmd, exactly like
      the game's filter window; the route is never touched), line_set_all_stops, line_stop_all / line_start_all /

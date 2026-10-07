@@ -18,6 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+VERSION = "0.1.1"  # companion version (semver); build_release.cmd reads this line
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
 import tf3paths  # noqa: E402
@@ -129,7 +131,7 @@ def one(sql: str, args: tuple = ()) -> dict | None:
 def api_overview(q: dict) -> dict:
     snap = one("SELECT * FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
     if not snap:
-        return {"empty": True}
+        return {"empty": True, "version": VERSION}
     sid = snap["snapshot_id"]
     gid = snap["game_id"]
     fin = one("SELECT * FROM finance WHERE snapshot_id=?", (sid,)) or {}
@@ -152,7 +154,7 @@ def api_overview(q: dict) -> dict:
             ack = None
     pending = (CMD_DIR / "cmd.lua").exists() if CMD_DIR else False
     return {"snapshot": snap, "finance": fin, "company": comp, "vehicles": veh, "alerts": alerts, "errors": errors,
-            "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"),
+            "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION,
             "commands": {"enabled": not CMD_DISABLED, "accepted": snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
@@ -588,7 +590,7 @@ def main(argv=None) -> int:
     if not DB_PATH.exists():
         print(f"database not found: {DB_PATH} (start collector.py first)", file=sys.stderr)
     srv = ThreadingHTTPServer((args.host, port), Handler)
-    print(f"TF3 dashboard: http://{args.host}:{port}/   db={DB_PATH}", flush=True)
+    print(f"TF3 dashboard {VERSION}: http://{args.host}:{port}/   db={DB_PATH}", flush=True)
     if not CMD_DISABLED:
         print(f"commands -> {CMD_DIR or '(game folder not found yet, will retry on first command)'}", flush=True)
     try:

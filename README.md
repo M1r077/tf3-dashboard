@@ -88,8 +88,17 @@ test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simu
 
 ## Building a release
 
-`build_release.cmd 0.1.0` downloads the official Python embeddable package, assembles `release/TF3-Dashboard-0.1.0.zip`
+`build_release.cmd` downloads the official Python embeddable package, assembles `release/TF3-Dashboard-<version>.zip`
 (companion + Python, ~15 MB) and `release/tf3_dashboard_export-rev<N>.zip` (the mod for manual installation).
+
+Two independent version numbers:
+
+- **companion**: `VERSION` in `dashboard/server.py` (shown next to the title in the dashboard). Semver-ish: patch
+  (`0.1.x`) for fixes and small adjustments, minor (`0.x.0`) for new features, a new database schema or a dependency
+  on a newer mod revision. Every version is a git tag `v<version>` and a GitHub release with its zip, never rebuilt
+  afterwards.
+- **mod**: `revision` in `mod/tf3_dashboard_export/mod.json`, bumped at each mod.io update only. The
+  `tf3_dashboard_export-rev<N>.zip` is attached to a release only when the revision changed.
 
 ## License
 

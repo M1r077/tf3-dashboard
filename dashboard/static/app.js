@@ -277,6 +277,7 @@
   async function renderTop() {
     const o = await api("/api/overview");
     const dot = $("#st-dot"), txt = $("#st-text");
+    if (o.version) $("#brand-ver").textContent = o.version;
     if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); return null; }
     if (o.lang && o.lang !== i18n.gameLang) {
       i18n.gameLang = o.lang;

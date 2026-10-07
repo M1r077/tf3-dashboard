@@ -1,11 +1,14 @@
 @echo off
 REM Builds the release zip: TF3-Dashboard-<version>.zip (companion program + bundled Python, no installation needed)
 REM and tf3_dashboard_export-rev<N>.zip (the mod, for manual installation outside mod.io).
-REM Usage: build_release.cmd 0.1.0
+REM Usage: build_release.cmd           (the version is VERSION = "x.y.z" in dashboard\server.py; bump it there first)
 setlocal
 cd /d "%~dp0"
-set VERSION=%~1
-if "%VERSION%"=="" (echo usage: build_release.cmd ^<version^>  e.g. 0.1.0 & exit /b 1)
+for /f "tokens=2 delims==" %%v in ('findstr /b /c:"VERSION = " dashboard\server.py') do set VERSION=%%v
+for /f "tokens=1 delims=# " %%v in ("%VERSION%") do set VERSION=%%v
+set VERSION=%VERSION:"=%
+if "%VERSION%"=="" (echo could not read VERSION from dashboard\server.py & exit /b 1)
+echo [build] version %VERSION%
 set PYVER=3.12.10
 set PYZIP=python-%PYVER%-embed-amd64.zip
 set PYURL=https://www.python.org/ftp/python/%PYVER%/%PYZIP%

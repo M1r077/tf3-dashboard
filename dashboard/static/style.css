@@ -19,6 +19,7 @@ small { color: var(--muted); font-weight: normal; }
 #topbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .brand { font-size: 20px; font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
 .brand span { color: var(--accent); font-weight: 300; }
+.brand small { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; vertical-align: 2px; }
 .vital { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; }
 .kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; min-width: 120px; }
 .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }

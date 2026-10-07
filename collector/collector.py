@@ -742,6 +742,21 @@ def main(argv: list[str] | None = None) -> int:
         if not dg["live_exists"]:
             say("live.lua is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
                 "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded")
+    last_log_sig = None
+
+    def report_game_log():
+        # what the game itself says (crash_dump/stdout.txt): its userdata folder, whether the mod ran, write errors.
+        # Printed once per log change, only while nothing is coming in
+        nonlocal last_log_sig
+        info = tf3paths.game_log(args.live.parent if args.live else None)
+        sig = (info["log"], int(info["log_mtime"])) if info else None
+        if sig == last_log_sig:
+            return
+        last_log_sig = sig
+        for line in tf3paths.game_log_lines(info, args.live.parent if args.live else None):
+            say(line)
+
+    report_game_log()
     last_mtime = -1.0
     imported = 0
     next_rollup = 0.0
@@ -767,6 +782,7 @@ def main(argv: list[str] | None = None) -> int:
                         say("still no Transport Fever 3 userdata folder found (is the game installed on this PC?)")
                     else:
                         say(f"still waiting for {args.live} (mod enabled in the savegame? map loaded?)")
+                    report_game_log()
                 if args.live is None:
                     if args.once:
                         return 1

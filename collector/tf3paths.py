@@ -8,7 +8,9 @@ Resolution order:
      profile.lua there when it is not the Steam build; %LOCALAPPDATA% is scanned too, best effort)
   5. macOS: ~/Library/Application Support/Transport Fever 3 ; Linux: ~/.local/share/Transport Fever 3
 When several candidates exist, the one whose live.lua was modified most recently wins; a candidate whose
-dashboard_export folder does not exist yet is kept (the game creates it at the first export).
+dashboard_export folder does not exist yet is kept (ensure_export_dir creates it: the game does not always).
+game_log() reads the game's own crash_dump/stdout.txt to cross-check: which userdata folder the game really uses,
+whether the mod was loaded and whether its writes succeeded.
 Stdlib only.
 """
 from __future__ import annotations
@@ -16,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent      # the TF3 Dashboard folder
@@ -192,6 +195,108 @@ def ensure_export_dir(explicit: str | os.PathLike | None = None) -> list[Path]:
     return created
 
 
+_LOG_CACHE: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
+def _parse_game_log(log: Path) -> dict | None:
+    """What the game's own log says: which userdata folder it uses (line 5 of every stdout.txt), whether our mod was
+    loaded and from where, how many snapshots it wrote and whether saveUserdata refused. Cached per (mtime, size)."""
+    try:
+        st = log.stat()
+    except OSError:
+        return None
+    key = str(log).lower()
+    sig = (int(st.st_mtime), st.st_size)
+    hit = _LOG_CACHE.get(key)
+    if hit and hit[0] == sig:
+        return hit[1]
+    try:
+        text = log.read_bytes().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    info: dict = {"log": str(log), "log_mtime": st.st_mtime, "userdata": None, "mod_loaded": False,
+                  "mod_source": None, "mod_lines": 0, "written": 0, "save_errors": 0, "last_error": None,
+                  "last_mod_line": None}
+    for line in text.splitlines():
+        if info["userdata"] is None and "User data folder:" in line:
+            info["userdata"] = line.split("User data folder:", 1)[1].strip()
+        elif "tf3_dashboard_export" in line and "ModHubMod" in line:
+            info["mod_loaded"] = True
+            if "(source: " in line:
+                info["mod_source"] = line.split("(source: ", 1)[1].split(")", 1)[0]
+        elif "[dashboard_export]" in line:
+            info["mod_lines"] += 1
+            body = line.split("[dashboard_export]", 1)[1].strip()
+            info["last_mod_line"] = body[:200]
+            if "saveUserdata failed" in body:
+                info["save_errors"] += 1
+                info["last_error"] = body[:200]
+            elif body.startswith("seq ") and " written" in body:
+                info["written"] += 1
+    _LOG_CACHE[key] = (sig, info)
+    return info
+
+
+def game_log(explicit: str | os.PathLike | None = None) -> dict | None:
+    """The most recently written game log among all userdata folders on this PC (plus the watched one): that is the
+    installation the player actually runs. None when no stdout.txt exists anywhere."""
+    roots = [r for _, r in userdata_roots()]
+    d = export_dir(explicit)
+    if d is not None:
+        roots.append(d.parent)
+    best: dict | None = None
+    seen: set[str] = set()
+    for r in roots:
+        key = str(r).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        info = _parse_game_log(r / "crash_dump" / "stdout.txt")
+        if info and (best is None or info["log_mtime"] > best["log_mtime"]):
+            best = info
+    if best is not None:
+        best = dict(best)
+        best["log_age_s"] = max(0.0, time.time() - best["log_mtime"])
+        ud = best["userdata"]
+        if ud and d is not None:
+            best["userdata_matches"] = _same_path(Path(ud), d.parent)
+        else:
+            best["userdata_matches"] = None
+    return best
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    def norm(p: Path) -> str:
+        try:
+            p = p.resolve()
+        except OSError:
+            pass
+        return str(p).replace("/", "\\").rstrip("\\").lower()
+    return norm(a) == norm(b)
+
+
+def game_log_lines(info: dict | None, watched_dir: Path | None) -> list[str]:
+    """Human summary of game_log(), one line each, for the collector console."""
+    if not info:
+        return []
+    out = [f"game log: {info['log']} ({int(info['log_age_s'] // 60)} min old)"]
+    if info["userdata"]:
+        if info["userdata_matches"] is False and watched_dir is not None:
+            out.append(f"  !! the game uses userdata folder {info['userdata']} but the companion watches "
+                       f"{watched_dir}: create {CONFIG.name} with the game's folder + \\{EXPORT_SUBDIR}, or check "
+                       f"which Steam account launches the game")
+        else:
+            out.append(f"  game userdata folder: {info['userdata']}")
+    if not info["mod_loaded"]:
+        out.append("  the mod 'Second Screen Dashboard' is NOT in the game's mod list (subscribe in the Mod Hub)")
+    else:
+        out.append(f"  mod loaded from {info['mod_source'] or '?'}; {info['written']} snapshot(s) written, "
+                   f"{info['save_errors']} write error(s)" + (f": {info['last_error']}" if info["last_error"] else ""))
+        if info["mod_lines"] == 0:
+            out.append("  the mod never ran: enable it in the Mods menu of the savegame and load the map")
+    return out
+
+
 def not_found_hint() -> str:
     appdata = os.environ.get("APPDATA", r"C:\Users\<you>\AppData\Roaming").replace("\\", "\\\\")
     return (
@@ -205,8 +310,8 @@ def not_found_hint() -> str:
 
 def diag(explicit: str | os.PathLike | None = None) -> dict:
     """What the dashboard needs to explain an empty database: where the game's export is looked for and what was
-    found there. Cheap (a few stat calls), safe to call on every poll."""
-    import time
+    found there, plus what the game's own log says. Cheap (a few stat calls; the log is re-read only when it
+    changed), safe to call on every poll."""
     d = export_dir(explicit)
     source = "explicit" if explicit else "config" if load_config().get("export_dir") else \
         "env" if os.environ.get("TF3_EXPORT_DIR") else "auto"
@@ -229,6 +334,7 @@ def diag(explicit: str | os.PathLike | None = None) -> dict:
             out.update(live_exists=True, live_age_s=max(0.0, time.time() - st.st_mtime), live_size=st.st_size)
         except OSError:
             pass
+    out["game_log"] = game_log(explicit)
     return out
 
 

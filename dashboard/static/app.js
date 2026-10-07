@@ -354,6 +354,17 @@
       // at startup, so a missing folder here means it could not
       if (!d.dir_exists) step(false, t("setup_folder_missing", { store: esc(d.store || d.source) }), where + "<br>" + t("setup_folder_missing_help"));
       else step(true, t("setup_folder", { store: esc(d.store || (d.source === "config" ? "config.json" : d.source)) }), where);
+      // 1b. what the game's own log (crash_dump/stdout.txt) says, when it contradicts the above: another userdata
+      // folder (other Steam account, moved profile), mod not in the list, mod never ran, writes refused
+      const g = d.game_log;
+      if (g && !d.live_exists) {
+        const logRef = mono(g.log);
+        if (g.userdata_matches === false) step(false, t("setup_log_other_folder"), t("setup_log_other_folder_help", { dir: mono(g.userdata), cfg: mono("config.json"), log: logRef }));
+        else if (!g.mod_loaded) step(false, t("setup_log_no_mod"), t("setup_log_no_mod_help", { log: logRef }));
+        else if (g.save_errors > 0) step(false, t("setup_log_write_error", { n: g.save_errors }), mono(g.last_error) + "<br>" + t("setup_log_write_error_help", { log: logRef }));
+        else if (g.mod_lines === 0) step(false, t("setup_log_mod_idle"), t("setup_log_mod_idle_help", { log: logRef }));
+        else step(null, t("setup_log_ok", { n: g.written, src: esc(g.mod_source || "?") }), logRef);
+      }
       // 2. live.lua written by the mod
       if (!d.live_exists) step(false, t("setup_no_live"), t("setup_no_live_help") + " " + t("setup_no_live_log"));
       else if (d.live_age_s > 120) step(false, t("setup_live_old", { ago: fmtDur(d.live_age_s) }), t("setup_live_old_help"));

@@ -53,8 +53,17 @@ Three independent parts:
      `_metadata\mod.io_fileid.txt` (git-ignored, written by the Mod Hub at the first upload) must be present in the
      staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
      changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
-     After an update the Mod Hub silently unsubscribes the author (the mod.io copy disappears from
+      After an update the Mod Hub silently unsubscribes the author (the mod.io copy disappears from
      `C:\Users\Public\mod.io\<game>\mods\<id>`): subscribe again.
+     **Do not trust `stdout.txt` to tell whether the upload worked**: a successful update (rev 6) still logged
+     `Uploading mod file .../.cooked_pc/` followed by `[Error][Http] Non 200-204 response received: {"error":{"code":500,...}}`,
+     several `Mod with ID: <id> changed status: unknown error` and `Staging Mod ... has modified files`; the same
+     `unknown error` lines appear on a plain re-subscribe. The 500 comes from a later request of the sequence, after
+     the files were stored. Check on the website instead: mod page -> Admin -> Files, every update adds a pair of files
+     (Win/Mac/Linux + XSX/PS5), the live pair has its *Publish* button greyed out. The site shows "Version 1.0" for every
+     file (the game does not send the revision); the only reliable revision number is `revision` in the `mod.json` inside
+     the zip, or in the local copy after subscribing again (`C:\Users\Public\mod.io\<game>\mods\<id>\mod.json`, which
+     keeps the old revision until then).
    - **staging always wins over mod.io**: when two installed mods share the same `modId`, the game loads only one of
      them, and it is the staging copy (`stdout.txt`: `Multiple (2) mods with same id found tf3_dashboard_export, the
      one from .../staging_area/tf3_dashboard_export/ has been selected`). The two "Second Screen Dashboard" entries

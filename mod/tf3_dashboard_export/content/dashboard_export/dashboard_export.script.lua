@@ -597,9 +597,11 @@ local function collectTowns(cargoNames)
 			end
 		end)
 		-- What the town window shows ("supplied / needed"): townBuildingSystem.getCargoSupplyAndLimit(town[, landUse])
-		-- -> { cargoType = { supply, limit, n } }. Exported raw as v1/v2/v3, one flat list: land_use 0 = whole town,
-		-- 1/2/3 = residential/commercial/industrial. The dashboard shows the same figures as the game; the exact
-		-- meaning of v3 is not documented, so it is exported as is.
+		-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
+		-- "supplied / needed". One flat list: land_use 0 = whole town (no argument); 1..3 = the API's landUse argument
+		-- as is. Observed 0-based: 1 = commercial cargos, 2 = industrial cargos, 3 = nothing (residential = 0 has no
+		-- cargo, so it collides harmlessly with "whole town"). v3 = an internal group id, same for all cargos of a land
+		-- use, stored but not displayed.
 		pcall(function()
 			rec.supply = {}
 			local function dump(landUse)

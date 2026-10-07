@@ -29,6 +29,10 @@ Three independent parts:
      `_metadata\mod.io_fileid.txt` (git-ignored, written by the Mod Hub at the first upload) must be present in the
      staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
      changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
+   - **testing a new revision in game before publishing**: the staging copy is itself loadable. In the savegame's mod
+     manager two "Second Screen Dashboard" entries appear: disable the mod.io one, enable the staging one, reload.
+     Settings are kept (same modId). Never copy the mod into `local\mods\` as well: three entries with the same modId
+     are indistinguishable in the list.
    - must be enabled in the savegame (Mods menu), like any script mod
    - also exports the game language (`time.lang`), the icon type of each vehicle (icon_type: Bus, Truck,
      TrainSteam/Electric/Diesel, Tram, Aircraft, Helicopter, Ship), the localized model name (`model`), the neutral model
@@ -134,7 +138,7 @@ Three independent parts:
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
-  `town_state`, `town_cargo`, `town_supply` (supplied / needed, whole town + per land use), `town_top_line`,
+  `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, 1 = commercial, 2 = industrial), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`

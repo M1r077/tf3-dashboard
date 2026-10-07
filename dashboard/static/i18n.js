@@ -57,7 +57,7 @@ window.I18N = {
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "15m": "15 min", "1h": "1 h", "3h": "3 h", "6h": "6 h", "12h": "12 h", "24h": "24 h", "7d": "7 days", all: "all" }, range_title: "Time range of the charts (real time)",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "all" }, range_title: "Time range of the charts (real time)",
     samples_range: "{n} points · {r}", chart_agg: "1-min average", chart_one_point: "1 point — the curve appears with the next sample", no_data_yet: "no data yet",
     chart_hint: "drag: zoom · double-click: reset · click a legend entry: hide/show",
     set_layout: "Panels", layout_edit: "Arrange panels", layout_reset_all: "Reset all tabs", layout_reset_tab: "Reset this tab", layout_done: "Done",
@@ -124,7 +124,7 @@ window.I18N = {
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "15m": "15 min", "1h": "1 h", "3h": "3 h", "6h": "6 h", "12h": "12 h", "24h": "24 h", "7d": "7 jours", all: "tout" }, range_title: "Plage de temps des graphiques (temps réel)",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "tout" }, range_title: "Plage de temps des graphiques (temps réel)",
     samples_range: "{n} points · {r}", chart_agg: "moyenne 1 min", chart_one_point: "1 point — la courbe apparaît au prochain relevé", no_data_yet: "pas encore de données",
     chart_hint: "glisser : zoom · double-clic : réinitialiser · clic sur la légende : masquer/afficher",
     set_layout: "Panneaux", layout_edit: "Organiser les panneaux", layout_reset_all: "Réinitialiser tous les onglets", layout_reset_tab: "Réinitialiser cet onglet", layout_done: "Terminé",
@@ -190,7 +190,7 @@ window.I18N = {
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "15m": "15 Min", "1h": "1 h", "3h": "3 h", "6h": "6 h", "12h": "12 h", "24h": "24 h", "7d": "7 Tage", all: "alles" }, range_title: "Zeitbereich der Diagramme (Echtzeit)",
+    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", all: "alles" }, range_title: "Zeitbereich der Diagramme (Echtzeit)",
     samples_range: "{n} Punkte · {r}", chart_agg: "1-Min-Mittel", chart_one_point: "1 Punkt — die Kurve erscheint mit der nächsten Messung", no_data_yet: "noch keine Daten",
     chart_hint: "Ziehen: Zoom · Doppelklick: zurücksetzen · Klick auf Legende: ein-/ausblenden",
     set_layout: "Panels", layout_edit: "Panels anordnen", layout_reset_all: "Alle Tabs zurücksetzen", layout_reset_tab: "Diesen Tab zurücksetzen", layout_done: "Fertig",

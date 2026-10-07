@@ -443,7 +443,7 @@ def api_map(q: dict) -> dict:
 
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
-RANGES = {"15m": 900, "1h": 3600, "3h": 3 * 3600, "6h": 6 * 3600, "12h": 12 * 3600, "24h": 86400, "7d": 7 * 86400, "all": 0}
+RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
 
 
 def _range(q: dict) -> str:

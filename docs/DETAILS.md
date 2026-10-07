@@ -120,7 +120,7 @@ Three independent parts:
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
-     between the charts of one tab. Time range (15 min ... 7 d, all) right of the tabs; the older part (per-minute
+     between the charts of one tab. Time range (5 min ... 1 h, all) right of the tabs; the older part (per-minute
      averages, see retention) is hatched and marked "1 min average" in the tooltip.
    - **Panel layout** (pencil top right, or Settings > Panels): in each tab, drag a panel by its handle to reorder,
      pull the right edge (width, in 12ths of the grid) or the bottom edge (fixed height: charts and lists fill the card),

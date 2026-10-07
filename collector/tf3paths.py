@@ -29,6 +29,19 @@ DEFAULT_DB = ROOT / "db" / "tf3_dashboard.db"
 DEFAULT_PORT = 8765
 
 
+def version() -> str:
+    """Companion version: the VERSION = "x.y.z" line of dashboard/server.py (single source, also read by
+    build_release.cmd); the collector must not import the server to know it."""
+    try:
+        with open(ROOT / "dashboard" / "server.py", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("VERSION = "):
+                    return line.split('"')[1]
+    except (OSError, IndexError):
+        pass
+    return "?"
+
+
 def load_config() -> dict:
     try:
         with open(CONFIG, encoding="utf-8") as f:
@@ -275,26 +288,64 @@ def _same_path(a: Path, b: Path) -> bool:
     return norm(a) == norm(b)
 
 
-def game_log_lines(info: dict | None, watched_dir: Path | None) -> list[str]:
-    """Human summary of game_log(), one line each, for the collector console."""
+def game_log_lines(info: dict | None, watched_dir: Path | None) -> list[tuple[str, str]]:
+    """Human summary of game_log() for the collector console: (level, text) pairs, levels as in console.py."""
     if not info:
         return []
-    out = [f"game log: {info['log']} ({int(info['log_age_s'] // 60)} min old)"]
+    out = [("info", f"game log: {info['log']} ({int(info['log_age_s'] // 60)} min old)")]
     if info["userdata"]:
         if info["userdata_matches"] is False and watched_dir is not None:
-            out.append(f"  !! the game uses userdata folder {info['userdata']} but the companion watches "
-                       f"{watched_dir}: create {CONFIG.name} with the game's folder + \\{EXPORT_SUBDIR}, or check "
-                       f"which Steam account launches the game")
+            out.append(("error", f"the game uses userdata folder {info['userdata']} but the companion watches "
+                        f"{watched_dir}: create {CONFIG.name} with the game's folder + \\{EXPORT_SUBDIR}, or check "
+                        f"which Steam account launches the game"))
         else:
-            out.append(f"  game userdata folder: {info['userdata']}")
+            out.append(("info", f"game userdata folder: {info['userdata']}"))
     if not info["mod_loaded"]:
-        out.append("  the mod 'Second Screen Dashboard' is NOT in the game's mod list (subscribe in the Mod Hub)")
+        out.append(("warn", "the mod 'Second Screen Dashboard' is NOT in the game's mod list (subscribe in the Mod Hub)"))
     else:
-        out.append(f"  mod loaded from {info['mod_source'] or '?'}; {info['written']} snapshot(s) written, "
-                   f"{info['save_errors']} write error(s)" + (f": {info['last_error']}" if info["last_error"] else ""))
-        if info["mod_lines"] == 0:
-            out.append("  the mod never ran: enable it in the Mods menu of the savegame and load the map")
+        summary = (f"mod loaded from {info['mod_source'] or '?'}; {info['written']} snapshot(s) written, "
+                   f"{info['save_errors']} write error(s)")
+        if info["save_errors"]:
+            out.append(("error", summary + f": {info['last_error']}"))
+        elif info["mod_lines"] == 0:
+            out.append(("warn", summary))
+            out.append(("warn", "the mod never ran: enable it in the Mods menu of the savegame and load the map"))
+        else:
+            out.append(("ok", summary))
     return out
+
+
+_SYNC_MARKERS = ("onedrive", "dropbox", "google drive", "googledrive", "iclouddrive", "icloud drive", "nextcloud",
+                 "pcloud")  # matched as a prefix of a folder name ("OneDrive - Company", "Dropbox (Personal)")
+
+
+def synced_dirs(*paths: str | os.PathLike | None) -> list[str]:
+    """Among ROOT and the given paths, those that live in a cloud-synced folder (well-known folder names, OneDrive
+    environment variables). SQLite and sync clients do not mix: locked files, conflict copies, files-on-demand
+    placeholders -> empty or corrupt database."""
+    roots = [os.environ.get(v) for v in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial")]
+    roots = [str(Path(r)).lower().rstrip("\\") for r in roots if r]
+    out: list[str] = []
+    seen: set[str] = set()
+    for p in (ROOT, *paths):
+        if p is None:
+            continue
+        s = str(Path(p)).lower()
+        if s in seen:
+            continue
+        seen.add(s)
+        hit = any(part.startswith(m) for part in Path(s).parts for m in _SYNC_MARKERS) or \
+            any(s.startswith(r + "\\") or s == r for r in roots)
+        if hit:
+            out.append(str(p))
+    return out
+
+
+def sync_warning(*paths: str | os.PathLike | None) -> list[str]:
+    """Console text for synced_dirs()."""
+    return [f"{'the companion' if Path(p) == ROOT else 'the database'} is in a cloud-synced folder ({p}). SQLite "
+            f"databases and OneDrive/Dropbox do not mix (locked files, conflict copies, empty database): move "
+            f"TF3-Dashboard to e.g. C:\\TF3-Dashboard" for p in synced_dirs(*paths)]
 
 
 def not_found_hint() -> str:
@@ -308,7 +359,7 @@ def not_found_hint() -> str:
     )
 
 
-def diag(explicit: str | os.PathLike | None = None) -> dict:
+def diag(explicit: str | os.PathLike | None = None, db: str | os.PathLike | None = None) -> dict:
     """What the dashboard needs to explain an empty database: where the game's export is looked for and what was
     found there, plus what the game's own log says. Cheap (a few stat calls; the log is re-read only when it
     changed), safe to call on every poll."""
@@ -335,6 +386,7 @@ def diag(explicit: str | os.PathLike | None = None) -> dict:
         except OSError:
             pass
     out["game_log"] = game_log(explicit)
+    out["synced_dirs"] = synced_dirs(db)
     return out
 
 

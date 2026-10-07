@@ -375,7 +375,10 @@
       if (!d.db_exists || !d.snapshots) step(false, t("setup_no_db"), t("setup_no_db_help", { db: mono(d.db) }));
       else step(d.last_snapshot_age_s < 120, t("setup_db", { n: d.snapshots, ago: fmtDur(d.last_snapshot_age_s) }), null);
     }
-    $("#setup-body").innerHTML = `<ol class="steps">${steps.join("")}</ol><p class="muted small">${t("setup_footer", { v: esc(d.version || "") })}</p>`;
+    // the companion itself running from OneDrive/Dropbox: not a step of the chain, but a classic cause of an empty or
+    // corrupt SQLite database, so say it here
+    const sync = (d.synced_dirs || []).length ? `<p class="setup-warn">${t("setup_sync_warning", { dir: mono(d.synced_dirs[0]) })}</p>` : "";
+    $("#setup-body").innerHTML = sync + `<ol class="steps">${steps.join("")}</ol><p class="muted small">${t("setup_footer", { v: esc(d.version || "") })}</p>`;
   }
   function fmtDur(s) { if (s == null) return "–"; if (s < 90) return t("dur_s", { n: Math.round(s) }); if (s < 5400) return t("dur_m", { n: Math.round(s / 60) }); return t("dur_h", { n: Math.round(s / 360) / 10 }); }
 

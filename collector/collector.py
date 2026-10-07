@@ -22,9 +22,11 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import console  # noqa: E402
 import luatable  # noqa: E402
 import tf3paths  # noqa: E402
 
+VERSION = tf3paths.version()
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
 ERROR_LOG = tf3paths.ROOT / "db" / "collector_errors.log"
 
@@ -722,26 +724,30 @@ def main(argv: list[str] | None = None) -> int:
         print(f"game {args.forget_game} forgotten: {st}")
         return 0
 
-    def say(msg: str):
+    def say(msg: str, level: str = "info"):
         if not args.quiet:
-            print(f"[{iso()}] {msg}", flush=True)
+            console.say(msg, level)
 
-    say(f"db: {args.db}")
+    if not args.quiet:
+        console.banner(f"TF3 Dashboard collector {VERSION}", f"database: {args.db}")
+    for w in tf3paths.sync_warning(args.db):
+        say(w, "warn")
     # the game does not always create the export folder itself (saveUserdata then fails with "directory not
     # available"): make sure it exists wherever the game may write
     for d in tf3paths.ensure_export_dir(args.live.parent if args.live else None):
-        say(f"created {d} for the game to write into")
+        say(f"created {d} for the game to write into", "ok")
     if args.live is None:
-        say(tf3paths.not_found_hint())
+        say(tf3paths.not_found_hint(), "error")
         if args.once:
             return 1
-        say("waiting for the game to create it...")
+        say("waiting for the game to create it...", "wait")
     else:
         dg = tf3paths.diag(args.live.parent)
-        say(f"watching: {args.live}  ({dg['store'] or 'configured'} userdata folder)")
+        say(f"watching: {args.live}  ({dg['store'] or 'configured'} userdata folder)", "ok")
         if not dg["live_exists"]:
             say("live.lua is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
-                "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded")
+                "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded",
+                "wait")
     last_log_sig = None
 
     def report_game_log():
@@ -753,8 +759,8 @@ def main(argv: list[str] | None = None) -> int:
         if sig == last_log_sig:
             return
         last_log_sig = sig
-        for line in tf3paths.game_log_lines(info, args.live.parent if args.live else None):
-            say(line)
+        for level, line in tf3paths.game_log_lines(info, args.live.parent if args.live else None):
+            say(line, level)
 
     report_game_log()
     last_mtime = -1.0
@@ -764,6 +770,18 @@ def main(argv: list[str] | None = None) -> int:
     next_wait_msg = time.time() + 30
     slow_files: SlowFiles | None = None
     warned_incomplete = False
+    # console compaction: the first few snapshots in full, then one summary line per minute; anything unusual
+    # (error, new game, import resuming after a gap) is shown in full at once
+    FULL_LINES = 5
+    minute: dict = {"n": 0, "since": time.time(), "last": None}
+    last_import_at = 0.0
+    last_game_key = None
+
+    def flush_minute():
+        if minute["n"] and minute["last"]:
+            say(f"{minute['n']} snapshots in the last minute, last: {minute['last']}", "ok")
+        minute["n"], minute["since"] = 0, time.time()
+
     try:
         while True:
             if args.live is None or (last_mtime < 0 and not args.live.exists()):
@@ -771,17 +789,17 @@ def main(argv: list[str] | None = None) -> int:
                 if time.time() >= next_detect:
                     next_detect = time.time() + 5
                     for d in tf3paths.ensure_export_dir():  # the game may have been started meanwhile
-                        say(f"created {d} for the game to write into")
+                        say(f"created {d} for the game to write into", "ok")
                     found = tf3paths.live_path()
                     if found is not None and found.exists() and found != args.live:
                         args.live = found
-                        say(f"watching: {args.live}")
+                        say(f"watching: {args.live}", "ok")
                 if time.time() >= next_wait_msg:
                     next_wait_msg = time.time() + 30
                     if args.live is None:
-                        say("still no Transport Fever 3 userdata folder found (is the game installed on this PC?)")
+                        say("still no Transport Fever 3 userdata folder found (is the game installed on this PC?)", "wait")
                     else:
-                        say(f"still waiting for {args.live} (mod enabled in the savegame? map loaded?)")
+                        say(f"still waiting for {args.live} (mod enabled in the savegame? map loaded?)", "wait")
                     report_game_log()
                 if args.live is None:
                     if args.once:
@@ -792,8 +810,10 @@ def main(argv: list[str] | None = None) -> int:
                 try:
                     store.rollup(args.detail_hours, args.slow_days, say=say)
                 except sqlite3.Error as e:
-                    say(f"rollup failed: {e}")
+                    say(f"rollup failed: {e}", "error")
                 next_rollup = time.time() + 60
+            if minute["n"] and time.time() - minute["since"] >= 60:
+                flush_minute()
             try:
                 mtime = os.path.getmtime(args.live)
             except OSError:
@@ -802,7 +822,7 @@ def main(argv: list[str] | None = None) -> int:
                 last_mtime = mtime
                 snap = read_live(args.live)
                 if snap is None:
-                    say("could not parse live.lua (will retry)")
+                    say("could not parse live.lua (will retry)", "error")
                 else:
                     schema = snap.get("schema") or 1
                     if schema >= 4:
@@ -814,7 +834,7 @@ def main(argv: list[str] | None = None) -> int:
                             if not warned_incomplete or time.time() >= warned_incomplete:
                                 have = {n: sorted(v) for n, v in slow_files.data.items()}
                                 say(f"waiting for the mod's slow_*.lua files to reach slow_seq {snap.get('slow_seq')} "
-                                    f"(normal for a few seconds after loading a save); have: {have}")
+                                    f"(normal for a few seconds after loading a save); have: {have}", "wait")
                                 warned_incomplete = time.time() + 30
                             # re-check the live file on the next loop even if its mtime did not change
                             last_mtime = -1.0
@@ -828,7 +848,8 @@ def main(argv: list[str] | None = None) -> int:
                         import traceback
                         store.con.rollback()
                         tb = traceback.format_exc()
-                        say(f"ingest failed (seq={snap.get('seq')}): {e!r} -- see {ERROR_LOG}")
+                        flush_minute()
+                        say(f"ingest failed (seq={snap.get('seq')}): {e!r} -- see {ERROR_LOG}", "error")
                         with open(ERROR_LOG, "a", encoding="utf-8") as fh:
                             fh.write(f"\n===== {iso()} seq={snap.get('seq')} slow_seq={snap.get('slow_seq')}\n{tb}")
                         sid = None
@@ -836,18 +857,35 @@ def main(argv: list[str] | None = None) -> int:
                         imported += 1
                         t = snap.get("time") or {}
                         f = snap.get("finance") or {}
-                        say(f"snapshot #{sid} seq={snap.get('seq')} {t.get('year')}-{t.get('month'):0>2}-{t.get('day'):0>2} "
-                            f"speed={t.get('speed')} balance={f.get('balance')} vehicles={len(as_list(snap.get('vehicles')))} "
-                            f"errors={len(as_list(snap.get('errors')))}")
+                        n_err = len(as_list(snap.get("errors")))
+                        desc = (f"seq={snap.get('seq')} {t.get('year')}-{t.get('month'):0>2}-{t.get('day'):0>2} "
+                                f"speed={t.get('speed')} balance={f.get('balance')} vehicles={len(as_list(snap.get('vehicles')))}"
+                                + (f" errors={n_err}" if n_err else ""))
+                        now = time.time()
+                        game_key = snap.get("player")  # same key Store.game_id() uses to tell saves apart
+                        resumed = now - last_import_at > 120 and last_import_at > 0
+                        if imported <= FULL_LINES or resumed or n_err or (game_key and game_key != last_game_key):
+                            flush_minute()
+                            if resumed:
+                                say(f"export resumed after {int((now - last_import_at) // 60)} min", "ok")
+                            say(f"snapshot #{sid} {desc}", "ok" if not n_err else "warn")
+                            if imported == FULL_LINES:
+                                say("from now on: one summary line per minute (errors are always shown)", "info")
+                        else:
+                            minute["n"] += 1
+                            minute["last"] = desc
+                        last_import_at = now
+                        last_game_key = game_key or last_game_key
             if args.once:
                 if mtime <= 0:
-                    say("live.lua not found")
+                    say("live.lua not found", "error")
                     return 1
                 break
             time.sleep(args.poll)
     except KeyboardInterrupt:
         pass
-    say(f"done, {imported} snapshot(s) imported")
+    flush_minute()
+    say(f"done, {imported} snapshot(s) imported", "info")
     return 0
 
 

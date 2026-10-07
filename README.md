@@ -29,8 +29,9 @@ which is why the companion lives here.
    savegame's mod list (like any script mod — **subscribing is not enough, the mod must be ticked in the savegame**).
    Or copy `mod/tf3_dashboard_export` to `<userdata>\mods\` (see [docs/DETAILS.md](docs/DETAILS.md)).
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
-   [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere (e.g. `D:\Games\TF3 Dashboard`).
-   Mod rev 6+ needs companion 0.2.0+ (the export was split into several files).
+   [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere **except a cloud-synced folder**
+   (OneDrive Desktop/Documents, Dropbox...): the history is a SQLite database and sync clients lock or duplicate it.
+   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod rev 6+ needs companion 0.2.0+.
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
    press `F11`. Close the window to stop everything.
@@ -49,10 +50,14 @@ game folder found → `live.lua` written by the mod → snapshots stored by the 
   (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you trying to access is not available`.
   The companion creates the folder when it starts (0.2.2+); with an older companion, create it by hand next to
   `save\` and reload the savegame;
+- the game writes to another userdata folder than the one the companion watches (another Steam account, moved
+  profile): the checklist reads the game's own log (`crash_dump\stdout.txt`) and shows the folder it uses (0.2.3+);
+- the companion runs from OneDrive/Dropbox: see Install, move it;
 - the game is installed in an unusual place: create `config.json` (see Configuration).
 
-The "TF3 Dashboard Collector" pane says the same thing in text (`watching: ...live.lua`, then one
-`snapshot #N seq=...` line per export). When reporting a problem, copy the checklist or that pane, and the lines
+The "TF3 Dashboard Collector" pane says the same thing in text, colour-coded: green = fine, yellow = waiting or
+warning, red = something to fix. Once snapshots flow it prints one summary line per minute (errors are always
+shown). When reporting a problem, copy the checklist or that pane, and the lines
 containing `dashboard_export` from `stdout.txt`.
 
 Running from source instead of the release zip: you need Python 3.10+ on the PATH (`winget install Python.Python.3.12`).

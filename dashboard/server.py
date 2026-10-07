@@ -18,10 +18,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.3"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.4"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
+import console  # noqa: E402
 import tf3paths  # noqa: E402
 
 DEFAULT_DB = tf3paths.DEFAULT_DB
@@ -543,7 +544,7 @@ def _gid() -> int:
 def api_diag(q: dict) -> dict:
     """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
     is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
-    d = tf3paths.diag(CMD_DIR if CMD_DIR and CMD_DIR.is_dir() else None)
+    d = tf3paths.diag(CMD_DIR if CMD_DIR and CMD_DIR.is_dir() else None, DB_PATH)
     d["version"] = VERSION
     d["db"] = str(DB_PATH)
     d["db_exists"] = DB_PATH.exists()
@@ -574,9 +575,16 @@ MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; cha
 
 
 class Handler(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):  # quieter
-        if "/api/" not in (args[0] if args else ""):
-            sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+    def log_message(self, fmt, *args):
+        # the default handler logs every request; here only failed ones (4xx/5xx). Pages, static files, icons and
+        # polling stay silent; commands sent to the game are logged in do_POST where the command name is known
+        req = str(args[0]) if args else ""
+        code = str(args[1]) if len(args) > 1 else ""
+        if code[:1] in ("4", "5"):
+            console.say(f"{code} {req}", "warn" if code == "404" else "error")
+
+    def log_error(self, fmt, *args):  # routed through log_message already (4xx/5xx)
+        pass
 
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -624,6 +632,7 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
             res = write_command(str(body.get("cmd", "")), body.get("args") or {})
+            console.say(f"command -> game: {body.get('cmd')} {json.dumps(body.get('args') or {})}", "info")
             self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
         except (ValueError, TypeError) as e:
             self._send(400, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
@@ -644,14 +653,20 @@ def main(argv=None) -> int:
     port = tf3paths.port(args.port)
     CMD_DISABLED = bool(args.no_cmd)
     CMD_DIR = None if CMD_DISABLED else tf3paths.export_dir(args.cmd_dir)
+    console.banner(f"TF3 Dashboard server {VERSION}", f"database: {DB_PATH}",
+                   f"commands -> {'disabled' if CMD_DISABLED else CMD_DIR or '(game folder not found yet, will retry on first command)'}")
+    for w in tf3paths.sync_warning(DB_PATH):
+        console.say(w, "warn")
     for d in tf3paths.ensure_export_dir(args.cmd_dir):  # the game may not create its export folder itself
-        print(f"created {d} for the game to write into", flush=True)
+        console.say(f"created {d} for the game to write into", "ok")
     if not DB_PATH.exists():
-        print(f"database not found: {DB_PATH} (start collector.py first)", file=sys.stderr)
-    srv = ThreadingHTTPServer((args.host, port), Handler)
-    print(f"TF3 dashboard {VERSION}: http://{args.host}:{port}/   db={DB_PATH}", flush=True)
-    if not CMD_DISABLED:
-        print(f"commands -> {CMD_DIR or '(game folder not found yet, will retry on first command)'}", flush=True)
+        console.say("database not found yet (the collector creates it at the first snapshot)", "wait")
+    try:
+        srv = ThreadingHTTPServer((args.host, port), Handler)
+    except OSError as e:
+        console.say(f"cannot listen on port {port}: {e}", "error")
+        return 1
+    console.say(f"open http://{args.host}:{port}/ in your browser (full screen on the second monitor: F11)", "ok")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

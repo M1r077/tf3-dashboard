@@ -45,10 +45,15 @@ game folder found → `live.lua` written by the mod → snapshots stored by the 
 
 - the mod is subscribed but **not enabled in the savegame** (Mods menu of the savegame): no `live.lua`;
 - the game is in the main menu: the mod only exports while a map is loaded;
+- the `dashboard_export` folder does not exist: on some installations the game does not create it and its log
+  (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you trying to access is not available`.
+  The companion creates the folder when it starts (0.2.2+); with an older companion, create it by hand next to
+  `save\` and reload the savegame;
 - the game is installed in an unusual place: create `config.json` (see Configuration).
 
 The "TF3 Dashboard Collector" pane says the same thing in text (`watching: ...live.lua`, then one
-`snapshot #N seq=...` line per export). When reporting a problem, copy the checklist or that pane.
+`snapshot #N seq=...` line per export). When reporting a problem, copy the checklist or that pane, and the lines
+containing `dashboard_export` from `stdout.txt`.
 
 Running from source instead of the release zip: you need Python 3.10+ on the PATH (`winget install Python.Python.3.12`).
 No pip, no venv, no packages.

@@ -349,9 +349,13 @@
       step(false, t("setup_no_folder"), t("setup_no_folder_help", { cfg: mono("config.json"), ex: mono(`{ "export_dir": "%APPDATA%\\Transport Fever 3\\dashboard_export" }`) }));
     } else {
       const others = (d.candidates || []).filter(c => c.dir.toLowerCase() !== d.export_dir.toLowerCase());
-      step(true, t("setup_folder", { store: esc(d.store || (d.source === "config" ? "config.json" : d.source)) }), mono(d.export_dir) + (others.length ? `<br>${t("setup_other_folders")} ${others.map(c => `${esc(c.store)}: ${mono(c.dir)}`).join(", ")}` : ""));
+      const where = mono(d.export_dir) + (others.length ? `<br>${t("setup_other_folders")} ${others.map(c => `${esc(c.store)}: ${mono(c.dir)}`).join(", ")}` : "");
+      // the game does not always create dashboard_export itself (saveUserdata then fails); the companion creates it
+      // at startup, so a missing folder here means it could not
+      if (!d.dir_exists) step(false, t("setup_folder_missing", { store: esc(d.store || d.source) }), where + "<br>" + t("setup_folder_missing_help"));
+      else step(true, t("setup_folder", { store: esc(d.store || (d.source === "config" ? "config.json" : d.source)) }), where);
       // 2. live.lua written by the mod
-      if (!d.live_exists) step(false, t("setup_no_live"), t("setup_no_live_help"));
+      if (!d.live_exists) step(false, t("setup_no_live"), t("setup_no_live_help") + " " + t("setup_no_live_log"));
       else if (d.live_age_s > 120) step(false, t("setup_live_old", { ago: fmtDur(d.live_age_s) }), t("setup_live_old_help"));
       else step(true, t("setup_live_ok", { ago: fmtDur(d.live_age_s) }), null);
     }

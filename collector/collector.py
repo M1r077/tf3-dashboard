@@ -727,6 +727,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{iso()}] {msg}", flush=True)
 
     say(f"db: {args.db}")
+    # the game does not always create the export folder itself (saveUserdata then fails with "directory not
+    # available"): make sure it exists wherever the game may write
+    for d in tf3paths.ensure_export_dir(args.live.parent if args.live else None):
+        say(f"created {d} for the game to write into")
     if args.live is None:
         say(tf3paths.not_found_hint())
         if args.once:
@@ -751,6 +755,8 @@ def main(argv: list[str] | None = None) -> int:
                 # nothing yet: re-run detection every few seconds (first start, other Steam account, game not launched)
                 if time.time() >= next_detect:
                     next_detect = time.time() + 5
+                    for d in tf3paths.ensure_export_dir():  # the game may have been started meanwhile
+                        say(f"created {d} for the game to write into")
                     found = tf3paths.live_path()
                     if found is not None and found.exists() and found != args.live:
                         args.live = found

@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.1"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.2"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -644,6 +644,8 @@ def main(argv=None) -> int:
     port = tf3paths.port(args.port)
     CMD_DISABLED = bool(args.no_cmd)
     CMD_DIR = None if CMD_DISABLED else tf3paths.export_dir(args.cmd_dir)
+    for d in tf3paths.ensure_export_dir(args.cmd_dir):  # the game may not create its export folder itself
+        print(f"created {d} for the game to write into", flush=True)
     if not DB_PATH.exists():
         print(f"database not found: {DB_PATH} (start collector.py first)", file=sys.stderr)
     srv = ThreadingHTTPServer((args.host, port), Handler)

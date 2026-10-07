@@ -168,6 +168,30 @@ def port(explicit: int | None = None) -> int:
         return DEFAULT_PORT
 
 
+def ensure_export_dir(explicit: str | os.PathLike | None = None) -> list[Path]:
+    """Create the dashboard_export folder wherever the game may look for it. app.saveUserdata does not create the
+    folder itself on every installation ("The directory you trying to access is not available or invalid" in
+    stdout.txt, reported by a Steam user), so the companion does: one empty folder per existing userdata root (and the
+    configured/explicit folder when its parent exists). Returns the folders that were created now."""
+    targets = [r / EXPORT_SUBDIR for _, r in userdata_roots()]
+    d = export_dir(explicit)
+    if d and d.parent.is_dir():
+        targets.append(d)
+    created: list[Path] = []
+    seen: set[str] = set()
+    for t in targets:
+        key = str(t).lower()
+        if key in seen or t.is_dir():
+            continue
+        seen.add(key)
+        try:
+            t.mkdir()
+            created.append(t)
+        except OSError:
+            pass
+    return created
+
+
 def not_found_hint() -> str:
     appdata = os.environ.get("APPDATA", r"C:\Users\<you>\AppData\Roaming").replace("\\", "\\\\")
     return (

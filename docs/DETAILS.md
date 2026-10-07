@@ -29,6 +29,9 @@ Three independent parts:
      `_metadata\mod.io_fileid.txt` (git-ignored, written by the Mod Hub at the first upload) must be present in the
      staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
      changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
+     After an update the Mod Hub silently unsubscribes the author (the mod.io copy disappears from
+     `C:\Users\Public\mod.io\<game>\mods\<id>`): subscribe again, then in the savegame enable the mod.io entry and disable
+     the staging one.
    - **testing a new revision in game before publishing**: the staging copy is itself loadable. In the savegame's mod
      manager two "Second Screen Dashboard" entries appear: disable the mod.io one, enable the staging one, reload.
      Settings are kept (same modId). Never copy the mod into `local\mods\` as well: three entries with the same modId

@@ -11,6 +11,9 @@ local MOD_ID = "tf3_dashboard_export"
 local SCHEMA = 3  -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply
 local DIR = "dashboard_export"
 local FILE = "live"
+-- The slow sections (lines, stations, towns, industries, depots) are collected one item per step, a few steps per
+-- frame, so that a slow cycle never stalls the game: this is the CPU budget per guiUpdate call, in seconds.
+local SLOW_BUDGET = 0.003
 
 -- ---------------------------------------------------------------- params
 local PARAM_VALUES = {
@@ -348,12 +351,10 @@ local function cargoClassesOf(cargoIds)
 	return classes
 end
 
-local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses)
+local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 	local out = {}
 	local sg = api.engine.getComponent(groupEntity, api.type.ComponentType.STATION_GROUP)
 	if not sg then return out end
-	local tpNet = nil
-	pcall(function() tpNet = api.engine.system.transportNetworkSystem.getTpNetData() end)
 	local n = 0
 	for si, stationEntity in ipairs(arr(sg.stations)) do
 		local station = api.engine.getComponent(stationEntity, api.type.ComponentType.STATION)
@@ -414,10 +415,18 @@ local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses)
 	return out
 end
 
-local function collectLines(player, cargoNames)
-	local out = {}
+-- Each slow section is split in two: a "begin" that lists the items and fetches the shared maps once, and an
+-- "item" function called for one entity at a time by the time-sliced driver (see slowJob below).
+local function linesBegin(player, cargoNames)
+	local ctx = { names = cargoNames }
+	pcall(function() ctx.tpNet = api.engine.system.transportNetworkSystem.getTpNetData() end)
+	return arr(api.engine.system.lineSystem.getLinesForPlayer(player)), ctx
+end
+
+local function lineItem(l, ctx)
 	local sys = api.engine.system
-	for _, l in ipairs(arr(sys.lineSystem.getLinesForPlayer(player))) do
+	local cargoNames = ctx.names
+	do
 		local line = api.engine.getComponent(l, api.type.ComponentType.LINE)
 		local rec = { id = l, name = entityName(l), stops = line and count(line.stops) or 0 }
 		pcall(function() local c = api.engine.getComponent(l, api.type.ComponentType.COLOR); if c then rec.color = vec3(c.color) end end)
@@ -489,7 +498,7 @@ local function collectLines(player, cargoNames)
 					local alts = {}
 					for _, a in ipairs(arr(s.alternativeTerminals)) do alts[#alts + 1] = { station = num(a.station), terminal = num(a.terminal) } end
 					st.alternatives = alts
-					st.terminals = terminalsOfGroup(s.stationGroup, lineModes, lineClasses)
+					st.terminals = terminalsOfGroup(s.stationGroup, lineModes, lineClasses, ctx.tpNet)
 					local over = {}
 					pcall(function()
 						for stTerm in pairs(sys.transportVehicleSystem.checkLineStopForVehicleOverlength(l, i - 1)) do
@@ -501,19 +510,22 @@ local function collectLines(player, cargoNames)
 				rec.stop_list[i] = st
 			end
 		end)
-		out[#out + 1] = rec
+		return rec
 	end
-	return out
 end
 
-local function collectStations(player)
-	local out = {}
+local function stationsBegin(player)
 	local sys = api.engine.system
-	local st2town = {}
-	pcall(function() st2town = sys.stationSystem.getStation2TownMap() end)
-	local st2con = {}
-	pcall(function() st2con = sys.streetConnectorSystem.getStation2ConstructionMap() end)
-	for _, s in ipairs(arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.STATION))) do
+	local ctx = { player = player, st2town = {}, st2con = {} }
+	pcall(function() ctx.st2town = sys.stationSystem.getStation2TownMap() end)
+	pcall(function() ctx.st2con = sys.streetConnectorSystem.getStation2ConstructionMap() end)
+	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.STATION)), ctx
+end
+
+local function stationItem(s, ctx)
+	local sys = api.engine.system
+	local st2town, st2con, player = ctx.st2town, ctx.st2con, ctx.player
+	do
 		local owned = api.engine.getComponent(s, api.type.ComponentType.PLAYER_OWNED)
 		if owned and owned.player == player then
 			local rec = { id = s, name = entityName(s), town = num(st2town[s]) }
@@ -543,20 +555,25 @@ local function collectStations(player)
 					end
 				end)
 			end
-			out[#out + 1] = rec
+			return rec
 		end
 	end
-	return out
+	return nil
 end
 
-local function collectTowns(cargoNames)
-	local out = {}
+local function townsBegin(cargoNames)
 	local sys = api.engine.system
-	local caps = {}
-	pcall(function() caps = sys.townBuildingSystem.getTown2personCapacitiesMap() end)
-	local traffic = {}
-	pcall(function() traffic = api.engine.util.town.computeTownsTrafficSpeedMap(1.0) end)
-	for _, t in ipairs(arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.TOWN))) do
+	local ctx = { names = cargoNames, caps = {}, traffic = {}, buildings = {} }
+	pcall(function() ctx.caps = sys.townBuildingSystem.getTown2personCapacitiesMap() end)
+	pcall(function() ctx.traffic = api.engine.util.town.computeTownsTrafficSpeedMap(1.0) end)
+	pcall(function() ctx.buildings = sys.townBuildingSystem.getTown2BuildingMap() end)
+	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.TOWN)), ctx
+end
+
+local function townItem(t, ctx)
+	local sys = api.engine.system
+	local cargoNames, caps, traffic = ctx.names, ctx.caps, ctx.traffic
+	do
 		local town = api.engine.getComponent(t, api.type.ComponentType.TOWN)
 		local rec = { id = t, name = entityName(t), development_active = town and town.developmentActive and true or false }
 		pcall(function() local c = arr(caps[t]); rec.cap_res, rec.cap_com, rec.cap_ind = num(c[1]), num(c[2]), num(c[3]) end)
@@ -618,15 +635,18 @@ local function collectTowns(cargoNames)
 		end)
 		pcall(function() rec.pos = vec3(api.engine.util.town.getTownDistrictCenter(t, 1)) end)
 		pcall(function() rec.stations = count(sys.stationSystem.getStations(t)) end)
-		pcall(function() rec.buildings = count(sys.townBuildingSystem.getTown2BuildingMap()[t]) end)
-		out[#out + 1] = rec
+		pcall(function() rec.buildings = count(ctx.buildings[t]) end)
+		return rec
 	end
-	return out
 end
 
-local function collectIndustries(cargoNames)
-	local out = {}
-	for _, i in ipairs(arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY))) do
+local function industriesBegin(cargoNames)
+	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)), { names = cargoNames }
+end
+
+local function industryItem(i, ctx)
+	local cargoNames = ctx.names
+	do
 		local ind = api.engine.getComponent(i, api.type.ComponentType.INDUSTRY)
 		if ind then
 			local rec = { id = i, name = entityName(i), level = num(ind.level), max_level = num(ind.maxLevel), closure_time = num(ind.closureTimeStamp),
@@ -660,17 +680,20 @@ local function collectIndustries(cargoNames)
 					rec.outputs[#rec.outputs + 1] = r
 				end
 			end)
-			out[#out + 1] = rec
+			return rec
 		end
 	end
-	return out
+	return nil
 end
 
-local function collectDepots(player)
-	local out = {}
-	for _, d in ipairs(arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.VEHICLE_DEPOT))) do
+local function depotsBegin(player)
+	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.VEHICLE_DEPOT)), { player = player }
+end
+
+local function depotItem(d, ctx)
+	do
 		local owned = api.engine.getComponent(d, api.type.ComponentType.PLAYER_OWNED)
-		if owned and owned.player == player then
+		if owned and owned.player == ctx.player then
 			local dep = api.engine.getComponent(d, api.type.ComponentType.VEHICLE_DEPOT)
 			local carrier = nil
 			if dep and dep.carrier ~= nil then carrier = enumName("Carrier", CARRIERS, dep.carrier) end
@@ -686,10 +709,10 @@ local function collectDepots(player)
 				maintenance_pool = num(dep and dep.maintenancePool), pool_max = num(dep and dep.maxPoolUsage), pool_avg = num(dep and dep.averagePoolUsage) }
 			pcall(function() rec.vehicles = count(api.engine.system.transportVehicleSystem.getDepotVehicles(d)) end)
 			pcall(function() rec.incoming = count(api.engine.system.transportVehicleSystem.getGoingToDepotVehicles(d)) end)
-			out[#out + 1] = rec
+			return rec
 		end
 	end
-	return out
+	return nil
 end
 
 -- Cargo types: localized display name (follows the game language) + a language-neutral key derived from
@@ -712,20 +735,94 @@ local function cargoNames(refresh)
 	return cargoNamesCache or names, cargoKeysCache or keys
 end
 
+-- ---------------------------------------------------------------- slow sections, time-sliced
+-- A slow cycle used to collect everything (every line with all its terminals, every station, town, industry and
+-- depot) in one guiUpdate call: with a few dozen lines that is a visible stutter every slow interval. Instead the
+-- cycle is a job that walks through the sections one entity per step; guiUpdate runs steps until SLOW_BUDGET is
+-- spent and resumes on the next frame. The result replaces slowCache in one go when the job is complete, so the
+-- snapshot never mixes two cycles (slow_seq semantics unchanged for the collector).
+local SLOW_SECTIONS = {
+	{ name = "lines", begin = function(c) return linesBegin(c.player, c.names) end, item = lineItem },
+	{ name = "stations", begin = function(c) return stationsBegin(c.player) end, item = stationItem },
+	{ name = "towns", begin = function(c) return townsBegin(c.names) end, item = townItem },
+	{ name = "industries", begin = function(c) return industriesBegin(c.names) end, item = industryItem },
+	{ name = "depots", begin = function(c) return depotsBegin(c.player) end, item = depotItem },
+}
+
+local slowJob = nil    -- cycle in progress
+local slowCache = nil  -- last complete cycle, merged into every fast snapshot
+
+local function slowJobStart(player, names, keys, seqNow)
+	local slow = { errors = {} }
+	section(slow, "company", collectCompany)
+	slow.cargo_types = {}
+	for id, n in pairs(names) do slow.cargo_types[#slow.cargo_types + 1] = { id = id, name = n, key = keys[id] } end
+	-- the collector detects a new cycle by a change of slow_seq: keep it strictly increasing even if no fast
+	-- snapshot was written between two cycles
+	if slowCache and slowCache.collected_seq and seqNow <= slowCache.collected_seq then seqNow = slowCache.collected_seq + 1 end
+	slow.collected_seq = seqNow
+	slowJob = { slow = slow, common = { player = player, names = names }, sec = 1, items = nil, ctx = nil, i = 0, started = os.clock() }
+end
+
+-- one step = one entity of the current section; returns true when the whole job is finished
+local function slowJobStep()
+	local job = slowJob
+	local def = SLOW_SECTIONS[job.sec]
+	if def == nil then return true end
+	if job.items == nil then
+		local ok, items, ctx = pcall(def.begin, job.common)
+		if not ok then
+			job.slow.errors[#job.slow.errors + 1] = { section = def.name, error = tostring(items) }
+			job.slow[def.name] = {}
+			job.sec = job.sec + 1
+			return SLOW_SECTIONS[job.sec] == nil
+		end
+		job.items, job.ctx, job.i = items, ctx or {}, 0
+		job.slow[def.name] = {}
+	end
+	job.i = job.i + 1
+	local e = job.items[job.i]
+	if e == nil then
+		job.items, job.ctx = nil, nil
+		job.sec = job.sec + 1
+		return SLOW_SECTIONS[job.sec] == nil
+	end
+	local ok, rec = pcall(def.item, e, job.ctx)
+	if ok then
+		if rec ~= nil then local out = job.slow[def.name]; out[#out + 1] = rec end
+	else
+		-- one broken entity must not hide the whole section: report and go on
+		job.slow.errors[#job.slow.errors + 1] = { section = def.name, error = tostring(e) .. ": " .. tostring(rec) }
+	end
+	return false
+end
+
+-- run steps until the budget is spent; returns the finished slow table or nil
+local function slowJobRun(budget)
+	if slowJob == nil then return nil end
+	local t0 = os.clock()
+	repeat
+		if slowJobStep() then
+			local slow = slowJob.slow
+			slow.collect_duration = os.clock() - slowJob.started
+			slowJob = nil
+			return slow
+		end
+	until os.clock() - t0 >= budget
+	return nil
+end
+
 -- ---------------------------------------------------------------- snapshot
 local seq = 0
 local lastFast, lastSlow = -1e9, -1e9
-local slowCache = nil
 local announced = false
+local lastCmdId = nil
+local lastAck = nil
 
-local function buildSnapshot(doSlow)
+local function buildSnapshot(player, names)
 	seq = seq + 1
 	local snap = { schema = SCHEMA, mod = MOD_ID, seq = seq, real_time = os.time(), errors = {} }
-	local player = api.engine.util.getPlayer()
 	snap.player = num(player)
-	local refreshSlow = doSlow or not slowCache
-	local names, keys = cargoNames(refreshSlow)
-	if refreshSlow then gameLanguage(true) end
 
 	section(snap, "time", collectTime)
 	section(snap, "finance", function() return collectFinance(player) end)
@@ -734,19 +831,6 @@ local function buildSnapshot(doSlow)
 		section(snap, "vehicles", collectVehicles)
 	end
 
-	if doSlow or not slowCache then
-		local slow = { errors = {} }
-		section(slow, "company", collectCompany)
-		section(slow, "lines", function() return collectLines(player, names) end)
-		section(slow, "stations", function() return collectStations(player) end)
-		section(slow, "towns", function() return collectTowns(names) end)
-		section(slow, "industries", function() return collectIndustries(names) end)
-		section(slow, "depots", function() return collectDepots(player) end)
-		slow.cargo_types = {}
-		for id, n in pairs(names) do slow.cargo_types[#slow.cargo_types + 1] = { id = id, name = n, key = keys[id] } end
-		slow.collected_seq = seq
-		slowCache = slow
-	end
 	for k, v in pairs(slowCache) do
 		if k == "errors" then
 			for _, e in ipairs(v) do snap.errors[#snap.errors + 1] = e end
@@ -775,8 +859,7 @@ end
 -- Each file is executed once (dedup on id), then removed. The result is reported in the next
 -- snapshot under snapshot.cmd_ack = { id, cmd, ok, error, real_time }.
 -- Only a short whitelist of harmless, reversible actions is accepted (no buy/sell/destroy).
-local lastCmdId = nil
-local lastAck = nil
+-- (lastCmdId / lastAck are declared above buildSnapshot, which reports the ack.)
 
 local function sendCmd(c)
 	local done, okRes, errRes = false, nil, nil
@@ -1047,22 +1130,47 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		local okP, errP = pcall(pollCommands)
 		if not okP then debug("pollCommands failed:", tostring(errP)) end
 	end
+
+	-- slow cycle: start a job when due, then advance it a little on every frame
+	if slowJob == nil and (now - lastSlow) >= o.interval_slow then
+		lastSlow = now
+		local ok, err = pcall(function()
+			local names, keys = cargoNames(true)
+			gameLanguage(true)
+			slowJobStart(api.engine.util.getPlayer(), names, keys, seq + 1)
+		end)
+		if not ok then log("slow cycle failed to start:", tostring(err)) end
+	end
+	if slowJob ~= nil then
+		-- the very first cycle runs unthrottled so that the dashboard gets a complete picture right away
+		local ok, done = pcall(slowJobRun, slowCache == nil and 1e9 or SLOW_BUDGET)
+		if not ok then
+			log("slow cycle failed:", tostring(done))
+			slowJob = nil
+		elseif done then
+			slowCache = done
+			debug(string.format("slow cycle %d collected in %.2fs (%d lines, %d stations, %d towns, %d industries, %d depots)",
+				done.collected_seq, done.collect_duration or 0, #(done.lines or {}), #(done.stations or {}), #(done.towns or {}),
+				#(done.industries or {}), #(done.depots or {})))
+		end
+	end
+	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
+
 	if now - lastFast < o.interval_fast then return end
-	local doSlow = (now - lastSlow) >= o.interval_slow
-	local ok, snap = pcall(buildSnapshot, doSlow)
+	local ok, snap = pcall(buildSnapshot, api.engine.util.getPlayer(), cargoNames(false))
 	if not ok then
 		log("snapshot failed:", tostring(snap))
 		lastFast = now
 		return
 	end
 	lastFast = now
-	if doSlow then lastSlow = now end
 	if writeSnapshot(snap) then
 		if not announced then
 			announced = true
 			local folder = ""
 			pcall(function() folder = app.getUserDataFolder() end)
-			log(string.format("writing %s/%s.lua every %ds (slow sections every %ds) under %s", DIR, FILE, o.interval_fast, o.interval_slow, tostring(folder)))
+			log(string.format("writing %s/%s.lua every %ds (slow sections every %ds, %.0f ms budget per frame) under %s",
+				DIR, FILE, o.interval_fast, o.interval_slow, SLOW_BUDGET * 1000, tostring(folder)))
 		end
 		debug(string.format("seq %d written, %d error(s), %d vehicles", snap.seq, #snap.errors, snap.vehicles and #snap.vehicles or 0))
 	end

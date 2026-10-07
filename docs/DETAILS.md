@@ -19,7 +19,14 @@ Three independent parts:
    auto-detected by `collector\tf3paths.py`: Steam registry, or `config.json`).
    - fast sections (default 2 s): `time`, `finance`, `alerts`, `vehicles`
    - slow sections (default 30 s): `company`, `lines`, `stations`, `towns`, `industries`, `depots`, `cargo_types`
-   - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest
+   - the slow cycle is **time-sliced** (rev 5): it is a job that collects one entity (line, station, town...) per step
+     and `guiUpdate` only runs steps for `SLOW_BUDGET` (3 ms) per frame, then resumes on the next frame. A cycle
+     therefore spreads over a few dozen frames instead of stalling one frame for several hundred ms. The result replaces
+     the previous slow data atomically when the job is complete (`slow_seq` semantics unchanged); only the very first
+     cycle after loading runs unthrottled so that the first snapshot is complete. Shared lookups (`getTpNetData`,
+     `getTown2BuildingMap`, station/town maps) are fetched once per cycle instead of once per entity.
+   - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest (in the
+     time-sliced sections a failing entity is reported individually and the others are still exported)
    - mod parameters (Mods menu of the savegame): fast / slow export, vehicles on/off,
      **Permit game control** on/off (off by default), debug log. Names are kept short on purpose: the game's settings
      panel puts the widget to the right of the name on a fixed width, long names push the buttons out of view.

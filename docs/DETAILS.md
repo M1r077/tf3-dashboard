@@ -24,7 +24,11 @@ Three independent parts:
      therefore spreads over a few dozen frames instead of stalling one frame for several hundred ms. The result replaces
      the previous slow data atomically when the job is complete (`slow_seq` semantics unchanged); only the very first
      cycle after loading runs unthrottled so that the first snapshot is complete. Shared lookups (`getTpNetData`,
-     `getTown2BuildingMap`, station/town maps) are fetched once per cycle instead of once per entity.
+     `getTown2BuildingMap`, station/town maps) are fetched once per cycle instead of once per entity. A town is split
+     further into one step per API call, and `getCargoSupplyAndLimit` (~55 ms per town, it walks every building) is
+     called for `SUPPLY_TOWNS_PER_CYCLE` (2) towns per cycle in rotation, the others keep their last figures. With
+     *Debug log* on, the game console prints the duration of each cycle and its slowest steps (measured on a 10-town
+     map: 0.7 s per cycle, worst step 40 ms for the longest line).
    - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest (in the
      time-sliced sections a failing entity is reported individually and the others are still exported)
    - mod parameters (Mods menu of the savegame): fast / slow export, vehicles on/off,

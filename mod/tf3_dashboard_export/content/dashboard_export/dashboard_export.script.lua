@@ -13,7 +13,8 @@ local DIR = "dashboard_export"
 local FILE = "live"
 -- The slow sections (lines, stations, towns, industries, depots) are collected one item per step, a few steps per
 -- frame, so that a slow cycle never stalls the game: this is the CPU budget per guiUpdate call, in seconds.
-local SLOW_BUDGET = 0.003
+-- A step is started only while the budget is not exhausted, so a frame costs at most budget + one step.
+local SLOW_BUDGET = 0.002
 
 -- ---------------------------------------------------------------- params
 local PARAM_VALUES = {
@@ -570,74 +571,115 @@ local function townsBegin(cargoNames)
 	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.TOWN)), ctx
 end
 
-local function townItem(t, ctx)
-	local sys = api.engine.system
-	local cargoNames, caps, traffic = ctx.names, ctx.caps, ctx.traffic
-	do
+-- A town is expensive (~250 ms measured in game for the whole record), so it is not one step but one step per
+-- API call: the items of the towns section are (town, part) pairs and the record is assembled in ctx.recs.
+-- Each TOWN_PARTS entry is one independent query; a failing part only loses its own fields.
+local SUPPLY_TOWNS_PER_CYCLE = 2
+local supplyCache = {}  -- town -> { rows, at }
+local TOWN_PARTS = {
+	function(t, rec, ctx)
 		local town = api.engine.getComponent(t, api.type.ComponentType.TOWN)
-		local rec = { id = t, name = entityName(t), development_active = town and town.developmentActive and true or false }
-		pcall(function() local c = arr(caps[t]); rec.cap_res, rec.cap_com, rec.cap_ind = num(c[1]), num(c[2]), num(c[3]) end)
-		pcall(function()
-			local u = arr(api.engine.util.town.getTownCapacityUsage(t))
-			rec.usage = {}
-			for i, x in ipairs(u) do rec.usage[i] = { used = num(x.used), capacity = num(x.capacity) } end
-		end)
-		pcall(function()
-			local h = api.engine.util.town.getTownHappinessStats(t, 3)
-			local function pair(p) p = arr(p); return { unhappy = num(p[1]), total = num(p[2]) } end
-			rec.happiness = { inside = pair(h.travellingInside), at_building = pair(h.atBuilding), by_car = pair(h.byCar), walking = pair(h.walking),
-				to_resident = pair(h.travellingTo.resident), to_non_resident = pair(h.travellingTo.nonResident),
-				from_resident = pair(h.travellingFrom.resident), from_non_resident = pair(h.travellingFrom.nonResident) }
-			rec.top_lines = {}
-			for _, bl in ipairs(arr(h.byLine)) do
-				rec.top_lines[#rec.top_lines + 1] = { line = bl[1], resident = pair(bl[2].resident), non_resident = pair(bl[2].nonResident) }
-			end
-		end)
-		pcall(function()
-			local e = api.engine.util.town.getTownEmissionDB(t)
-			rec.noise_db, rec.pollution_db, rec.area_km2 = num(e.noise), num(e.pollution), num(e.areaSquareKm)
-		end)
-		pcall(function()
-			local r = api.engine.util.town.getTownReachability(t)
-			rec.reach = { com_private = num(r.commercialPrivate), com_public = num(r.commercialPublic), ind_private = num(r.industrialPrivate), ind_public = num(r.industrialPublic) }
-		end)
-		pcall(function() rec.line_usage = num(api.engine.util.town.getTownLineUsage(t)) end)
-		pcall(function()
-			local tr = traffic[t]
-			if tr then rec.traffic_speed = num(tr[1]); rec.congestion_levels = arr(tr[2]) end
-		end)
-		pcall(function()
-			rec.stock = {}
-			for ct, p in pairs(api.engine.util.town.getTownStockCargo(t)) do
-				p = arr(p)
-				rec.stock[#rec.stock + 1] = { cargo_type = num(ct), cargo = cargoNames[num(ct)], stock = num(p[1]), capacity = num(p[2]) }
-			end
-		end)
-		-- What the town window shows ("supplied / needed"): townBuildingSystem.getCargoSupplyAndLimit(town[, landUse])
-		-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
-		-- "supplied / needed". One flat list: land_use 0 = whole town (no argument); 1..3 = the API's landUse argument
-		-- as is. Observed 0-based: 1 = commercial cargos, 2 = industrial cargos, 3 = nothing (residential = 0 has no
-		-- cargo, so it collides harmlessly with "whole town"). v3 = an internal group id, same for all cargos of a land
-		-- use, stored but not displayed.
-		pcall(function()
-			rec.supply = {}
-			local function dump(landUse)
-				local m
-				if landUse then m = sys.townBuildingSystem.getCargoSupplyAndLimit(t, landUse)
-				else m = sys.townBuildingSystem.getCargoSupplyAndLimit(t) end
-				for ct, p in pairs(m) do
-					p = arr(p)
-					rec.supply[#rec.supply + 1] = { land_use = landUse or 0, cargo_type = num(ct), v1 = num(p[1]), v2 = num(p[2]), v3 = num(p[3]) }
-				end
-			end
-			dump(nil)
-			for lu = 1, 3 do pcall(dump, lu) end
-		end)
-		pcall(function() rec.pos = vec3(api.engine.util.town.getTownDistrictCenter(t, 1)) end)
-		pcall(function() rec.stations = count(sys.stationSystem.getStations(t)) end)
-		pcall(function() rec.buildings = count(ctx.buildings[t]) end)
-		return rec
+		rec.name = entityName(t)
+		rec.development_active = town and town.developmentActive and true or false
+		local c = arr(ctx.caps[t]); rec.cap_res, rec.cap_com, rec.cap_ind = num(c[1]), num(c[2]), num(c[3])
+		local tr = ctx.traffic[t]
+		if tr then rec.traffic_speed = num(tr[1]); rec.congestion_levels = arr(tr[2]) end
+		rec.buildings = count(ctx.buildings[t])
+	end,
+	function(t, rec)
+		local u = arr(api.engine.util.town.getTownCapacityUsage(t))
+		rec.usage = {}
+		for i, x in ipairs(u) do rec.usage[i] = { used = num(x.used), capacity = num(x.capacity) } end
+	end,
+	function(t, rec)
+		local h = api.engine.util.town.getTownHappinessStats(t, 3)
+		local function pair(p) p = arr(p); return { unhappy = num(p[1]), total = num(p[2]) } end
+		rec.happiness = { inside = pair(h.travellingInside), at_building = pair(h.atBuilding), by_car = pair(h.byCar), walking = pair(h.walking),
+			to_resident = pair(h.travellingTo.resident), to_non_resident = pair(h.travellingTo.nonResident),
+			from_resident = pair(h.travellingFrom.resident), from_non_resident = pair(h.travellingFrom.nonResident) }
+		rec.top_lines = {}
+		for _, bl in ipairs(arr(h.byLine)) do
+			rec.top_lines[#rec.top_lines + 1] = { line = bl[1], resident = pair(bl[2].resident), non_resident = pair(bl[2].nonResident) }
+		end
+	end,
+	function(t, rec)
+		local e = api.engine.util.town.getTownEmissionDB(t)
+		rec.noise_db, rec.pollution_db, rec.area_km2 = num(e.noise), num(e.pollution), num(e.areaSquareKm)
+	end,
+	function(t, rec)
+		local r = api.engine.util.town.getTownReachability(t)
+		rec.reach = { com_private = num(r.commercialPrivate), com_public = num(r.commercialPublic), ind_private = num(r.industrialPrivate), ind_public = num(r.industrialPublic) }
+	end,
+	function(t, rec) rec.line_usage = num(api.engine.util.town.getTownLineUsage(t)) end,
+	function(t, rec, ctx)
+		rec.stock = {}
+		for ct, p in pairs(api.engine.util.town.getTownStockCargo(t)) do
+			p = arr(p)
+			rec.stock[#rec.stock + 1] = { cargo_type = num(ct), cargo = ctx.names[num(ct)], stock = num(p[1]), capacity = num(p[2]) }
+		end
+	end,
+	-- What the town window shows ("supplied / needed"): townBuildingSystem.getCargoSupplyAndLimit(town)
+	-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
+	-- "supplied / needed"; v3 = an internal group id, stored but not displayed. land_use is always 0 (whole town):
+	-- the call costs ~55 ms per town in game (it walks every building), so the per-land-use variants (which only
+	-- partition the same figures) are not exported any more (rev 5), and the towns are refreshed in rotation:
+	-- SUPPLY_TOWNS_PER_CYCLE towns per slow cycle (the stalest first), the others keep their last value. The figures
+	-- move slowly (rolling supply, needs grow with the town), the dashboard shows them with the snapshot time anyway.
+	function(t, rec, ctx)
+		local cached = supplyCache[t]
+		if cached and not ctx.refreshSupply[t] then rec.supply = cached.rows; return end
+		local rows = {}
+		for ct, p in pairs(api.engine.system.townBuildingSystem.getCargoSupplyAndLimit(t)) do
+			p = arr(p)
+			rows[#rows + 1] = { land_use = 0, cargo_type = num(ct), v1 = num(p[1]), v2 = num(p[2]), v3 = num(p[3]) }
+		end
+		supplyCache[t] = { rows = rows, at = os.clock() }
+		rec.supply = rows
+	end,
+	function(t, rec)
+		rec.pos = vec3(api.engine.util.town.getTownDistrictCenter(t, 1))
+		rec.stations = count(api.engine.system.stationSystem.getStations(t))
+	end,
+}
+
+local function townsBeginParts(cargoNames, allSupply)
+	local towns, ctx = townsBegin(cargoNames)
+	ctx.recs = {}
+	local items = {}
+	for _, t in ipairs(towns) do
+		ctx.recs[t] = { id = t }
+		for p = 1, #TOWN_PARTS do items[#items + 1] = { t, p } end
 	end
+	-- supply rotation: towns never collected first, then the stalest
+	local order = {}
+	for _, t in ipairs(towns) do order[#order + 1] = t end
+	table.sort(order, function(a, b)
+		local ca, cb = supplyCache[a], supplyCache[b]
+		if (ca == nil) ~= (cb == nil) then return ca == nil end
+		if ca == nil then return a < b end
+		return ca.at < cb.at
+	end)
+	ctx.refreshSupply = {}
+	for i = 1, (allSupply and #order or math.min(SUPPLY_TOWNS_PER_CYCLE, #order)) do ctx.refreshSupply[order[i]] = true end
+	-- forget towns that no longer exist
+	local alive = {}
+	for _, t in ipairs(towns) do alive[t] = true end
+	for t in pairs(supplyCache) do if not alive[t] then supplyCache[t] = nil end end
+	return items, ctx
+end
+
+-- returns the record once its last part is done (nil before), so the driver appends each town exactly once;
+-- a failing part is reported through ctx.errors (merged by the driver) and the town is still exported
+local function townItem(item, ctx)
+	local t, p = item[1], item[2]
+	local rec = ctx.recs[t]
+	local ok, err = pcall(TOWN_PARTS[p], t, rec, ctx)
+	if not ok then
+		ctx.errors = ctx.errors or {}
+		ctx.errors[#ctx.errors + 1] = { section = "towns", error = "town " .. tostring(t) .. " part " .. p .. ": " .. tostring(err) }
+	end
+	if p == #TOWN_PARTS then return rec end
+	return nil
 end
 
 local function industriesBegin(cargoNames)
@@ -744,7 +786,8 @@ end
 local SLOW_SECTIONS = {
 	{ name = "lines", begin = function(c) return linesBegin(c.player, c.names) end, item = lineItem },
 	{ name = "stations", begin = function(c) return stationsBegin(c.player) end, item = stationItem },
-	{ name = "towns", begin = function(c) return townsBegin(c.names) end, item = townItem },
+	{ name = "towns", begin = function(c) return townsBeginParts(c.names, c.first) end, item = townItem,
+	  label = function(it) return tostring(it[1]) .. "/" .. tostring(it[2]) end },
 	{ name = "industries", begin = function(c) return industriesBegin(c.names) end, item = industryItem },
 	{ name = "depots", begin = function(c) return depotsBegin(c.player) end, item = depotItem },
 }
@@ -761,7 +804,20 @@ local function slowJobStart(player, names, keys, seqNow)
 	-- snapshot was written between two cycles
 	if slowCache and slowCache.collected_seq and seqNow <= slowCache.collected_seq then seqNow = slowCache.collected_seq + 1 end
 	slow.collected_seq = seqNow
-	slowJob = { slow = slow, common = { player = player, names = names }, sec = 1, items = nil, ctx = nil, i = 0, started = os.clock() }
+	slowJob = { slow = slow, common = { player = player, names = names, first = slowCache == nil }, sec = 1, items = nil, ctx = nil, i = 0,
+		started = os.clock(), steps = 0, worst = {} }
+end
+
+-- profiling (debug log): keep the slowest steps of the cycle to see what is worth slicing further
+local function noteStep(job, label, dt)
+	job.steps = job.steps + 1
+	local w = job.worst
+	if #w < 8 then w[#w + 1] = { label, dt }
+	else
+		local mi = 1
+		for i = 2, #w do if w[i][2] < w[mi][2] then mi = i end end
+		if dt > w[mi][2] then w[mi] = { label, dt } end
+	end
 end
 
 -- one step = one entity of the current section; returns true when the whole job is finished
@@ -769,8 +825,10 @@ local function slowJobStep()
 	local job = slowJob
 	local def = SLOW_SECTIONS[job.sec]
 	if def == nil then return true end
+	local t0 = os.clock()
 	if job.items == nil then
 		local ok, items, ctx = pcall(def.begin, job.common)
+		noteStep(job, def.name .. ".begin", os.clock() - t0)
 		if not ok then
 			job.slow.errors[#job.slow.errors + 1] = { section = def.name, error = tostring(items) }
 			job.slow[def.name] = {}
@@ -779,15 +837,18 @@ local function slowJobStep()
 		end
 		job.items, job.ctx, job.i = items, ctx or {}, 0
 		job.slow[def.name] = {}
+		return false
 	end
 	job.i = job.i + 1
 	local e = job.items[job.i]
 	if e == nil then
+		for _, err in ipairs(job.ctx.errors or {}) do job.slow.errors[#job.slow.errors + 1] = err end
 		job.items, job.ctx = nil, nil
 		job.sec = job.sec + 1
 		return SLOW_SECTIONS[job.sec] == nil
 	end
 	local ok, rec = pcall(def.item, e, job.ctx)
+	noteStep(job, def.name .. "#" .. (def.label and def.label(e) or tostring(e)), os.clock() - t0)
 	if ok then
 		if rec ~= nil then local out = job.slow[def.name]; out[#out + 1] = rec end
 	else
@@ -805,6 +866,12 @@ local function slowJobRun(budget)
 		if slowJobStep() then
 			local slow = slowJob.slow
 			slow.collect_duration = os.clock() - slowJob.started
+			if options().debug_log then
+				table.sort(slowJob.worst, function(a, b) return a[2] > b[2] end)
+				local parts = {}
+				for _, w in ipairs(slowJob.worst) do parts[#parts + 1] = string.format("%s %.0fms", w[1], w[2] * 1000) end
+				log(string.format("slow cycle: %d steps, slowest: %s", slowJob.steps, table.concat(parts, ", ")))
+			end
 			slowJob = nil
 			return slow
 		end
@@ -1157,6 +1224,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
 
 	if now - lastFast < o.interval_fast then return end
+	local tb = os.clock()
 	local ok, snap = pcall(buildSnapshot, api.engine.util.getPlayer(), cargoNames(false))
 	if not ok then
 		log("snapshot failed:", tostring(snap))
@@ -1164,7 +1232,13 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		return
 	end
 	lastFast = now
-	if writeSnapshot(snap) then
+	local tw = os.clock()
+	local written = writeSnapshot(snap)
+	if o.debug_log then
+		local te = os.clock()
+		if te - tb > 0.01 then log(string.format("fast snapshot: build %.0fms, write %.0fms", (tw - tb) * 1000, (te - tw) * 1000)) end
+	end
+	if written then
 		if not announced then
 			announced = true
 			local folder = ""

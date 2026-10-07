@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS town_cargo (
 );
 
 -- townBuildingSystem.getCargoSupplyAndLimit(town[, landUse]) = the "supplied / needed" figures of the town window.
--- land_use 0 = whole town; 1 = commercial cargos, 2 = industrial cargos (the API's landUse argument, 0-based).
+-- land_use 0 = whole town (mod rev 4 also wrote 1 = commercial, 2 = industrial; dropped in rev 5, same figures).
 -- v1 = supplied, v2 = needed (decimals, the game rounds), v3 = internal group id (not displayed).
 CREATE TABLE IF NOT EXISTS town_supply (
     snapshot_id INTEGER NOT NULL REFERENCES snapshot(snapshot_id) ON DELETE CASCADE,

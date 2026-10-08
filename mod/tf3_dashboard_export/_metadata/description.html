@@ -12,7 +12,7 @@
 <li><strong>Vehicles</strong>: every vehicle with its model icon, line, state, load, speed, condition and history. Filter by type.</li>
 <li><strong>Lines</strong>: load, headway, waiting passengers and cargo, history, and a <strong>stop editor</strong>: load mode, min/max waiting time, cargo filter, preferred and alternative terminals, whole-line actions.</li>
 <li><strong>Map</strong>, <strong>Towns</strong>, <strong>Industries</strong>, <strong>Stations &amp; depots</strong>, <strong>Finances</strong>.</li>
-<li>English, French and German; follows the game language automatically.</li>
+<li>English, French, German and Brazilian Portuguese; follows the game language automatically.</li>
 </ul>
 
 <h3>How it works</h3>
@@ -49,7 +49,7 @@
 <li><strong>Véhicules</strong> : chaque véhicule avec l'icône de son modèle, ligne, état, charge, vitesse, condition et historique. Filtre par type.</li>
 <li><strong>Lignes</strong> : charge, cadence, voyageurs et marchandises en attente, historique, et un <strong>éditeur d'arrêts</strong> : mode de chargement, temps d'attente min/max, filtre cargo, quai préféré et quais alternatifs, actions sur toute la ligne.</li>
 <li><strong>Carte</strong>, <strong>Villes</strong>, <strong>Industries</strong>, <strong>Gares &amp; dépôts</strong>, <strong>Finances</strong>.</li>
-<li>Anglais, français et allemand ; suit automatiquement la langue du jeu.</li>
+<li>Anglais, français, allemand et portugais du Brésil ; suit automatiquement la langue du jeu.</li>
 </ul>
 
 <h3>Comment ça marche</h3>
@@ -86,7 +86,7 @@
 <li><strong>Fahrzeuge</strong>: jedes Fahrzeug mit Modell-Icon, Linie, Zustand, Ladung, Geschwindigkeit, Zustand und Verlauf. Filter nach Typ.</li>
 <li><strong>Linien</strong>: Auslastung, Taktabstand, wartende Fahrgäste und Fracht, Verlauf und ein <strong>Halt-Editor</strong>: Lademodus, minimale/maximale Wartezeit, Frachtfilter, bevorzugtes und alternative Terminals, Aktionen für die ganze Linie.</li>
 <li><strong>Karte</strong>, <strong>Städte</strong>, <strong>Industrien</strong>, <strong>Stationen &amp; Depots</strong>, <strong>Finanzen</strong>.</li>
-<li>Englisch, Französisch und Deutsch; folgt automatisch der Spielsprache.</li>
+<li>Englisch, Französisch, Deutsch und brasilianisches Portugiesisch; folgt automatisch der Spielsprache.</li>
 </ul>
 
 <h3>So funktioniert es</h3>
@@ -111,3 +111,39 @@
 </ul>
 
 <p><strong>Credits</strong>: Miro | Open Source (GPL-3.0): https://github.com/M1r077/tf3-dashboard | Nicht mit Urban Games verbunden.</p>
+<hr>
+
+<h2>Português (Brasil)</h2>
+<p>Transforme um segundo monitor em uma <strong>central de controle ao vivo</strong> da sua empresa: finanças, cada linha e veículo, estações, cidades, indústrias, depósitos e alertas, com os ícones do jogo e gráficos de histórico. Deixe o jogo em tela cheia e gerencie pela outra tela.</p>
+
+<h3>O que você recebe</h3>
+<ul>
+<li><strong>Operações</strong>: frota em serviço, taxa de ocupação e velocidade média ao longo do tempo, resumo por modal, veículos parados ou ociosos, desgaste (revisar primeiro), linhas com mais insatisfeitos e mais movimentadas, alertas com salto para a entidade.</li>
+<li><strong>Veículos</strong>: cada veículo com o ícone do modelo, linha, estado, carga, velocidade, condição e histórico. Filtro por tipo.</li>
+<li><strong>Linhas</strong>: ocupação, intervalo, passageiros e carga aguardando, histórico e um <strong>editor de paradas</strong>: modo de carregamento, tempo de espera mín/máx, filtro de carga, terminal preferido e alternativos, ações para a linha inteira.</li>
+<li><strong>Mapa</strong>, <strong>Cidades</strong>, <strong>Indústrias</strong>, <strong>Estações e depósitos</strong>, <strong>Finanças</strong>.</li>
+<li>Inglês, francês, alemão e português do Brasil; segue automaticamente o idioma do jogo.</li>
+</ul>
+
+<h3>Como funciona</h3>
+<p>Este mod é a metade dentro do jogo. A cada poucos segundos ele grava um snapshot do estado da partida em <strong>userdata/dashboard_export/live.lua</strong>. Um pequeno <strong>programa complementar</strong>, gratuito e de código aberto (Windows, nada para instalar), lê esse arquivo, guarda o histórico em um banco de dados SQLite local e mostra o painel no seu navegador. Tudo fica no seu computador.</p>
+<p><strong>Baixe o programa complementar:</strong> https://github.com/M1r077/tf3-dashboard</p>
+
+<h3>Instalação em três passos</h3>
+<ul>
+<li><strong>1.</strong> Ative este mod <strong>no seu jogo salvo</strong> (menu Mods do jogo salvo, como qualquer mod de script; estar inscrito no Mod Hub não basta).</li>
+<li><strong>2.</strong> Baixe o TF3-Dashboard.zip pelo link acima e descompacte em qualquer lugar.</li>
+<li><strong>3.</strong> Inicie o jogo e carregue seu jogo salvo, depois dê dois cliques em <strong>run_dashboard.cmd</strong>. Coloque o navegador no segundo monitor e pressione F11. Steam, Epic e GOG são detectados automaticamente; enquanto nada chega, a página mostra uma lista de verificação dizendo o que falta.</li>
+</ul>
+
+<h3>Opcional: controlar o jogo pelo painel</h3>
+<p>Coloque <strong>Permitir controlar o jogo</strong> em Ligado nas configurações do mod (desligado por padrão). O painel então oferece: velocidade do jogo e pausa, câmera e <strong>visões de câmera salvas</strong> (aba Mapa, Shift+1..9), abrir a janela de uma entidade, parar / iniciar / inverter um veículo ou enviá-lo ao depósito, renomear, e gerenciamento de linhas (modo de carregamento, tempos de espera, filtros de carga, terminais de uma parada). Cada comando faz exatamente o que o clique correspondente no jogo faz. <strong>Nada é comprado, vendido ou demolido, e nenhuma rota é alterada.</strong></p>
+
+<h3>Custo e segurança</h3>
+<ul>
+<li><strong>Desempenho</strong>: o snapshot é calculado pela thread de script do jogo, então custa alguns milissegundos a cada gravação (cerca de 10-20 ms em um PC rápido com uma rede média, mais em um PC lento ou uma rede grande). <strong>Se o jogo engasgar em ritmo regular depois de ativar o mod, abra as configurações do mod no jogo salvo</strong>: aumente o intervalo rápido (5 ou 10 s), o intervalo lento (60 ou 120 s) e, em redes muito grandes, desative a exportação de veículos. O painel apenas atualiza com menos frequência. Os padrões (2 s / 30 s) foram pensados para um PC razoavelmente recente.</li>
+<li>O mod <strong>nunca modifica o jogo salvo</strong>, as regras do jogo, preços, veículos ou a economia. Removê-lo não tem efeito sobre a partida.</li>
+<li>Somente PC (Windows; Steam, Epic Games Store e GOG). Em consoles o mod carrega, mas não tem efeito visível.</li>
+</ul>
+
+<p><strong>Créditos</strong>: Miro | Tradução para o português: Guilherme Seibert Zulian (guisz1) | Código aberto (GPL-3.0): https://github.com/M1r077/tf3-dashboard | Sem vínculo com a Urban Games.</p>

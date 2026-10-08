@@ -22,11 +22,16 @@ small { color: var(--muted); font-weight: normal; }
 .hint { color: var(--muted); margin-left: auto; font-size: 12px; }
 
 /* ---------------- top bar */
-#topbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .brand { font-size: 20px; font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
 .brand span { color: var(--accent); font-weight: 300; }
 .brand small { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; vertical-align: 2px; }
 .vital { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; }
+/* key figures: own full-width row under brand + controls, equal tiles that reflow (1 row on a wide screen,
+   2-3 on a portrait monitor or a phone); labels, details and full numbers always visible, value scales with the width */
+#vital { order: 3; flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+#vital .kpi { min-width: 0; padding: 8px 14px; }
+#vital .kpi .v { font-size: clamp(20px, 1.5vw, 28px); line-height: 1.25; white-space: nowrap; }
 .kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; min-width: 120px; }
 .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -247,7 +252,7 @@ h2 .ico { color: var(--accent); }
 .cond.bad { color: var(--bad); } .cond.warn { color: var(--warn); } .cond.ok { color: var(--ok); }
 
 /* ---------------- game controls (speed / pause) + language */
-.controls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-left: auto; }
 .speedbar { display: flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
 .sbtn { background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); width: calc(var(--isz) * 1.7); height: calc(var(--isz) * 1.5); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .sbtn .ico { margin: 0; width: calc(var(--isz) * 0.9); height: calc(var(--isz) * 0.9); }

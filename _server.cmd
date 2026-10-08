@@ -1,46 +1,10 @@
 @echo off
-REM Pane helper: runs the dashboard web server. Used by run_dashboard.cmd / run_dashboard_demo.cmd.
-REM Usage: _server.cmd [--port N] [--db PATH] [--no-cmd]
+REM Pane helper: runs the dashboard web server, restarted by launch.py when it stops. Used by run_dashboard.cmd /
+REM run_dashboard_demo.cmd. launch.py extracts the game's icons at first start, waits while the port is taken by an
+REM old instance, and opens the browser once the server answers.
+REM Usage: _server.cmd [--port N] [--db PATH] [--no-cmd] [--no-browser]
 cd /d "%~dp0"
 call "%~dp0_python.cmd" || (pause & exit /b 1)
-set ARGS=%*
 title TF3 Dashboard Server
-
-REM find --port value (default 8765)
-set PORT=8765
-:parse
-if "%~1"=="" goto :icons
-if /i "%~1"=="--port" set PORT=%~2
-shift
-goto :parse
-
-:icons
-REM first start, or a new version that uses more of the game's icons: extract them (cargo, vehicles, UI) from the
-REM local game installation. The icon list lives in extract_icons.py: newer than the manifest = extract again.
-set EXTRACT=
-if not exist "dashboard\static\icons\_manifest.json" set EXTRACT=1
-if not defined EXTRACT (
-    for /f %%i in ('%PY% -c "import os;print(int(os.path.getmtime(r'dashboard/extract_icons.py')>os.path.getmtime(r'dashboard/static/icons/_manifest.json')))"') do if "%%i"=="1" set EXTRACT=1
-)
-if defined EXTRACT (
-    echo %TIME:~0,8% extracting the game's icons from the local installation, 20-40 seconds, the browser waits meanwhile...
-    %PY% dashboard\extract_icons.py
-    echo %TIME:~0,8% icons done.
-    echo.
-)
-
-:run
-REM refuse to start a second server on the same port: an old instance would silently keep serving old code
-netstat -ano | findstr /r /c:":%PORT% .*LISTENING" >nul
-if not errorlevel 1 (
-    echo port %PORT% already in use:
-    netstat -ano | findstr /r /c:":%PORT% .*LISTENING"
-    echo close the other TF3 Dashboard window first, then press a key to retry.
-    pause >nul
-    goto :run
-)
-%PY% dashboard\server.py %ARGS%
-echo.
-echo server stopped (exit code %ERRORLEVEL%). Close this pane or press a key to retry.
-pause >nul
-goto :run
+%PY% launch.py --only server %*
+if errorlevel 1 pause

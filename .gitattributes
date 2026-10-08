@@ -2,3 +2,4 @@
 *.cmd text eol=crlf
 *.png binary
 *.db binary
+*.sh text eol=lf

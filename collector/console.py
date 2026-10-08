@@ -1,7 +1,8 @@
 """Coloured, levelled console output shared by the collector and the server.
 
 Levels: title (cyan), ok (green), info (default), wait (yellow), warn (bold yellow, "!"), error (bold red, "!!").
-Colours only when stdout is a terminal and NO_COLOR is not set, so a redirected log file stays plain text.
+Colours only when stdout is a terminal and NO_COLOR is not set, so a redirected log file stays plain text
+(TF3_COLOR=1 forces them: launch.py reads its children through a pipe and passes their lines on to a terminal).
 On Windows the console needs virtual-terminal processing switched on once (Windows Terminal does it itself,
 the classic conhost does not); failing that we fall back to plain text. Stdlib only.
 """
@@ -43,8 +44,19 @@ def enabled() -> bool:
             tty = sys.stdout.isatty()
         except Exception:
             tty = False
-        _enabled = bool(tty) and not os.environ.get("NO_COLOR") and _enable_windows_vt()
+        if os.environ.get("NO_COLOR"):
+            _enabled = False
+        elif os.environ.get("TF3_COLOR") == "1":  # set by launch.py: stdout is its pipe, it prints to a terminal
+            _enabled = True
+        else:
+            _enabled = bool(tty) and _enable_windows_vt()
     return _enabled
+
+
+def set_title(title: str) -> None:
+    """Terminal window / tab title (Windows Terminal, conhost with VT, every Linux terminal)."""
+    if enabled():
+        print(f"\x1b]0;{title}\x07", end="", flush=True)
 
 
 def paint(text: str, level: str) -> str:

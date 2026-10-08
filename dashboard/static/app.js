@@ -52,7 +52,7 @@
     $$("#set-notify button").forEach(b => b.classList.toggle("active", String(settings.notify || 0) === b.dataset.v));
     if (window.Notify) window.Notify.hint();
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
-    $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
+    $("#range-sel").value = settings.range;
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
     if (settings.finance === false && state.tab === "finance") showTab("overview");
     restartTimer();
@@ -83,7 +83,7 @@
 
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
-  $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
+  $("#range-sel").addEventListener("change", e => { settings.range = e.target.value; applySettings(); refresh(true); });
   /** uPlot options for a server series: real-time x axis + where the per-minute aggregated part ends */
   function tsOpts(hist, syncKey) {
     if (!hist.length || hist[0].ts == null) return {};
@@ -131,6 +131,9 @@
   const loc = () => i18n.dict._locale || "en";
   const money = (n) => n == null ? "–" : (n < 0 ? "−" : "") + Math.abs(Math.round(n)).toLocaleString(loc()) + " $";
   const int = (n) => n == null ? "–" : Math.round(n).toLocaleString(loc());
+  // compact figures for the top strip ("25,8 mi", "25.8M"): the full number is in the tooltip
+  const intShort = (n) => n == null ? "–" : Math.abs(n) < 100000 ? int(n) : new Intl.NumberFormat(loc(), { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  const moneyShort = (n) => n == null ? "–" : (n < 0 ? "−" : "") + intShort(Math.abs(n)) + " $";
   const num = (n, d = 1) => n == null ? "–" : Number(n).toFixed(d);
   const pct = (a, b) => (b ? (100 * a / b) : 0);
   const kmh = (ms) => ms == null ? "–" : Math.round(ms * 3.6) + " km/h";
@@ -299,6 +302,7 @@
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
     $$(".tab").forEach(tb => tb.classList.toggle("active", tb.id === "tab-" + name));
     state.tab = name;
+    document.body.dataset.tab = name;  // CSS: hide the time range on tabs without time charts
     if (push) { const u = new URL(location.href); u.searchParams.set("tab", name); history.replaceState(null, "", u); }
     refresh(true);
   }
@@ -376,16 +380,22 @@
     $("#k-maint-detail").textContent = v.worn != null ? t("worn_count", { n: v.worn }) : "";
     const na = (o.alerts || []).reduce((a, b) => a + b.n, 0);
     const ka = $("#k-alerts"); ka.textContent = na; ka.className = "v " + (na ? "bad" : "ok");
+    ka.closest(".kpi").classList.toggle("has", na > 0);
     $("#k-alerts-detail").innerHTML = (o.alerts || []).map(a => `<span title="${esc(alertLabel(a.kind))}">${ico(ALERT_ICON[a.kind] || "alert", "sm")}${a.n}</span>`).join(" ");
-    $("#k-pax").textContent = int(f.passengers_transported) + " " + t("pax");
+    $("#k-pax").textContent = intShort(f.passengers_transported) + " " + t("pax");
     $("#k-cargo").textContent = int(f.cargo_transported) + " " + t("cargo");
-    $("#k-balance").textContent = money(f.balance);
+    $("#k-balance").textContent = moneyShort(f.balance);
     const bd = $("#k-balance-delta");
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
+    // the strip only shows icon + value: label and details go to the tooltip (full balance there too)
+    $$("#vital .kpi").forEach(k => { k.title = [$(".k", k).textContent, $(".s", k).textContent].filter(Boolean).join(" · "); });
+    $("#k-balance").closest(".kpi").title += " · " + money(f.balance);
     updateCmdUi(o);
     return o;
   }
+  // the alert figure of the strip opens the alert list
+  $("#k-alerts").closest(".kpi").addEventListener("click", () => { showTab("overview"); setTimeout(() => { const a = $("#alerts-list"); if (a) a.closest(".card").scrollIntoView({ behavior: "smooth", block: "center" }); }, 300); });
 
   // ------------------------------------------------------------ empty database: say exactly which link of the chain is missing
   // game (mod enabled in the savegame) -> <userdata>/dashboard_export/live.lua -> collector -> db -> this page

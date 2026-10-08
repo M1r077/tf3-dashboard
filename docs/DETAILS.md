@@ -172,6 +172,9 @@ Three independent parts:
      Lines and Vehicles tabs: vehicle type icon in front of the name and a filter bar by type (several types can be
      combined, cross to clear).
      Deep links: `?tab=lines&line=<id>`; `?tab=vehicles&veh=<id>`.
+   - **Header** (0.4.1): one strip with icon + value per key figure (label and details in the tooltip, alerts figure
+     highlighted and clickable), game speed / calendar controls, status; time range drop-down in the tab row, hidden on
+     tabs without time charts (map, industries, supply chains, catalogue, stations).
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab, Windows notifications.
    - **Windows notifications** (Settings: off / serious / serious and warnings): the browser's Notification API, shown

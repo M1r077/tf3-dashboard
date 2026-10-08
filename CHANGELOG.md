@@ -3,6 +3,19 @@
 Companion program versions (`VERSION` in `dashboard/server.py`) and mod revisions (`revision` in
 `mod/tf3_dashboard_export/mod.json`). Earlier versions: see the [Releases](https://github.com/M1r077/tf3-dashboard/releases) page.
 
+## Companion 0.4.1 — mod revision 8 (unchanged)
+
+### Interface
+
+- The header is one compact strip (about 52 px instead of up to a third of the screen): brand, key figures (date,
+  vehicles, load factor, condition, alerts, transported, balance) as icon + value, game speed and calendar
+  controls, status. Labels and details of each figure are in its tooltip; large numbers are abbreviated
+  ("25,8 mi $"), the full value is in the tooltip.
+- The alert figure is highlighted when there are alerts and opens the alert list.
+- Tabs never wrap ("Stations & depots" stays on one line) and scroll sideways on narrow screens.
+- The time range is a compact drop-down, shown only on the tabs that have time charts.
+- Narrow screens (< 1000 px): the figures get a row of their own instead of being squeezed out.
+
 ## Companion 0.4.0 — mod revision 8
 
 The Supply chains and Catalogue tabs need mod revision 8+. With an older mod everything else works and those tabs

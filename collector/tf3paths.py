@@ -1,14 +1,14 @@
-"""Locate the Transport Fever 3 userdata folder where the mod writes live.lua (and reads cmd.lua).
+"""Locate the Transport Fever 3 userdata folder where the mod writes its live file (and reads commands).
 
 Resolution order:
   1. ROOT/config.json  -> {"export_dir": "...", "port": 8765}   (written by the user, optional)
   2. environment TF3_EXPORT_DIR
-  3. Steam: <SteamPath>/userdata/<any id>/3493540/local/dashboard_export   (registry, then default folders)
-  4. Epic / GOG (Windows): %APPDATA%/Transport Fever 3/dashboard_export  (the game keeps save/, settings.lua,
+  3. Steam: <SteamPath>/userdata/<any id>/3493540/local/towns_industries   (registry, then default folders)
+  4. Epic / GOG (Windows): %APPDATA%/Transport Fever 3/towns_industries  (the game keeps save/, settings.lua,
      profile.lua there when it is not the Steam build; %LOCALAPPDATA% is scanned too, best effort)
   5. macOS: ~/Library/Application Support/Transport Fever 3 ; Linux: ~/.local/share/Transport Fever 3
-When several candidates exist, the one whose live.lua was modified most recently wins; a candidate whose
-dashboard_export folder does not exist yet is kept (ensure_export_dir creates it: the game does not always).
+When several candidates exist, the one whose live file was modified most recently wins; a candidate whose
+export folder does not exist yet is kept (ensure_export_dir creates it: the game does not always).
 game_log() reads the game's own crash_dump/stdout.txt to cross-check: which userdata folder the game really uses,
 whether the mod was loaded and whether its writes succeeded.
 Stdlib only.
@@ -24,7 +24,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent      # the TF3 Dashboard folder
 CONFIG = ROOT / "config.json"
 APP_ID = "3493540"
-EXPORT_SUBDIR = "dashboard_export"
+# Game build 40420 (8 Oct 2026) only lets mods write to three userdata folders (heightmaps, mod_presets,
+# towns_industries). Mod rev 9 therefore writes to towns_industries with a tf3dash_ prefix; up to rev 8 the files were
+# live.lua, slow_*.lua, cmd.lua, activity.lua in a dashboard_export folder. The companion handles both layouts: the
+# one whose live file is the most recent wins (candidate_export_dirs), and commands are written where live is read.
+EXPORT_SUBDIR = "towns_industries"
+FILE_PREFIX = "tf3dash_"
+LEGACY_SUBDIR = "dashboard_export"
+LEGACY_PREFIX = ""
+
+
+def prefix_for(d: Path | None) -> str:
+    """File name prefix used in folder d: tf3dash_ in towns_industries (rev 9+), none in dashboard_export (<= rev 8)."""
+    return LEGACY_PREFIX if d is not None and d.name.lower() == LEGACY_SUBDIR else FILE_PREFIX
+
+
+def live_name(d: Path | None) -> str:
+    return prefix_for(d) + "live.lua"
+
+
+def file_in(d: Path, name: str) -> Path:
+    """<d>/<prefix><name>.lua for cmd, activity, slow_<section>."""
+    return d / (prefix_for(d) + name + ".lua")
 DEFAULT_DB = ROOT / "db" / "tf3_dashboard.db"
 DEFAULT_PORT = 8765
 
@@ -92,7 +113,7 @@ def steam_roots() -> list[Path]:
 
 def userdata_roots() -> list[tuple[str, Path]]:
     """Every folder that may be the game's userdata root on this machine, as (store, path). Only folders that
-    exist are returned (the game creates its userdata folder at the first start), the dashboard_export subfolder
+    exist are returned (the game creates its userdata folder at the first start), the export subfolder
     may not exist yet."""
     roots: list[tuple[str, Path]] = []
     for root in steam_roots():
@@ -113,7 +134,7 @@ def userdata_roots() -> list[tuple[str, Path]]:
                 if p.is_dir():
                     roots.append(("Epic/GOG", p))
                     for d in p.iterdir():
-                        if d.is_dir() and (d.name == "local" or (d / EXPORT_SUBDIR).is_dir()):
+                        if d.is_dir() and (d.name == "local" or (d / EXPORT_SUBDIR).is_dir() or (d / LEGACY_SUBDIR).is_dir()):
                             roots.append(("Epic/GOG", d))
     elif sys.platform == "darwin":
         p = Path.home() / "Library" / "Application Support" / "Transport Fever 3"
@@ -127,14 +148,19 @@ def userdata_roots() -> list[tuple[str, Path]]:
 
 
 def candidate_export_dirs() -> list[Path]:
-    """All dashboard_export folders that exist (or could exist) on this machine, most recent first."""
-    cands = [root / EXPORT_SUBDIR for _, root in userdata_roots()]
+    """All export folders that exist (or could exist) on this machine, most recent first: towns_industries (rev 9+)
+    and the legacy dashboard_export (<= rev 8) of every userdata root. A towns_industries folder without our files
+    ranks above an empty legacy folder; a legacy folder with a recent live.lua (old mod still running) ranks first."""
+    cands: list[Path] = []
+    for _, root in userdata_roots():
+        cands.append(root / EXPORT_SUBDIR)
+        cands.append(root / LEGACY_SUBDIR)
 
     def mtime(d: Path) -> float:
         try:
-            return (d / "live.lua").stat().st_mtime
+            return (d / live_name(d)).stat().st_mtime
         except OSError:
-            return -1.0
+            return -1.0 if d.name.lower() == EXPORT_SUBDIR else -2.0
 
     uniq: dict[str, Path] = {}
     for c in cands:
@@ -157,11 +183,11 @@ def export_dir(explicit: str | os.PathLike | None = None) -> Path | None:
 
 
 def live_path(explicit: str | os.PathLike | None = None) -> Path | None:
-    """Path of live.lua. `explicit` may be the file itself or its folder."""
+    """Path of the live file. `explicit` may be the file itself or its folder."""
     if explicit and str(explicit).lower().endswith(".lua"):
         return Path(explicit)
     d = export_dir(explicit)
-    return d / "live.lua" if d else None
+    return d / live_name(d) if d else None
 
 
 def db_path(explicit: str | os.PathLike | None = None) -> Path:
@@ -185,10 +211,9 @@ def port(explicit: int | None = None) -> int:
 
 
 def ensure_export_dir(explicit: str | os.PathLike | None = None) -> list[Path]:
-    """Create the dashboard_export folder wherever the game may look for it. app.saveUserdata does not create the
-    folder itself on every installation ("The directory you trying to access is not available or invalid" in
-    stdout.txt, reported by a Steam user), so the companion does: one empty folder per existing userdata root (and the
-    configured/explicit folder when its parent exists). Returns the folders that were created now."""
+    """Create the export folder (towns_industries) wherever the game may look for it: the game creates it at its first
+    start, but app.saveUserdata does not create a missing folder, so the companion does: one empty folder per existing
+    userdata root (and the configured/explicit folder when its parent exists). Returns the folders created now."""
     targets = [r / EXPORT_SUBDIR for _, r in userdata_roots()]
     d = export_dir(explicit)
     if d and d.parent.is_dir():
@@ -227,12 +252,17 @@ def _parse_game_log(log: Path) -> dict | None:
         text = log.read_bytes().decode("utf-8", errors="replace")
     except OSError:
         return None
-    info: dict = {"log": str(log), "log_mtime": st.st_mtime, "userdata": None, "mod_loaded": False,
+    info: dict = {"log": str(log), "log_mtime": st.st_mtime, "userdata": None, "build": None, "mod_loaded": False,
                   "mod_source": None, "mod_lines": 0, "written": 0, "save_errors": 0, "last_error": None,
-                  "last_mod_line": None}
+                  "last_mod_line": None, "writes_to": None}
     for line in text.splitlines():
         if info["userdata"] is None and "User data folder:" in line:
             info["userdata"] = line.split("User data folder:", 1)[1].strip()
+        elif info["build"] is None and "Starting up build version:" in line:
+            try:
+                info["build"] = int(line.split("build version:", 1)[1].split(",", 1)[0].strip())
+            except ValueError:
+                pass
         elif "tf3_dashboard_export" in line and "ModHubMod" in line:
             info["mod_loaded"] = True
             if "(source: " in line:
@@ -246,6 +276,9 @@ def _parse_game_log(log: Path) -> dict | None:
                 info["last_error"] = body[:200]
             elif body.startswith("seq ") and " written" in body:
                 info["written"] += 1
+            elif body.startswith("writing ") and ".lua every" in body:
+                # "writing towns_industries/tf3dash_live.lua every 2s (...)": the folder/file the mod actually uses
+                info["writes_to"] = body.split(" ", 2)[1]
     _LOG_CACHE[key] = (sig, info)
     return info
 
@@ -307,6 +340,11 @@ def game_log_lines(info: dict | None, watched_dir: Path | None) -> list[tuple[st
                    f"{info['save_errors']} write error(s)")
         if info["save_errors"]:
             out.append(("error", summary + f": {info['last_error']}"))
+            if info.get("writes_to") is None and (info.get("build") or 0) >= 40420 and \
+                    "not available or invalid" in (info["last_error"] or ""):
+                out.append(("error", f"game build {info['build']} only lets mods write to a few folders: this is the "
+                            f"mod revision 8 or older trying to write to {LEGACY_SUBDIR}. Update the mod to revision 9 "
+                            f"in the Mod Hub (or let it update), then reload the savegame"))
         elif info["mod_lines"] == 0:
             out.append(("warn", summary))
             out.append(("warn", "the mod never ran: enable it in the Mods menu of the savegame and load the map"))
@@ -354,8 +392,8 @@ def not_found_hint() -> str:
         "Could not find the Transport Fever 3 userdata folder (neither Steam nor Epic/GOG).\n"
         "  - Start the game once with the 'Second Screen Dashboard' mod enabled in your savegame, or\n"
         f"  - create {CONFIG.name} next to run_dashboard.cmd with the folder of your installation:\n"
-        '      Steam:    { "export_dir": "C:\\\\Program Files (x86)\\\\Steam\\\\userdata\\\\<id>\\\\3493540\\\\local\\\\dashboard_export" }\n'
-        f'      Epic/GOG: {{ "export_dir": "{appdata}\\\\Transport Fever 3\\\\dashboard_export" }}'
+        '      Steam:    { "export_dir": "C:\\\\Program Files (x86)\\\\Steam\\\\userdata\\\\<id>\\\\3493540\\\\local\\\\towns_industries" }\n'
+        f'      Epic/GOG: {{ "export_dir": "{appdata}\\\\Transport Fever 3\\\\towns_industries" }}'
     )
 
 
@@ -391,15 +429,17 @@ def diag(explicit: str | os.PathLike | None = None, db: str | os.PathLike | None
         "config_present": CONFIG.exists(),
     }
     if d:
+        out["live_name"] = live_name(d)
+        out["legacy_layout"] = prefix_for(d) == LEGACY_PREFIX
         try:
-            st = (d / "live.lua").stat()
+            st = (d / live_name(d)).stat()
             out.update(live_exists=True, live_age_s=max(0.0, time.time() - st.st_mtime), live_size=st.st_size)
         except OSError:
             pass
-        # Files the companion itself writes there (activity.lua, cmd.lua): when they exist but the game reports
-        # write errors, the folder is fine for a normal process and only the game process is refused (two users
-        # so far: Controlled folder access / antivirus, or the game running under another token).
-        out["companion_files"] = [f for f in ("activity.lua", "cmd.lua") if (d / f).is_file()]
+        # Files the companion itself writes there (activity, cmd): when they exist but the game reports write errors,
+        # the folder is fine for a normal process and only the game process is refused (Controlled folder access /
+        # antivirus, the game under another token, or - build 40420 - a folder the game no longer allows).
+        out["companion_files"] = [n for n in ("activity", "cmd") if file_in(d, n).is_file()]
         out["reparse_point"] = _is_reparse_point(d) or any(_is_reparse_point(p) for p in d.parents if len(p.parts) > 1)
     out["game_log"] = game_log(explicit)
     out["synced_dirs"] = synced_dirs(db)

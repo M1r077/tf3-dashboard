@@ -402,7 +402,8 @@
   }
 
   // ------------------------------------------------------------ empty database: say exactly which link of the chain is missing
-  // game (mod enabled in the savegame) -> <userdata>/dashboard_export/live.lua -> collector -> db -> this page
+  // game (mod enabled in the savegame) -> <userdata>/towns_industries/tf3dash_live.lua -> collector -> db -> this page
+  // (mod rev <= 8 wrote <userdata>/dashboard_export/live.lua; the server reports which layout it watches as live_name)
   async function renderSetup() {
     const card = $("#setup-card"); card.style.display = "";
     let d;
@@ -412,7 +413,7 @@
     const mono = s => `<code>${esc(s)}</code>`;
     // 1. the game's userdata folder
     if (!d.export_dir) {
-      step(false, t("setup_no_folder"), t("setup_no_folder_help", { cfg: mono("config.json"), ex: mono(`{ "export_dir": "%APPDATA%\\Transport Fever 3\\dashboard_export" }`) }));
+      step(false, t("setup_no_folder"), t("setup_no_folder_help", { cfg: mono("config.json"), ex: mono(`{ "export_dir": "%APPDATA%\\Transport Fever 3\\towns_industries" }`) }));
     } else {
       const others = (d.candidates || []).filter(c => c.dir.toLowerCase() !== d.export_dir.toLowerCase());
       const where = mono(d.export_dir) + (others.length ? `<br>${t("setup_other_folders")} ${others.map(c => `${esc(c.store)}: ${mono(c.dir)}`).join(", ")}` : "");
@@ -428,6 +429,11 @@
         const logRef = mono(g.log);
         if (g.userdata_matches === false) step(false, t("setup_log_other_folder"), t("setup_log_other_folder_help", { dir: mono(g.userdata), cfg: mono("config.json"), log: logRef }));
         else if (!g.mod_loaded) step(false, t("setup_log_no_mod"), t("setup_log_no_mod_help", { log: logRef }));
+        else if (g.save_errors > 0 && !g.writes_to && (g.build || 0) >= 40420 && /not available or invalid/.test(g.last_error || "")) {
+          // game build 40420+ only lets mods write to a few userdata folders: an old mod revision (<= 8) still tries
+          // dashboard_export and is refused. Not a rights problem: update the mod.
+          step(false, t("setup_mod_outdated", { build: g.build }), t("setup_mod_outdated_help") + "<br>" + mono(g.last_error));
+        }
         else if (g.save_errors > 0) {
           // the game refuses to write. Narrow it down: a junction/symlink on the path (moved Steam folder), or the
           // companion writes fine in that very folder -> only the game process is refused (Controlled folder access,
@@ -440,10 +446,11 @@
         else if (g.mod_lines === 0) step(false, t("setup_log_mod_idle"), t("setup_log_mod_idle_help", { log: logRef }));
         else step(null, t("setup_log_ok", { n: g.written, src: esc(g.mod_source || "?") }), logRef);
       }
-      // 2. live.lua written by the mod
-      if (!d.live_exists) step(false, t("setup_no_live"), t("setup_no_live_help") + " " + t("setup_no_live_log"));
-      else if (d.live_age_s > 120) step(false, t("setup_live_old", { ago: fmtDur(d.live_age_s) }), t("setup_live_old_help"));
-      else step(true, t("setup_live_ok", { ago: fmtDur(d.live_age_s) }), null);
+      // 2. the live file written by the mod
+      const live = d.live_name || "tf3dash_live.lua";
+      if (!d.live_exists) step(false, t("setup_no_live", { live }), t("setup_no_live_help") + " " + t("setup_no_live_log"));
+      else if (d.live_age_s > 120) step(false, t("setup_live_old", { live, ago: fmtDur(d.live_age_s) }), t("setup_live_old_help"));
+      else step(true, t("setup_live_ok", { live, ago: fmtDur(d.live_age_s) }), null);
     }
     // 3. collector -> database
     if (d.export_dir && d.live_exists) {

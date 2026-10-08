@@ -805,7 +805,8 @@ class Handler(BaseHTTPRequestHandler):
         # polling stay silent; commands sent to the game are logged in do_POST where the command name is known
         req = str(args[0]) if args else ""
         code = str(args[1]) if len(args) > 1 else ""
-        if code[:1] in ("4", "5"):
+        # /.well-known/... = probes of the browser itself (Chrome asks for a DevTools workspace file while F12 is open)
+        if code[:1] in ("4", "5") and not (code == "404" and " /.well-known/" in req):
             console.say(f"{code} {req}", "warn" if code == "404" else "error")
 
     def log_error(self, fmt, *args):  # routed through log_message already (4xx/5xx)

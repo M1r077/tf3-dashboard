@@ -284,6 +284,9 @@ td .ico, .row .ico { color: var(--muted); }
 .setrow { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .setrow:last-child { border-bottom: 0; }
 .setrow .lbl { color: var(--muted); }
+/* segmented choices fill the value column and share it, so long words ("espaçada", "desligado") are not clipped */
+.setrow .seg { display: flex; max-width: 100%; }
+.setrow .seg button { flex: 1 1 auto; padding: 4px 6px; white-space: nowrap; }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 10px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); }
 .seg button:last-child { border-right: 0; }

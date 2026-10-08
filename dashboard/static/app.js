@@ -1344,11 +1344,14 @@
     const wanted = (a) => { const sev = ALERT_SEV[a.kind] || "info"; return settings.notify >= 2 ? sev !== "info" : sev === "bad"; };
     const tabFor = (a) => a.chain ? "chains" : ["line_problem", "line_issue"].includes(a.kind) ? "lines"
       : ["vehicle_problem", "blocked_train", "no_path_vehicle"].includes(a.kind) ? "vehicles" : ["closing_industry", "thrown_away_cargo"].includes(a.kind) ? "industries" : "overview";
+    let testNote = null;  // result of the last Test click, shown until the settings change
     function hint() {
       const el = $("#notify-hint"); if (!el) return;
       const denied = supported && Notification.permission === "denied";
-      el.textContent = !supported ? t("notify_unsupported") : denied ? t("notify_denied") : settings.notify ? t("notify_on_hint") : "";
-      el.className = "hintline" + (!supported || denied ? " bad" : "");
+      const [txt, cls] = !supported ? [t("notify_unsupported"), "bad"] : denied ? [t("notify_denied"), "bad"] : testNote ? testNote
+        : settings.notify ? [t("notify_on_hint"), ""] : ["", ""];
+      el.textContent = txt;
+      el.className = "hintline" + (cls ? " " + cls : "");
       $("#notify-test").disabled = !supported || denied;
     }
     async function permission() {
@@ -1356,11 +1359,12 @@
       if (Notification.permission === "granted") return true;
       return (await Notification.requestPermission()) === "granted";
     }
-    function show(title, body, tag, onclick) {
+    function show(title, body, tag, onclick, onResult) {
       try {
         const n = new Notification(title, { body, tag, icon: ICON_URL("alert") });
         n.onclick = () => { window.focus(); if (onclick) onclick(); n.close(); };
-      } catch (e) { console.warn("notification failed", e); }
+        if (onResult) { n.onshow = () => onResult(true); n.onerror = () => onResult(false); }
+      } catch (e) { console.warn("notification failed", e); if (onResult) onResult(false, e); }
     }
     function open(a) {
       const tab = tabFor(a);
@@ -1392,9 +1396,18 @@
     $$("#set-notify button").forEach(b => b.addEventListener("click", async () => {
       const v = +b.dataset.v;
       settings.notify = v && await permission() ? v : 0;
+      testNote = v && !settings.notify ? [t(supported && Notification.permission === "default" ? "notify_no_answer" : "notify_denied"), "bad"] : null;
       known = null; applySettings(); check(true);
     }));
-    $("#notify-test").addEventListener("click", async () => { if (await permission()) show("TF3 Dashboard", t("notify_test_body"), "tf3-test"); hint(); });
+    // Test: say what happened. "shown" only means the browser handed it to Windows: if nothing pops up, Windows hid it
+    // (Do not disturb, turned on automatically while a game runs full screen, or the browser's notifications are off)
+    $("#notify-test").addEventListener("click", async () => {
+      if (!(await permission())) { testNote = [t(supported && Notification.permission === "default" ? "notify_no_answer" : "notify_denied"), "bad"]; hint(); return; }
+      testNote = [t("notify_sending"), ""]; hint();
+      show("TF3 Dashboard", t("notify_test_body"), "tf3-test-" + Date.now(), null, (ok, e) => {
+        testNote = ok ? [t("notify_sent"), "ok"] : [t("notify_error", { msg: e ? e.message : "" }), "bad"]; hint();
+      });
+    });
     return { check, hint };
   })();
   window.Notify = Notify;

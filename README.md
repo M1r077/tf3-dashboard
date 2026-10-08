@@ -82,7 +82,7 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
   per savegame in `db\camera_views.json`.
 - **Towns**, **Industries**, **Stations & depots**, **Finances**.
-- Languages: English, French, German — follows the game language automatically.
+- Languages: English, French, German, Brazilian Portuguese — follows the game language automatically.
 
 ## Configuration
 

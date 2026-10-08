@@ -40,5 +40,19 @@
         "param_debug_log_tooltip": "Schreibt eine Zeile pro Export in stdout.txt.",
         "param_on": "An",
         "param_off": "Aus"
+    },
+    "pt_BR": {
+        "param_interval_fast_name": "Exportação rápida",
+        "param_interval_fast_tooltip": "Frequência com que hora, finanças, alertas e veículos são gravados em dashboard_export/live.lua.",
+        "param_interval_slow_name": "Exportação lenta",
+        "param_interval_slow_tooltip": "Frequência com que linhas, estações, cidades, indústrias e depósitos são atualizados (mais pesado).",
+        "param_export_vehicles_name": "Veículos",
+        "param_export_vehicles_tooltip": "Incluir cada veículo (posição, velocidade, carga, estado) na exportação rápida. Desative em redes muito grandes.",
+        "param_accept_commands_name": "Permitir controlar o jogo",
+        "param_accept_commands_tooltip": "Permite que o programa complementar envie comandos de volta ao jogo: velocidade e pausa, câmera, abrir a janela de uma entidade, parar/iniciar/inverter um veículo ou enviá-lo ao depósito, renomear, gerenciamento de linhas (modo de carregamento, tempos de espera, filtros de carga, terminais de uma parada). Cada comando faz exatamente o que o clique correspondente no jogo faz. Nada é comprado, vendido ou demolido, nenhuma rota é alterada. Desligado = somente exportação.",
+        "param_debug_log_name": "Log de depuração",
+        "param_debug_log_tooltip": "Grava uma linha por exportação no stdout.txt.",
+        "param_on": "Ligado",
+        "param_off": "Desligado"
     }
 }

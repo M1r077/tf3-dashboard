@@ -125,7 +125,7 @@
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
   const ALERT_ICON = { line_problem: "line_problem", line_issue: "line_unload", vehicle_problem: "no_path", blocked_train: "stop", no_path_vehicle: "no_path", town_problem: "town", closing_industry: "industry_closed", thrown_away_cargo: "stock_full",
-    chain_bottleneck: "line_problem", chain_overcapacity: "vehicles", chain_industry: "industry_down", chain_input_short: "cargo_received" };
+    chain_bottleneck: "line_problem", chain_overcapacity: "vehicles", chain_industry: "industry_down", chain_input_short: "cargo_received", new_vehicle: "star" };
 
   // ------------------------------------------------------------ formatting
   const loc = () => i18n.dict._locale || "en";
@@ -151,7 +151,7 @@
   const ST = (s) => t("state." + s) === "state." + s ? (s || "?") : t("state." + s);
   const CA = (c) => t("carrier." + c) === "carrier." + c ? (c || "?") : t("carrier." + c);
   const ALERT_SEV = { line_problem: "bad", line_issue: "warn", vehicle_problem: "bad", blocked_train: "bad", no_path_vehicle: "bad", town_problem: "warn", closing_industry: "warn", thrown_away_cargo: "info",
-    chain_bottleneck: "bad", chain_industry: "bad", chain_input_short: "warn", chain_overcapacity: "info" };
+    chain_bottleneck: "bad", chain_industry: "bad", chain_input_short: "warn", chain_overcapacity: "info", new_vehicle: "info" };
   const ALERT_CODE = { line_problem: "line_problem", line_issue: "line_issue", vehicle_problem: "veh_problem", town_problem: "town_problem" };
   const alertLabel = (kind) => { const v = t("alert." + kind); return v === "alert." + kind ? kind : v; };
 
@@ -485,7 +485,9 @@
     const codeTable = ALERT_CODE[a.kind] ? t(ALERT_CODE[a.kind]) : null;
     const code = codeTable && a.type_code != null ? (codeTable[a.type_code] ?? ("code " + a.type_code)) : "";
     // chain alerts (chains.py) carry their own wording: amount is a percentage or a quantity per year depending on the code
-    const extra = a.chain
+    const extra = a.catalogue
+      ? [CAT_TYPE[a.category] ? t("line_type." + CAT_TYPE[a.category]) : "", a.speed_ms ? kmh(a.speed_ms) : "", a.capacity ? t("cat_capacity", { n: int(a.capacity) }) : "", a.price ? money(a.price) : ""].filter(Boolean).join(" · ")
+      : a.chain
       ? [t(`chain_code.${a.kind}.${a.type_code}`, { n: int(a.amount), cargo: cargoName(a.cargo) }), (a.chains || []).length ? t("chain_in", { names: a.chains.join(", ") }) : ""].filter(Boolean).join(" · ")
       : [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
     const who = a.entity_name || (a.entity_id != null ? "#" + a.entity_id : "");
@@ -499,12 +501,14 @@
       const { sev, extra, who } = alertDesc(a);
       // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
       // industry and an extra button opens the Industries tab on it
-      const focus = a.kind === "thrown_away_cargo"
+      const focus = a.catalogue ? `<button class="btn iconbtn gotocat" title="${esc(t("tab_catalogue"))}">${ico("calendar", "sm")}</button>`
+        : a.kind === "thrown_away_cargo"
         ? (a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
         : a.entity_id != null ? entBtns(a.entity_id, { line: a.kind === "chain_bottleneck" || a.kind === "chain_overcapacity" }) : "";
-      return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.chain ? (a.since ? t("since", { ago: ago(a.since) }) : "") : `${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}`}</div>${focus}</div>`;
+      return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.catalogue ? t("cat_new") : a.chain ? (a.since ? t("since", { ago: ago(a.since) }) : "") : `${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}`}</div>${focus}</div>`;
     }).join("");
     bindActions(el);
+    $$("button.gotocat", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); showTab("catalogue"); }));
     $$("button.goto[data-ind]", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); $("#ind-filter").value = b.dataset.ind; showTab("industries"); }));
   }
 
@@ -1092,6 +1096,52 @@
     bindActions(view);
   }
 
+  // ------------------------------------------------------------ vehicle catalogue
+  // Every vehicle the player can buy (catalogue.lua, mod rev 8+), grouped by the year it becomes available: what is
+  // new this year, what comes next, what is withdrawn. Past years and wagons are hidden unless asked for.
+  const CAT_TYPE = { bus: "Bus", truck: "Truck", tram: "Tram", train: "Train", waggon: "Train", plane: "Aircraft", zeppelin: "Aircraft", helicopter: "Helicopter", ship: "Ship" };
+  const CAT_CARRIER = { Bus: "ROAD", Truck: "ROAD", Tram: "TRAM", Train: "RAIL", Aircraft: "AIR", Helicopter: "AIR", Ship: "WATER" };
+  const catType = (m) => CAT_TYPE[m.category] || null;
+  state.catTypes = new Set();
+  function catCard(m, year) {
+    const ty = catType(m);
+    const isNew = m.year_from === year, gone = m.year_to > 0 && m.year_to < year;
+    const chips = [
+      isNew ? `<span class="chip ok">${t("cat_new")}</span>` : "",
+      m.year_to > 0 && !gone ? `<span class="chip ${m.year_to <= year + 1 ? "warn" : ""}">${t(m.year_to <= year + 1 ? "cat_retiring" : "cat_until", { y: m.year_to })}</span>` : "",
+      gone ? `<span class="chip">${t("cat_retired", { y: m.year_to })}</span>` : "",
+      m.multiple_unit != null ? `<span class="chip info">${t("cat_mu")}</span>` : "",
+      m.in_fleet ? `<span class="chip info">${t("cat_in_fleet", { n: m.in_fleet })}</span>` : "",
+    ].join("");
+    const stats = [m.speed_ms ? kmh(m.speed_ms) : "", m.capacity ? t("cat_capacity", { n: int(m.capacity) }) : "", m.power_kw ? t("cat_power", { n: int(m.power_kw) }) : "", m.price ? money(m.price) : ""].filter(Boolean);
+    const typeLabel = m.category === "waggon" ? t("cat_wagon") : ty ? t("line_type." + ty) : (m.category || "");
+    return `<div class="catcard ${isNew ? "new" : ""} ${gone ? "gone" : ""}">
+      <div class="catimg">${modelImg({ model_key: m.model_key, model: m.name, carrier: CAT_CARRIER[ty] || "OTHER" })}</div>
+      <div class="n">${ty ? `<span class="vehicon" style="color:${LINE_TYPE_COLOR[ty]}">${ico(LINE_TYPE_ICON[ty], "sm", typeLabel)}</span>` : ""}${esc(m.name || m.model_key)}</div>
+      <div class="stats"><span>${esc(typeLabel)}</span>${stats.map(x => `<span>${x}</span>`).join("")}</div>
+      ${chips ? `<div class="chips">${chips}</div>` : ""}</div>`;
+  }
+  async function renderCatalogue() {
+    const d = await api("/api/catalogue"); const all = d.models || [], year = d.year;
+    const el = $("#cat-list");
+    if (!all.length) { $("#cat-types").innerHTML = ""; el.innerHTML = `<div class="cmdhint">${ico("warning", "sm")}<span>${t("cat_need_mod")}</span></div>`; return; }
+    const wagons = $("#cat-wagons").checked, past = $("#cat-past").checked, q = $("#cat-filter").value.toLowerCase();
+    const base = all.filter(m => (wagons || m.category !== "waggon") && (past || year == null || m.year_from >= year));
+    renderTypeBar($("#cat-types"), base, catType, state.catTypes, renderCatalogue);
+    const shown = base.filter(m => (!state.catTypes.size || state.catTypes.has(catType(m))) && (!q || (m.name || "").toLowerCase().includes(q) || m.model_key.includes(q)));
+    const avail = all.filter(m => m.category !== "waggon" && m.year_from <= year && !(m.year_to > 0 && m.year_to < year));
+    const kpi = (k, v, cls = "") => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+    const nNew = all.filter(m => m.category !== "waggon" && m.year_from === year).length;
+    const nNext = all.filter(m => m.category !== "waggon" && m.year_from > year && m.year_from <= year + 5).length;
+    const nOut = all.filter(m => m.category !== "waggon" && m.year_to > 0 && m.year_to >= year && m.year_to <= year + 1).length;
+    const byYear = new Map();
+    shown.forEach(m => { if (!byYear.has(m.year_from)) byYear.set(m.year_from, []); byYear.get(m.year_from).push(m); });
+    const rel = (y) => y === year ? t("cat_this_year") : y > year ? t("cat_in_years", { n: y - year }) : t("cat_years_ago", { n: year - y });
+    el.innerHTML = `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew, nNew ? "pos" : "")}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut, nOut ? "neg" : "")}${kpi(t("cat_k_available"), avail.length)}</div>`
+      + ([...byYear.keys()].sort((a, b) => a - b).map(y => `<div class="catyear ${y === year ? "now" : ""}"><b>${y || "–"}</b><span class="muted">${year != null && y ? rel(y) : ""} · ${byYear.get(y).length}</span></div>
+          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`).join("") || `<p class="muted">${t("cat_none")}</p>`);
+  }
+
   // ------------------------------------------------------------ stations & depots
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
@@ -1341,8 +1391,9 @@
     let known = null, lastPoll = 0;
     const lastShown = new Map();
     const keyOf = (a) => [a.kind, a.entity_id, a.type_code, a.related_id].join("|");
-    const wanted = (a) => { const sev = ALERT_SEV[a.kind] || "info"; return settings.notify >= 2 ? sev !== "info" : sev === "bad"; };
-    const tabFor = (a) => a.chain ? "chains" : ["line_problem", "line_issue"].includes(a.kind) ? "lines"
+    // new vehicles are announced at any level (the game itself announces them); otherwise by severity
+    const wanted = (a) => { if (a.kind === "new_vehicle") return true; const sev = ALERT_SEV[a.kind] || "info"; return settings.notify >= 2 ? sev !== "info" : sev === "bad"; };
+    const tabFor = (a) => a.catalogue ? "catalogue" : a.chain ? "chains" : ["line_problem", "line_issue"].includes(a.kind) ? "lines"
       : ["vehicle_problem", "blocked_train", "no_path_vehicle"].includes(a.kind) ? "vehicles" : ["closing_industry", "thrown_away_cargo"].includes(a.kind) ? "industries" : "overview";
     let testNote = null;  // result of the last Test click, shown until the settings change
     function hint() {
@@ -1388,7 +1439,7 @@
       if (!fresh.length) return;
       fresh.forEach(([k]) => lastShown.set(k, now));
       if (fresh.length > 3) {
-        show(t("notify_many", { n: fresh.length }), fresh.slice(0, 5).map(([, a]) => { const d = alertDesc(a); return `${d.label}: ${d.who}`; }).join("\n"), "tf3-many", () => showTab("overview"));
+        show(t(fresh.every(([, a]) => a.kind === "new_vehicle") ? "notify_new_vehicles" : "notify_many", { n: fresh.length }), fresh.slice(0, 5).map(([, a]) => { const d = alertDesc(a); return `${d.label}: ${d.who}`; }).join("\n"), "tf3-many", () => showTab("overview"));
         return;
       }
       fresh.forEach(([k, a]) => { const d = alertDesc(a); show(`${d.label} — ${d.who}`, d.extra || "", k, () => open(a)); });
@@ -1413,7 +1464,7 @@
   window.Notify = Notify;
 
   // ------------------------------------------------------------ refresh loop
-  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, chains: renderChains, stations: renderStations, map: renderMap, finance: renderFinance };
+  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, chains: renderChains, catalogue: renderCatalogue, stations: renderStations, map: renderMap, finance: renderFinance };
   let busy = false, again = false;
   async function refresh() {
     if (busy) { again = true; return; } busy = true;
@@ -1425,7 +1476,7 @@
     busy = false;
     if (again) { again = false; refresh(); }
   }
-  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
+  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved", "#cat-filter", "#cat-past", "#cat-wagons"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
   let timer = null;
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);

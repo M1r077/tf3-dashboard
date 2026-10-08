@@ -87,6 +87,9 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
   them, and get chain alerts (bottleneck, too many vehicles, industry problem, missing input) in the Alerts list.
   Needs mod revision 8+.
 - **Towns**, **Industries**, **Stations & depots**, **Finances**.
+- **Catalogue** — every vehicle you can buy (mods included) by year of availability: new this year, the next years,
+  withdrawn soon, how many of each model are in your fleet. A "new vehicle available" alert (and Windows
+  notification) when the year turns. Needs mod revision 8+.
 - **Windows notifications** (optional, Settings): new serious alerts (or warnings too) pop up as native Windows
   notifications while the dashboard page is open, even in the background.
 - Languages: English, French, German, Brazilian Portuguese — follows the game language automatically.

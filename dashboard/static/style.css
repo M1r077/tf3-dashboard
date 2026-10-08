@@ -428,6 +428,21 @@ table.stops .termgrid .tg-star .ico { margin: 0; }
 table.stops .termgrid .tg-star.on { color: #f0c84a; }
 table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 
+/* ------------------------------------------------ vehicle catalogue */
+.catyear { margin: 14px 0 6px; display: flex; align-items: baseline; gap: 8px; font-size: 15px; }
+.catyear:first-of-type { margin-top: 4px; }
+.catyear.now { color: var(--ok); }
+.catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.catcard { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.catcard.new { border-color: var(--ok); }
+.catcard.gone { opacity: .55; }
+.catcard .catimg { height: 44px; display: flex; align-items: center; }
+.catcard .catimg .modelimg { max-height: 44px; max-width: 100%; }
+.catcard .n { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.catcard .stats { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.catcard .chip { margin: 0; }
+.catcard .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+
 /* ------------------------------------------------ Windows notifications (settings) */
 .notifyset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .notifyset .btn { padding: 3px 9px; font-size: 12px; }

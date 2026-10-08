@@ -18,6 +18,7 @@ import os
 import sqlite3
 import sys
 import time
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -576,6 +577,29 @@ class Store:
         return n
 
     # ------------------------------------------------------------ status
+    def catalogue(self, data: Any) -> int | None:
+        """Vehicle catalogue (catalogue.lua, mod rev 8+) for the game of the latest snapshot; None = no game yet."""
+        row = self.con.execute("SELECT game_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1").fetchone()
+        if not row or not isinstance(data, dict):
+            return None
+        gid, now, n = row["game_id"], iso(), 0
+        self.con.execute("DELETE FROM vehicle_model WHERE game_id=?", (gid,))
+        for m in as_list(data.get("items")):
+            if not isinstance(m, dict) or not m.get("key"):
+                continue
+            key = str(m["key"])
+            mu = m.get("multiple_unit")
+            mid = zlib.crc32(f"{key}|{mu if mu is not None else ''}".encode()) & 0x7FFFFFFF
+            self.con.execute(
+                """INSERT OR REPLACE INTO vehicle_model(game_id, model_id, model_key, name, category, carrier, year_from, year_to, speed_ms,
+                   capacity, cargo, price, power_kw, multiple_unit, notify, lang, updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (gid, mid, key, m.get("name"), key.split("/")[0] if "/" in key else None, clean_enum(m.get("carrier")),
+                 m.get("year_from"), m.get("year_to"), m.get("speed"), m.get("capacity"), m.get("cargo"), m.get("price"),
+                 m.get("power"), mu, _bool(m.get("notify")), data.get("lang"), now))
+            n += 1
+        self.con.commit()
+        return n
+
     def games(self) -> list[sqlite3.Row]:
         return self.con.execute("""SELECT g.game_id, g.key, g.first_seen, g.last_seen, g.lang,
                                           (SELECT COUNT(*) FROM snapshot s WHERE s.game_id=g.game_id) snapshots,
@@ -590,7 +614,7 @@ class Store:
         c = self.con
         stats = {}
         stats["snapshots"] = c.execute("DELETE FROM snapshot WHERE game_id=?", (gid,)).rowcount
-        for tbl in ("line_stop", "line", "vehicle", "station", "town", "industry", "depot", "cargo_type",
+        for tbl in ("line_stop", "line", "vehicle", "station", "town", "industry", "depot", "cargo_type", "vehicle_model",
                     "agg_fleet_min", "agg_vehicle_min", "agg_finance_min", "agg_meta"):
             stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
         stats["game"] = c.execute("DELETE FROM game WHERE game_id=?", (gid,)).rowcount
@@ -805,8 +829,31 @@ def main(argv: list[str] | None = None) -> int:
             say(f"{minute['n']} snapshots in the last minute, last: {minute['last']}", "ok")
         minute["n"], minute["since"] = 0, time.time()
 
+    catalogue_mtime = -1.0
+
+    def import_catalogue():
+        # catalogue.lua (mod rev 8+): written once per session and on a language change, next to live.lua
+        nonlocal catalogue_mtime
+        p = args.live.parent / "catalogue.lua"
+        try:
+            m = os.path.getmtime(p)
+        except OSError:
+            return
+        if m == catalogue_mtime:
+            return
+        try:
+            n = store.catalogue(luatable.load(str(p)))
+        except (luatable.LuaParseError, OSError, ValueError, sqlite3.Error) as e:
+            say(f"could not read catalogue.lua (will retry): {e}", "warn")
+            return
+        if n is not None:  # None: no snapshot yet to attach it to, retry later
+            catalogue_mtime = m
+            say(f"vehicle catalogue: {n} models", "ok")
+
     try:
         while True:
+            if args.live is not None and imported:
+                import_catalogue()
             if args.live is None or (last_mtime < 0 and not args.live.exists()):
                 # nothing yet: re-run detection every few seconds (first start, other Steam account, game not launched)
                 if time.time() >= next_detect:

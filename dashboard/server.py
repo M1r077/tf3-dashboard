@@ -260,7 +260,7 @@ def api_alerts(q: dict) -> dict:
         h = hmap.get((a["kind"], a["entity_id"]))
         a["seen"] = h["n"] if h else 1
         a["since"] = h["since"] if h else None
-    return {"alerts": al + chain_alerts()}
+    return {"alerts": al + chain_alerts() + new_vehicle_alerts()}
 
 
 def api_lines(q: dict) -> dict:
@@ -564,6 +564,47 @@ def chain_alerts() -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------- vehicle catalogue (mod rev 8+)
+def _game_year(gid: int) -> int | None:
+    r = one("SELECT year FROM snapshot WHERE game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    return r["year"] if r else None
+
+
+def _catalogue_rows(gid: int) -> list[dict]:
+    try:
+        return rows("""SELECT model_id, model_key, name, category, carrier, year_from, year_to, speed_ms, capacity, cargo, price, power_kw,
+                       multiple_unit, notify, updated FROM vehicle_model WHERE game_id=? ORDER BY year_from, name""", (gid,))
+    except sqlite3.Error:
+        return []  # database not migrated by a collector >= 0.3 yet
+
+
+def new_vehicle_alerts() -> list[dict]:
+    """One info alert per vehicle that became available this game year (the game's own announcement, on the dashboard)."""
+    gid = _gid()
+    year = _game_year(gid)
+    if year is None:
+        return []
+    out = []
+    for m in _catalogue_rows(gid):
+        if m["year_from"] == year and m["notify"] != 0 and m["category"] != "waggon":
+            out.append({"kind": "new_vehicle", "entity_id": m["model_id"], "entity_name": m["name"] or m["model_key"], "type_code": None,
+                        "related_id": None, "amount": None, "catalogue": True, "model_key": m["model_key"], "category": m["category"],
+                        "speed_ms": m["speed_ms"], "capacity": m["capacity"], "price": m["price"], "since": None, "seen": 1})
+    return out
+
+
+def api_catalogue(q: dict) -> dict:
+    gid = _gid()
+    models = _catalogue_rows(gid)
+    # how many vehicles of the fleet use each model (leading part)
+    fleet = {r["model_key"]: r["n"] for r in rows("""SELECT v.model_key, COUNT(*) n FROM vehicle v
+                 JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
+                 WHERE v.game_id=? AND v.model_key IS NOT NULL GROUP BY v.model_key""", (gid,))}
+    for m in models:
+        m["in_fleet"] = fleet.get(m["model_key"], 0) if m["multiple_unit"] is None else 0
+    return {"year": _game_year(gid), "models": models}
+
+
 def _ids(q: dict, name: str) -> list[int]:
     out = []
     for part in ",".join(q.get(name, [])).split(","):
@@ -793,6 +834,7 @@ ROUTES = {
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
     "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
     "/api/chains": api_chains, "/api/chain_view": api_chain_view, "/api/chain_connected": api_chain_connected,
+    "/api/catalogue": api_catalogue,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

@@ -83,6 +83,12 @@ Three independent parts:
      `WAREHOUSE` component, exported with the cargo types its stock list accepts and what it ships per year). Each line
      stop exports `station_entity`, the station it uses (`STATION_GROUP.stations[stop.station + 1]`). Town buildings
      are left out.
+   - **vehicle catalogue (mod rev 8)**: `catalogue.lua` next to live.lua, written once per session and again when the
+     game language changes, collected time-sliced (SLOW_BUDGET per frame) outside the slow cycle. Every model of
+     `modelRep.forEachModelWithMetadata("transportVehicle")` with filter tags (= sold on its own) plus every multiple
+     unit (available when its last part is): model key, name, carrier, availability yearFrom / yearTo,
+     notifyWhenAvailable, top speed, capacity and cargo types (compartments, best effort), price
+     (`getPartPrice`, else the base price), rail engine power. The collector replaces `vehicle_model` with it.
    - cargo types are exported with their localized name AND a neutral key (`key`, name of the `.cargo` file); language
      and cargo names are re-read every slow cycle, so **changing the game language is picked up without restart** (the
      dashboard follows the game language while the selector is on "auto")
@@ -214,6 +220,11 @@ Three independent parts:
      up, 2 more than 30 % of the cargo late), `chain_overcapacity` (load < 20 % with 2+ vehicles), `chain_industry`
      (0 halted, 1 closing, 2 discarding, 3 producing below 50 %), `chain_input_short` (input below 70 % of the maximum).
      Deep link: `?tab=chains&chain=<id>` or `&chain=all`. Needs mod rev 8+ (the tab says so otherwise).
+   - **Catalogue**: the models grouped by year of availability (this year and later; past years and wagons on
+     request), filter by type and text, KPIs (new this year, next 5 years, withdrawn by next year, available now),
+     cards with model image, speed, capacity, power, price, "until <year>", multiple unit, how many in the fleet.
+     `new_vehicle` alerts (info) = models available from the current game year (not wagons, not the ones the game
+     itself does not announce); they are not counted in the header and are notified at any Windows notification level.
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
@@ -228,6 +239,8 @@ Three independent parts:
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
 - `station.catchment` (JSON) and `line_stop.station_entity`: supply chains, mod schema 6+
+- `vehicle_model`: vehicle catalogue (mod rev 8+), replaced as a whole on each catalogue.lua; `model_id` = crc32 of
+  the model key (+ multiple unit id), stable across rewrites
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed; 5 = camera; 6 = catchment);
   `PRAGMA user_version` on the database side (1 = fix applied to already stored `line_capacity`). The collector fixes
   on the fly the exports of a mod still on schema 1 (+1 offset: a bus "carried vehicles").

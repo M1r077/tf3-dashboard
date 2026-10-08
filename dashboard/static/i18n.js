@@ -64,6 +64,7 @@ window.I18N = {
     // towns
     th_town: "Town", th_capacity: "Capacity", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Unhappy travellers", th_public_transport: "Public transport", th_traffic: "Traffic", th_noise: "Noise", th_stations: "Stations", th_growth: "Growth",
     growth_active: "active", growth_frozen: "frozen", select_town: "Select a town.",
+    select_industry: "Select an industry.", ind_level_rating: "Level and yield", ind_max: "max", ind_produced: "produced", ind_consumed: "consumed",
     hap_inside: "Inside the town", hap_res_out: "Residents leaving", hap_res_in: "Residents arriving", hap_visitors: "Visitors", hap_car: "By car", hap_walk: "On foot",
     reach: "Reach: com. private {a} · com. public {b} · ind. private {c} · ind. public {d}", cargo_needs: "Cargo needs", tip_town_supplied: "Supplied / needed, as in the town window (mod rev 4+)", tip_town_stock: "Warehouse stock / capacity (update the mod to rev 4 to see the town window figures)", stock_short: "stock {a}/{b}", none_m: "none", top_lines: "Most used lines",
     capacities: "Capacities", satisfaction_pt: "Satisfaction & public transport", residential: "Residential", commercial: "Commercial", industrial: "Industrial", unhappy_town: "Unhappy (town)", pt_share: "Public transport share",
@@ -169,6 +170,7 @@ window.I18N = {
     cam_needs_rev7: "Les vues caméra demandent la révision 7 du mod (le jeu n'exporte pas encore sa caméra). Mettez le mod à jour dans le Mod Hub, puis rechargez la partie.",
     th_town: "Ville", th_capacity: "Capacité", th_res: "Rés.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Voyageurs mécontents", th_public_transport: "Transports publics", th_traffic: "Trafic", th_noise: "Bruit", th_stations: "Gares", th_growth: "Croissance",
     growth_active: "active", growth_frozen: "gelée", select_town: "Sélectionne une ville.",
+    select_industry: "Sélectionne une industrie.", ind_level_rating: "Niveau et rendement", ind_max: "max", ind_produced: "produit", ind_consumed: "consommé",
     hap_inside: "Dans la ville", hap_res_out: "Résidents sortants", hap_res_in: "Résidents entrants", hap_visitors: "Visiteurs", hap_car: "En voiture", hap_walk: "À pied",
     reach: "Accessibilité : com. privé {a} · com. public {b} · ind. privé {c} · ind. public {d}", cargo_needs: "Besoins en cargo", tip_town_supplied: "Livré / besoin, comme dans la fenêtre de la ville (mod rev 4+)", tip_town_stock: "Stock / capacité de l'entrepôt (mettez le mod à jour en rev 4 pour voir les chiffres de la fenêtre de la ville)", stock_short: "stock {a}/{b}", none_m: "aucun", top_lines: "Lignes les plus utilisées",
     capacities: "Capacités", satisfaction_pt: "Satisfaction & transports publics", residential: "Résidentiel", commercial: "Commercial", industrial: "Industriel", unhappy_town: "Mécontents (ville)", pt_share: "Part transports publics",
@@ -269,6 +271,7 @@ window.I18N = {
     cam_needs_rev7: "Kameraansichten brauchen Revision 7 des Mods (das Spiel exportiert seine Kamera noch nicht). Mod im Mod Hub aktualisieren, dann den Spielstand neu laden.",
     th_town: "Stadt", th_capacity: "Kapazität", th_res: "Wohn.", th_com: "Gew.", th_ind: "Ind.", th_unhappy_travellers: "Unzufriedene Reisende", th_public_transport: "ÖV", th_traffic: "Verkehr", th_noise: "Lärm", th_stations: "Stationen", th_growth: "Wachstum",
     growth_active: "aktiv", growth_frozen: "eingefroren", select_town: "Stadt auswählen.",
+    select_industry: "Industrie auswählen.", ind_level_rating: "Stufe und Auslastung", ind_max: "max", ind_produced: "produziert", ind_consumed: "verbraucht",
     hap_inside: "In der Stadt", hap_res_out: "Abreisende Einwohner", hap_res_in: "Ankommende Einwohner", hap_visitors: "Besucher", hap_car: "Mit dem Auto", hap_walk: "Zu Fuss",
     reach: "Erreichbarkeit: Gew. privat {a} · Gew. ÖV {b} · Ind. privat {c} · Ind. ÖV {d}", cargo_needs: "Frachtbedarf", tip_town_supplied: "Geliefert / Bedarf, wie im Stadtfenster (Mod Rev. 4+)", tip_town_stock: "Lagerbestand / Kapazität (Mod auf Rev. 4 aktualisieren, um die Zahlen des Stadtfensters zu sehen)", stock_short: "Lager {a}/{b}", none_m: "keiner", top_lines: "Meistgenutzte Linien",
     capacities: "Kapazitäten", satisfaction_pt: "Zufriedenheit & ÖV", residential: "Wohnen", commercial: "Gewerbe", industrial: "Industrie", unhappy_town: "Unzufriedene (Stadt)", pt_share: "ÖV-Anteil",
@@ -381,6 +384,7 @@ window.I18N = {
     // towns
     th_town: "Cidade", th_capacity: "Capacidade", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Viajantes insatisfeitos", th_public_transport: "Transporte público", th_traffic: "Trânsito", th_noise: "Ruído", th_stations: "Estações", th_growth: "Crescimento",
     growth_active: "ativo", growth_frozen: "congelado", select_town: "Selecione uma cidade.",
+    select_industry: "Selecione uma indústria.", ind_level_rating: "Nível e rendimento", ind_max: "máx.", ind_produced: "produzido", ind_consumed: "consumido",
     hap_inside: "Dentro da cidade", hap_res_out: "Moradores saindo", hap_res_in: "Moradores chegando", hap_visitors: "Visitantes", hap_car: "De carro", hap_walk: "A pé",
     reach: "Alcance: com. privado {a} · com. público {b} · ind. privado {c} · ind. público {d}", cargo_needs: "Demanda de carga", tip_town_supplied: "Fornecido / necessário, como na janela da cidade (mod rev 4+)", tip_town_stock: "Estoque do armazém / capacidade (atualize o mod para a rev 4 para ver os números da janela da cidade)", stock_short: "estoque {a}/{b}", none_m: "nenhuma", top_lines: "Linhas mais usadas",
     capacities: "Capacidades", satisfaction_pt: "Satisfação e transporte público", residential: "Residencial", commercial: "Comercial", industrial: "Industrial", unhappy_town: "Insatisfeitos (cidade)", pt_share: "Participação do transporte público",

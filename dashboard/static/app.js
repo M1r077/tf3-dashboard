@@ -294,7 +294,7 @@
   }
 
   // ------------------------------------------------------------ tabs
-  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, cache: {} };
+  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, cache: {} };
   function showTab(name, push = true) {
     const b = $(`#tabs button[data-tab="${name}"]`); if (!b) return;
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
@@ -928,7 +928,8 @@
 
   // ------------------------------------------------------------ industries
   async function renderIndustries() {
-    const d = await api("/api/industries"); const inds = d.industries || [];
+    const d = await api("/api/industries"); const inds = d.industries || []; state.cache.industries = inds;
+    if (!state.selInd) { const u = +new URLSearchParams(location.search).get("ind"); if (u && inds.some(i => i.industry_id === u)) state.selInd = u; }  // deep link ?tab=industries&ind=<id>
     const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
     const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !i.producing || i.closure_time > 0 || i.cargo.some(c => c.direction === "out" && !c.shipped_year)));
     // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
@@ -947,6 +948,50 @@
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },
     ];
+    renderTable($("#ind-table"), cols, rows, { id: "industry_id", defaultSort: "name", onRow: (id, tr) => { state.selInd = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderIndustryDetail(+id); }, rowClass: i => (i.industry_id === state.selInd ? "sel" : "") });
+    if (state.selInd) renderIndustryDetail(state.selInd);
+  }
+
+  // Detail card: yearly figures of each cargo over time (produced vs max, shipped; consumed vs max, delivered),
+  // plus level and production rating. Game figures only, same as the industry window.
+  const CARGO_COLORS = ["#4f8a8a", "#e8b04b", "#58a6ff", "#bc8cff", "#3fb950", "#d62560", "#f0883e", "#8b98a8"];
+  async function renderIndustryDetail(id) {
+    const ind = (state.cache.industries || []).find(x => x.industry_id === id); if (!ind) return;
+    const h = await api("/api/industry_history", { id, limit: settings.history, range: settings.range });
+    const hist = h.history || [], labels = hist.map(x => dateLabel(x));
+    // per-cargo series aligned on the history snapshots
+    const idx = new Map(hist.map((x, i) => [x.snapshot_id, i]));
+    const byKey = new Map();
+    for (const c of (h.cargo || [])) {
+      const k = c.direction + ":" + c.cargo_id;
+      if (!byKey.has(k)) byKey.set(k, { c, a: hist.map(() => null), m: hist.map(() => null), s: hist.map(() => null) });
+      const e = byKey.get(k), i = idx.get(c.snapshot_id); if (i == null) continue;
+      if (c.direction === "out") { e.a[i] = c.produced_year; e.m[i] = c.max_prod_year; e.s[i] = c.shipped_year; }
+      else { e.a[i] = c.consumed_year; e.m[i] = c.max_cons_year; e.s[i] = c.delivered_year; }
+    }
+    const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
+    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", ind.boost_rule || ind.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
+    const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
+    $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
+      <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}</p>
+      ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
+      ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
+      <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
+    bindActions($("#ind-detail"));
+    const tx = tsOpts(hist, "ind");
+    // one colour per cargo: solid = produced/consumed, dashed = shipped/delivered, faint = yearly maximum
+    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo); return [
+      { name: `${n} · ${aName}`, values: e.a, color: col },
+      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4] },
+      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4] },
+    ]; });
+    if (outs.length) Charts.lineChart($("#chart-ind-out"), cargoSeries(outs, t("ind_produced"), t("shipped")), labels, { zeroBase: true, ...tx });
+    if (ins.length) Charts.lineChart($("#chart-ind-in"), cargoSeries(ins, t("ind_consumed"), t("delivered")), labels, { zeroBase: true, ...tx });
+    Charts.lineChart($("#chart-ind-lvl"), [
+      { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#3fb950", unit: "%" },
+      { name: t("th_level"), values: hist.map(x => x.level), color: "#bc8cff", axis: "right", step: true },
+    ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
     renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, defaultSort: "name" });
   }
 

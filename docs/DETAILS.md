@@ -74,10 +74,14 @@ Three independent parts:
      file (the game does not send the revision); the only reliable revision number is `revision` in the `mod.json` inside
      the zip, or in the local copy after subscribing again (`C:\Users\Public\mod.io\<game>\mods\<id>\mod.json`, which
      keeps the old revision until then). Platforms belong to the file, not to the mod, and are fixed at upload: the
-     XSX/PS5 file of each pair is useless (consoles do not load userdata mods) and can be deleted afterwards, as can
-     the previous pair once the new one is live. Deleting a file is done on the website, mod page -> Admin -> Files;
-     the file ids are listed by `GET https://g-10640.modapi.io/v1/games/10640/mods/<id>/files?api_key=...`
-     (`api.mod.io` is deprecated, only the per-game `modapi.io` host answers).
+     XSX/PS5 file of each pair is useless (consoles do not load userdata mods). The previous pair can be deleted once
+     the new one is live, but **the live file of a platform cannot be deleted**: as long as the only console file is
+     the live one for XSX/PS5, it stays (rev 9: `8298711`). Untick Xbox/PS5 in the upload form of the next revision so
+     no new console file is created; the old one remains until mod.io allows removing the platform from the mod.
+     Deleting a file is done on the website, mod page -> Admin -> Files; the file ids are listed by
+     `GET https://g-10640.modapi.io/v1/games/10640/mods/<id>/files?api_key=...` (`api.mod.io` is deprecated, only the
+     per-game `modapi.io` host answers, and Cloudflare rejects the default `Python-urllib` User-Agent with error 1010:
+     send a browser-like `User-Agent` header).
    - **staging always wins over mod.io**: when two installed mods share the same `modId`, the game loads only one of
      them, and it is the staging copy (`stdout.txt`: `Multiple (2) mods with same id found tf3_dashboard_export, the
      one from .../staging_area/tf3_dashboard_export/ has been selected`). The two "Second Screen Dashboard" entries

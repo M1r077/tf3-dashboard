@@ -135,8 +135,23 @@ collector/      collector.py (tf3dash_live.lua + tf3dash_slow_*.lua -> SQLite), 
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export) — https://mod.io/g/transportfever3/m/second-screen-dashboard
 docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
-test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip)
+test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip), i18ncheck.js
 ```
+
+## Translating
+
+English, French, German and Brazilian Portuguese so far. Any other language is welcome, Chinese in particular.
+Two files, no build step:
+
+- `dashboard/static/i18n.js` — the dashboard (about 420 short strings). Copy the `en: { ... }` block, rename it with
+  the two-letter code (`zh`, `es`, ...), translate the right-hand sides; `{name}`-style placeholders stay as they are.
+  Add an `<option value="zh">中文</option>` in the `#lang` select of `dashboard/static/index.html`.
+- `mod/tf3_dashboard_export/strings.json` — the mod settings and the in-game status window (27 strings). Same idea;
+  the block name is the game's locale code (`zh_CN`, `es`, ...).
+
+`node test\i18ncheck.js` lists any key missing or left empty. Open a pull request, or if git is not your thing, post
+the two files on the mod.io page or in a GitHub issue and we will add them with your name in the credits. Partial
+translations are fine: a missing key falls back to English.
 
 ## Building a release
 

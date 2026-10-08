@@ -72,7 +72,11 @@ Three independent parts:
      (Win/Mac/Linux + XSX/PS5), the live pair has its *Publish* button greyed out. The site shows "Version 1.0" for every
      file (the game does not send the revision); the only reliable revision number is `revision` in the `mod.json` inside
      the zip, or in the local copy after subscribing again (`C:\Users\Public\mod.io\<game>\mods\<id>\mod.json`, which
-     keeps the old revision until then).
+     keeps the old revision until then). Platforms belong to the file, not to the mod, and are fixed at upload: the
+     XSX/PS5 file of each pair is useless (consoles do not load userdata mods) and can be deleted afterwards, as can
+     the previous pair once the new one is live. Deleting a file is done on the website, mod page -> Admin -> Files;
+     the file ids are listed by `GET https://g-10640.modapi.io/v1/games/10640/mods/<id>/files?api_key=...`
+     (`api.mod.io` is deprecated, only the per-game `modapi.io` host answers).
    - **staging always wins over mod.io**: when two installed mods share the same `modId`, the game loads only one of
      them, and it is the staging copy (`stdout.txt`: `Multiple (2) mods with same id found tf3_dashboard_export, the
      one from .../staging_area/tf3_dashboard_export/ has been selected`). The two "Second Screen Dashboard" entries

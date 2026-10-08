@@ -363,8 +363,26 @@ def api_vehicle_history(q: dict) -> dict:
         agg_sql="""SELECT bucket, n, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index
                    FROM agg_vehicle_min WHERE game_id=? AND bucket >= ? AND vehicle_id=? ORDER BY bucket""",
         extra=(vid,))
-    v = one("SELECT v.*, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
+    v = one("SELECT v.*, vs.cargo, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
+    if v:
+        _cargo_on_board(gid, [v])
     return {"vehicle": v, "history": hist}
+
+
+def _cargo_on_board(gid: int, rows_: list[dict]) -> None:
+    """vehicle_state.cargo (JSON {"<cargo id>": count}, mod rev 8+) -> list [{cargo_id, n, cargo, cargo_key}] sorted by count."""
+    names = {c["cargo_id"]: c for c in rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=?", (gid,))}
+    for r in rows_:
+        raw = r.get("cargo")
+        out = []
+        if isinstance(raw, str) and raw:
+            try:
+                for k, n in json.loads(raw).items():
+                    ct = names.get(int(k), {})
+                    out.append({"cargo_id": int(k), "n": n, "cargo": ct.get("name"), "cargo_key": ct.get("key")})
+            except (ValueError, TypeError):
+                pass
+        r["cargo"] = sorted(out, key=lambda c: -c["n"])
 
 
 def api_vehicles(q: dict) -> dict:
@@ -375,6 +393,7 @@ def api_vehicles(q: dict) -> dict:
                   LEFT JOIN town t ON t.game_id=v.game_id AND t.town_id=vs.closest_town
                   WHERE v.game_id=? AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
                   ORDER BY v.carrier, l.name, v.name""", (gid,))
+    _cargo_on_board(gid, veh)
     return {"vehicles": veh}
 
 

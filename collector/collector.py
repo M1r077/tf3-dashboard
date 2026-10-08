@@ -147,6 +147,7 @@ class Store:
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
         ("snapshot", "camera", "TEXT"),
+        ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -315,11 +316,15 @@ class Store:
                  clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts")),
             )
             x, y, z = xyz(v.get("pos"))
+            cargo = v.get("cargo")
             self.con.execute(
-                """INSERT OR REPLACE INTO vehicle_state VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT OR REPLACE INTO vehicle_state(snapshot_id, vehicle_id, line_id, state, stop_index, x, y, z, speed_ms, load,
+                   maintenance, running_cost, value, user_stopped, no_path, doors_open, depot_id, days_in_depot, days_at_terminal, closest_town, cargo)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, vid, v.get("line"), clean_enum(v.get("state")), v.get("stop_index"), x, y, z, v.get("speed"), v.get("load"),
                  v.get("maintenance"), v.get("running_cost"), v.get("value"), b(v.get("user_stopped")), b(v.get("no_path")),
-                 b(v.get("doors_open")), v.get("depot"), v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town")),
+                 b(v.get("doors_open")), v.get("depot"), v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town"),
+                 json.dumps(cargo, separators=(",", ":")) if isinstance(cargo, dict) and cargo else None),
             )
 
     def _lines(self, sid: int, gid: int, now: str, slow_seq: int, ls: Any):

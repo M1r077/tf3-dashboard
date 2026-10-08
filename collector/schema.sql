@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS vehicle_state (
     days_in_depot    INTEGER,
     days_at_terminal INTEGER,
     closest_town     INTEGER,
+    cargo            TEXT,                       -- mod rev 8+: JSON {"<cargo id>": count} of what is on board
     PRIMARY KEY (snapshot_id, vehicle_id)
 );
 CREATE INDEX IF NOT EXISTS ix_vehicle_state_vehicle ON vehicle_state(vehicle_id, snapshot_id);

@@ -122,6 +122,10 @@
   const cargoKey = (c) => { const k = c && typeof c === "object" ? c.cargo_key : null; if (k) return String(k).toLowerCase(); const name = c && typeof c === "object" ? c.cargo : c; return String(name || "").toLowerCase().replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/[\s-]+/g, "_").replace("canned_food", "tinned_food").replace("tinplate", "sheet_metal"); };
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
+  // What is on board, by cargo type (vehicle_state.cargo, mod rev 8+): the icons the game draws above the wagons,
+  // with the count. Nothing when the mod does not export it (older revision) or the vehicle is empty.
+  const onBoard = (v, cls = "sm") => Array.isArray(v.cargo) && v.cargo.length
+    ? ` <span class="onboard">${v.cargo.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}: ${c.n}">${cargoIcon(c, cls)}<small>${c.n}</small></span>`).join("")}</span>` : "";
   const ALERT_ICON = { line_problem: "line_problem", line_issue: "line_unload", vehicle_problem: "no_path", blocked_train: "stop", no_path_vehicle: "no_path", town_problem: "town", closing_industry: "industry_closed", thrown_away_cargo: "stock_full" };
 
   // ------------------------------------------------------------ formatting
@@ -536,7 +540,7 @@
       <table class="kv">
         <tr><td>${t("th_line")}</td><td>${esc(v.line_name || "–")}</td></tr>
         <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${ST(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
-        <tr><td>${t("th_load")}</td><td>${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}</td></tr>
+        <tr><td>${t("th_load")}</td><td>${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}${onBoard(v, "")}</td></tr>
         <tr><td>${t("condition")}</td><td>${last.maintenance != null ? condIcon(last.maintenance) + bar(last.maintenance, 1, maintCls(last.maintenance)) : "–"}</td></tr>
         <tr><td>${t("th_speed")}</td><td>${kmh(last.speed_ms)}</td></tr>
       </table>
@@ -643,7 +647,7 @@
         { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
         { key: "stop_index", label: t("th_next_stop"), render: v => v.stop_index == null ? "–" : `<small>${v.stop_index + 1}.</small> ${esc(v.stop_name || "?")}`, sortValue: v => v.stop_index },
         { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
-        { key: "load", label: t("th_load"), num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
+      { key: "load", label: t("th_load"), num: true, render: v => (v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load)) + onBoard(v), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
         { key: "maintenance", label: t("th_cond_short"), num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
         { key: "act", label: "", render: v => entBtns(v.vehicle_id, { follow: true }) },
       ];

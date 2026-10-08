@@ -1,0 +1,47 @@
+# Changelog
+
+Companion program versions (`VERSION` in `dashboard/server.py`) and mod revisions (`revision` in
+`mod/tf3_dashboard_export/mod.json`). Earlier versions: see the [Releases](https://github.com/M1r077/tf3-dashboard/releases) page.
+
+## Companion 0.4.0 — mod revision 8
+
+The Supply chains and Catalogue tabs need mod revision 8+. With an older mod everything else works and those tabs
+say the mod must be updated; an older companion ignores the new data of the mod.
+
+### New
+
+- **Supply chains** tab: lines linked by the industries and warehouses their stops serve.
+  - Cargo legs per line (source › sink, per year, switch off the ones a line does not really carry), stops with what
+    they load and unload, load factor per cargo.
+  - Whether each line picks up what its sources produce ("moved X of Y/yr", short of vehicles / covered).
+  - Industries and warehouses of the chain: % of capacity, the input that limits them, received / produced per year.
+  - Build a chain (add a line, add connected lines), save it (`db/chains.json`, per game), "All lines" view.
+  - Chain alerts in the Alerts list, the header count and the map: bottleneck, too many vehicles, industry problem,
+    missing input.
+- **Catalogue** tab: every vehicle that can be bought (mods included) by year of availability, with speed, capacity,
+  power, price, withdrawal year and how many are in the fleet; new this year / next years / withdrawn soon.
+  A "New vehicle available" alert for the models of the current game year.
+- **Windows notifications** (Settings): new serious alerts, or warnings too, as native Windows notifications while the
+  dashboard page is open (also in the background); new vehicles are announced at any level. Clicking a notification
+  opens the matching tab.
+- **Brazilian Portuguese** (pt-BR) translation of the dashboard and of the mod settings and description.
+
+### Mod
+
+- Revision 8 (schema 6): cargo stations export the industries and warehouses in their catchment; line stops export the
+  station they use. Writes `catalogue.lua` (vehicle catalogue) once per session and when the game language changes,
+  collected a little per frame.
+
+### Database
+
+- New columns `station.catchment`, `line_stop.station_entity` and table `vehicle_model`, added automatically by the
+  collector to an existing database.
+
+## Companion 0.3.0 — mod revision 7 (by the author)
+
+- **Camera views** (Map tab): save the game camera under a name and recall it with one click or Shift+1..9
+  (`db/camera_views.json` per savegame); the current camera is drawn on the map as a view cone and the saved view it
+  matches is highlighted.
+- Dashboard dialogs replace the browser's prompt / confirm.
+- Mod revision 7 (schema 5): every fast snapshot carries the game camera; `set_camera` command; live.lua is written
+  even when the slow cycle fails.

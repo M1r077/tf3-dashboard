@@ -31,7 +31,9 @@ which is why the companion lives here.
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere **except a cloud-synced folder**
    (OneDrive Desktop/Documents, Dropbox...): the history is a SQLite database and sync clients lock or duplicate it.
-   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod rev 6+ needs companion 0.2.0+.
+   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod rev 6+ needs companion 0.2.0+. The camera views
+   need mod rev 7+ and companion 0.3.0+; the Supply chains and Catalogue tabs mod rev 8+ and companion 0.4.0+ (with an older mod everything else
+   works and those tabs say the mod must be updated; an older companion simply ignores the new data).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
    press `F11`. Close the window to stop everything.
@@ -134,12 +136,27 @@ docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what th
 test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip)
 ```
 
+## Trying a development version in the game
+
+To test changes before they are on mod.io (e.g. a branch of this repo):
+
+1. **Mod**: mirror the repo's mod into the game's staging area, which takes precedence over the mod.io copy (same
+   `modId`, see [docs/DETAILS.md](docs/DETAILS.md)):
+   `robocopy mod\tf3_dashboard_export "<Steam>\userdata\<id>\3493540\local\staging_area\tf3_dashboard_export" /MIR`
+   (Epic / GOG: the `staging_area` folder of the game's userdata folder, next to `save\`). Reload the savegame. Never copy it into
+   `local\mods\` as well. To go back to the published mod, move the staging folder away and restart the game.
+2. **Companion**: run `run_dashboard.cmd` from the repo folder (needs Python 3.10+ on the PATH), or build a zip with
+   `build_release.cmd`. The repo must sit in a Windows folder (not `\\wsl$\...`, cmd.exe cannot start from there).
+3. Check the collector pane: mod rev 8 (export schema 6) adds the catchment of the cargo stations and prints
+   `vehicle catalogue: N models` once per session. `run_dashboard_demo.cmd` shows every tab with simulated data,
+   without the game.
+
 ## Building a release
 
 `build_release.cmd` downloads the official Python embeddable package, assembles `release/TF3-Dashboard-<version>.zip`
 (companion + Python, ~15 MB) and `release/tf3_dashboard_export-rev<N>.zip` (the mod for manual installation).
 
-Two independent version numbers:
+What changed in each version: [CHANGELOG.md](CHANGELOG.md) (shipped in the release zip). Two independent version numbers:
 
 - **companion**: `VERSION` in `dashboard/server.py` (shown next to the title in the dashboard). Semver-ish: patch
   (`0.1.x`) for fixes and small adjustments, minor (`0.x.0`) for new features, a new database schema or a dependency

@@ -15,9 +15,18 @@ Pane helpers: `_collector.cmd`, `_server.cmd [--port N] [--db PATH]` (stay open 
 Three independent parts:
 
 1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *Second Screen Dashboard*): a game
-   script that writes `<Steam>\userdata\<id>\3493540\local\dashboard_export\live.lua` and `slow_<section>.lua` via
+   script that writes `<Steam>\userdata\<id>\3493540\local\towns_industries\tf3dash_live.lua` and
+`tf3dash_slow_<section>.lua` via
    `app.saveUserdata` (folder auto-detected by `collector\tf3paths.py`: Steam registry, or `config.json`).
-   - fast sections (default 2 s, `live.lua`): `time`, `finance`, `alerts`, `vehicles` (moving fields only: state,
+   - **why `towns_industries` and a `tf3dash_` prefix (rev 9)**: game build 40420 (stability update, 8 Oct 2026)
+  restricted `app.saveUserdata` to three userdata folders: `heightmaps`, `mod_presets`, `towns_industries` (any
+  other: `The directory you trying to access is not available or invalid`; the list sits next to that message in
+  `TransportFever3.exe`). Up to rev 8 the export had its own `dashboard_export` folder, which stopped working that
+  day for everybody. `towns_industries` is the least visible of the three (only the map editor lists it, and the
+  prefix keeps our files apart from the player's town/industry exports). The companion reads both layouts
+  (`tf3paths.prefix_for`): the folder whose live file is the most recent wins, and the collector follows a move
+  while it runs (old mod still writing to `dashboard_export`, then the player updates to rev 9).
+- fast sections (default 2 s, `tf3dash_live.lua`): `time`, `finance`, `alerts`, `vehicles` (moving fields only: state,
      line, stop, position, speed, load, maintenance)
    - slow sections (default 30 s, one file each: `slow_company.lua`, `slow_cargo_types.lua`, `slow_lines.lua`,
      `slow_stations.lua`, `slow_towns.lua`, `slow_industries.lua`, `slow_depots.lua`, `slow_vehicles.lua` = static
@@ -81,7 +90,7 @@ Three independent parts:
    - cargo types are exported with their localized name AND a neutral key (`key`, name of the `.cargo` file); language
      and cargo names are re-read every slow cycle, so **changing the game language is picked up without restart** (the
      dashboard follows the game language while the selector is on "auto")
-   - **return channel (dashboard -> game)**: the mod reads `dashboard_export\cmd.lua` 4x/s (`app.loadUserdata`),
+   - **return channel (dashboard -> game)**: the mod reads `towns_industries\tf3dash_cmd.lua` 4x/s (`app.loadUserdata`),
      executes the command if it is in the whitelist, deletes the file and reports `cmd_ack` in the next snapshot.
      Commands: set_speed (0 = pause, 1, 2, 4), set_calendar_speed (factor 0.25..4 = the game's "Calendar speed"
      slider; the engine stores a day length in ms, 1x = 4000 ms/day, so 0.25x = 16000 and 4x = 1000 — observed in
@@ -90,7 +99,7 @@ Three independent parts:
      line), close_windows, vehicle_stop, vehicle_start, vehicle_reverse, vehicle_depart, vehicle_to_depot, ping.
      Nothing irreversible (no buying, selling, demolishing).
    - **activity hint (dashboard -> mod, rev 6)**: on every real interaction with the dashboard (click, key, wheel,
-     throttled to one per 1.5 s) the server writes `dashboard_export\activity.lua` (`POST /api/activity`). The mod
+     throttled to one per 1.5 s) the server writes `towns_industries\tf3dash_activity.lua` (`POST /api/activity`). The mod
      polls it with the same folder listing as `cmd.lua`, deletes it, and for `ACTIVITY_WINDOW` (2 s) relaxes its
      timing: a slow cycle is started at once if the previous one is older than `ACTIVITY_MIN_AGE` (5 s), slow steps
      run with `ACTIVITY_BUDGET` (50 ms per frame instead of 2 ms) and all `slow_*.lua` files are flushed in the same

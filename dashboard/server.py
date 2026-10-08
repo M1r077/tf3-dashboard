@@ -1,4 +1,4 @@
-﻿"""TF3 Dashboard web server: serves the dashboard page and a JSON API over the SQLite database
+"""TF3 Dashboard web server: serves the dashboard page and a JSON API over the SQLite database
 filled by collector.py. Stdlib only.
 
     python server.py                 # http://localhost:8765
@@ -10,6 +10,7 @@ import argparse
 import datetime
 import json
 import math
+import os
 import sqlite3
 import sys
 import threading
@@ -18,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.3.1"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.3.2"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -32,6 +33,8 @@ _local = threading.local()
 DB_PATH: Path = DEFAULT_DB
 # folder watched by the mod for dashboard -> game commands (same folder as live.lua); resolved in main()
 CMD_DIR: Path | None = None
+CMD_DIR_FIXED = False          # True when --cmd-dir / config.json / env pins the folder
+_cmd_dir_checked = [0.0]
 CMD_DISABLED = False
 _cmd_lock = threading.Lock()
 _cmd_seq = [int(__import__("time").time() * 1000) % 1_000_000_000]
@@ -68,15 +71,29 @@ def lua_literal(v) -> str:
     raise TypeError(type(v))
 
 
+def cmd_dir() -> Path | None:
+    """Folder the mod polls for commands: the one given with --cmd-dir, else the folder of the most recent live file
+    (re-resolved at most every 10 s: mod rev 9 writes to towns_industries, rev 8 wrote to dashboard_export, and the
+    player may update the mod while the server runs)."""
+    global CMD_DIR
+    if CMD_DIR_FIXED:
+        return CMD_DIR
+    now = time.time()
+    if CMD_DIR is None or now - _cmd_dir_checked[0] > 10:
+        _cmd_dir_checked[0] = now
+        found = tf3paths.export_dir()
+        if found is not None:
+            CMD_DIR = found
+    return CMD_DIR
+
+
 def write_command(cmd: str, args: dict) -> dict:
     """Write cmd.lua for the mod. Returns {"id", "cmd"} or raises ValueError."""
-    global CMD_DIR
     if CMD_DISABLED:
         raise ValueError("commands disabled (--no-cmd)")
-    if CMD_DIR is None:
-        CMD_DIR = tf3paths.export_dir()  # the game may have been started after the server
-        if CMD_DIR is None:
-            raise ValueError("Transport Fever 3 userdata folder not found (start the game with the mod once, or set export_dir in config.json)")
+    d = cmd_dir()
+    if d is None:
+        raise ValueError("Transport Fever 3 userdata folder not found (start the game with the mod once, or set export_dir in config.json)")
     if cmd not in ALLOWED_CMDS:
         raise ValueError(f"unknown command: {cmd}")
     for k in ALLOWED_CMDS[cmd]:
@@ -98,10 +115,11 @@ def write_command(cmd: str, args: dict) -> dict:
         _cmd_seq[0] += 1
         cid = _cmd_seq[0]
         body = "function data()\nreturn " + lua_literal({"id": cid, "cmd": cmd, "args": clean}) + "\nend\n"
-        CMD_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = CMD_DIR / "cmd.lua.tmp"
+        d.mkdir(parents=True, exist_ok=True)
+        target = tf3paths.file_in(d, "cmd")
+        tmp = target.with_suffix(".tmp")
         tmp.write_text(body, encoding="utf-8")
-        tmp.replace(CMD_DIR / "cmd.lua")  # atomic rename: the mod never sees a half-written file
+        tmp.replace(target)  # atomic rename: the mod never sees a half-written file
     return {"id": cid, "cmd": cmd}
 
 
@@ -112,19 +130,18 @@ def write_activity() -> dict:
     """Write activity.lua: a hint that the player is interacting with the dashboard. The mod uses it to do its heavy
     work (slow cycle, big file writes) right now, while the player looks at the second screen. Not a command: it is
     sent whatever 'Permit game control' says, and the mod only changes *when* it works, never what it does."""
-    global CMD_DIR
-    if CMD_DIR is None:
-        CMD_DIR = tf3paths.export_dir()
-        if CMD_DIR is None:
-            raise ValueError("Transport Fever 3 userdata folder not found")
+    d = cmd_dir()
+    if d is None:
+        raise ValueError("Transport Fever 3 userdata folder not found")
     with _cmd_lock:
         _activity_seq[0] += 1
         aid = _activity_seq[0]
         body = "function data()\nreturn " + lua_literal({"id": aid, "t": time.time()}) + "\nend\n"
-        CMD_DIR.mkdir(parents=True, exist_ok=True)
-        tmp = CMD_DIR / "activity.lua.tmp"
+        d.mkdir(parents=True, exist_ok=True)
+        target = tf3paths.file_in(d, "activity")
+        tmp = target.with_suffix(".tmp")
         tmp.write_text(body, encoding="utf-8")
-        tmp.replace(CMD_DIR / "activity.lua")
+        tmp.replace(target)
     return {"id": aid}
 
 
@@ -185,7 +202,8 @@ def api_overview(q: dict) -> dict:
             ack = json.loads(snap["cmd_ack"])
         except ValueError:
             ack = None
-    pending = (CMD_DIR / "cmd.lua").exists() if CMD_DIR else False
+    d = cmd_dir()
+    pending = tf3paths.file_in(d, "cmd").exists() if d else False
     camera = None  # None = mod rev 6 (no camera export): the views panel says so
     if snap.get("camera"):
         try:
@@ -824,17 +842,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None) -> int:
-    global DB_PATH, CMD_DIR, CMD_DISABLED
+    global DB_PATH, CMD_DIR, CMD_DISABLED, CMD_DIR_FIXED
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", type=Path, default=None, help="SQLite database (default: db/tf3_dashboard.db or config.json)")
     ap.add_argument("--port", type=int, default=None, help="HTTP port (default: 8765 or config.json)")
     ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--cmd-dir", type=Path, default=None, help="folder where cmd.lua is written for the mod (default: auto-detect)")
+    ap.add_argument("--cmd-dir", type=Path, default=None, help="folder where the command file is written for the mod (default: the folder of the mod's live file)")
     ap.add_argument("--no-cmd", action="store_true", help="disable dashboard -> game commands")
     args = ap.parse_args(argv)
     DB_PATH = tf3paths.db_path(args.db)
     port = tf3paths.port(args.port)
     CMD_DISABLED = bool(args.no_cmd)
+    CMD_DIR_FIXED = bool(args.cmd_dir or tf3paths.load_config().get("export_dir") or os.environ.get("TF3_EXPORT_DIR"))
     CMD_DIR = None if CMD_DISABLED else tf3paths.export_dir(args.cmd_dir)
     console.banner(f"TF3 Dashboard server {VERSION}", f"database: {DB_PATH}",
                    f"commands -> {'disabled' if CMD_DISABLED else CMD_DIR or '(game folder not found yet, will retry on first command)'}")

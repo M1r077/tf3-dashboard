@@ -18,7 +18,7 @@ Two halves:
 | Part | Where | What it does |
 |---|---|---|
 | **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/dashboard_export/live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
-| **Companion program (this repo)** | Your PC, Windows | `collector.py` watches `live.lua` / `slow_*.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python 3.12 standard library only — the release zip ships a bundled Python, nothing to install. |
+| **Companion program (this repo)** | Your PC, Windows | `collector.py` watches `tf3dash_live.lua` / `tf3dash_slow_*.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python 3.12 standard library only — the release zip ships a bundled Python, nothing to install. |
 
 The mod alone does nothing visible; the companion alone has nothing to show. mod.io cannot distribute programs,
 which is why the companion lives here.
@@ -42,14 +42,16 @@ Steam, Epic and GOG are supported; the game's userdata folder is detected automa
 ### Nothing shows up?
 
 While the database is empty the dashboard displays a **checklist** that tells which link of the chain is missing:
-game folder found → `live.lua` written by the mod → snapshots stored by the collector. The usual causes:
+game folder found → `tf3dash_live.lua` written by the mod → snapshots stored by the collector. The usual causes:
 
-- the mod is subscribed but **not enabled in the savegame** (Mods menu of the savegame): no `live.lua`;
+- the mod is subscribed but **not enabled in the savegame** (Mods menu of the savegame): no `tf3dash_live.lua`;
 - the game is in the main menu: the mod only exports while a map is loaded;
-- the `dashboard_export` folder does not exist: on some installations the game does not create it and its log
-  (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you trying to access is not available`.
-  The companion creates the folder when it starts (0.2.2+); with an older companion, create it by hand next to
-  `save\` and reload the savegame;
+- **mod revision 8 or older with game build 40420 or newer** (the stability update of 8 October 2026): since that
+  build the game only lets mods write to a few userdata folders, and the old mod wrote to its own
+  `dashboard_export` folder; its log (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you
+  trying to access is not available or invalid`. Update the mod to revision 9 (Mod Hub) and the companion to
+  0.3.2: the export now lives in `towns_industries\tf3dash_*.lua`, a folder the game allows. The checklist
+  recognises this case;
 - the game writes to another userdata folder than the one the companion watches (another Steam account, moved
   profile): the checklist reads the game's own log (`crash_dump\stdout.txt`) and shows the folder it uses (0.2.3+);
 - the companion runs from OneDrive/Dropbox: see Install, move it;
@@ -58,7 +60,7 @@ game folder found → `live.lua` written by the mod → snapshots stored by the 
 The "TF3 Dashboard Collector" pane says the same thing in text, colour-coded: green = fine, yellow = waiting or
 warning, red = something to fix. Once snapshots flow it prints one summary line per minute (errors are always
 shown). When reporting a problem, copy the checklist or that pane, and the lines
-containing `dashboard_export` from `stdout.txt`.
+containing `dashboard_export` from `stdout.txt` (that is the mod's log tag, the folder is `towns_industries`).
 
 Running from source instead of the release zip: you need Python 3.10+ on the PATH (`winget install Python.Python.3.12`).
 No pip, no venv, no packages.
@@ -69,7 +71,7 @@ In the game: Mods ▸ Second Screen Dashboard ▸ **Permit game control = On** (
 then shows the game controls (pause / speed, camera and saved camera views, vehicle actions, stop and terminal
 editor on each line).
 Every command does exactly what the matching click in the game does; nothing is ever bought, sold or demolished,
-and no route is changed. The channel is a local file (`cmd.lua`) read by the mod four times a second.
+and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by the mod four times a second.
 
 ## What you see
 
@@ -98,10 +100,12 @@ only to extract the icons) are detected automatically. For unusual setups, copy 
 `config.json` and keep the keys you need:
 
 ```json
-{ "export_dir": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\dashboard_export", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
+{ "export_dir": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\towns_industries", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
 ```
 
-Steam: `"export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<id>\\3493540\\local\\dashboard_export"`.
+Steam: `"export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<id>\\3493540\\local\\towns_industries"`
+(mod revision 9+; with revision 8 or older on a game build before 40420 it was `...\\dashboard_export`, which the
+companion still understands).
 `python collector\tf3paths.py` prints what is detected.
 
 Mod settings (in-game): fast interval (time, finances, alerts, vehicles — default 2 s), slow interval (lines,
@@ -123,7 +127,7 @@ stations, towns, industries — default 30 s), export vehicles on/off, accept co
 ## Repository layout
 
 ```
-collector/      collector.py (live.lua + slow_*.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
+collector/      collector.py (tf3dash_live.lua + tf3dash_slow_*.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export) — https://mod.io/g/transportfever3/m/second-screen-dashboard
 docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)

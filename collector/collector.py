@@ -1,10 +1,10 @@
-"""TF3 Dashboard collector: watches <userdata>/dashboard_export/live.lua written by the
+"""TF3 Dashboard collector: watches <userdata>/towns_industries/tf3dash_live.lua written by the
 tf3_dashboard_export mod, parses it and stores everything in a SQLite database.
 
 Usage:
     python collector.py                       # watch, default paths
     python collector.py --once                # import the current file once and exit
-    python collector.py --db D:/path/tf3.db --live "C:/.../dashboard_export/live.lua"
+    python collector.py --db D:/path/tf3.db --live "C:/.../towns_industries/tf3dash_live.lua"
     python collector.py --status              # print a short summary of the database
 
 No third-party dependency (stdlib only).
@@ -648,6 +648,7 @@ VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_ke
 class SlowFiles:
     def __init__(self, live: Path):
         self.dir = live.parent
+        self.prefix = tf3paths.prefix_for(self.dir)  # tf3dash_ (rev 9+, towns_industries) or none (legacy folder)
         self.mtime: dict[str, float] = {}
         # section -> {slow_seq: items}; the two most recent cycles are kept because the mod may already be
         # writing cycle N+1 while live.lua still refers to N
@@ -655,7 +656,7 @@ class SlowFiles:
 
     def refresh(self) -> None:
         for name in SLOW_SECTIONS:
-            p = self.dir / f"slow_{name}.lua"
+            p = self.dir / f"{self.prefix}slow_{name}.lua"
             try:
                 m = os.path.getmtime(p)
             except OSError:
@@ -711,7 +712,7 @@ class SlowFiles:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--live", type=Path, default=None, help="path to live.lua written by the mod (default: auto-detect Steam userdata / config.json)")
+    ap.add_argument("--live", type=Path, default=None, help="path to the live file written by the mod (tf3dash_live.lua) (default: auto-detect Steam userdata / config.json)")
     ap.add_argument("--db", type=Path, default=None, help="SQLite database path (default: db/tf3_dashboard.db)")
     ap.add_argument("--once", action="store_true", help="import once and exit")
     ap.add_argument("--status", action="store_true", help="print database summary and exit")
@@ -725,6 +726,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     args.db = tf3paths.db_path(args.db)
     args.db.parent.mkdir(parents=True, exist_ok=True)
+    # auto mode (no --live, no config.json/env): the collector may switch to another export folder later
+    args.live_auto = args.live is None and not tf3paths.load_config().get("export_dir") and not os.environ.get("TF3_EXPORT_DIR")
     args.live = tf3paths.live_path(args.live)
 
     store = Store(args.db)
@@ -766,7 +769,7 @@ def main(argv: list[str] | None = None) -> int:
         dg = tf3paths.diag(args.live.parent)
         say(f"watching: {args.live}  ({dg['store'] or 'configured'} userdata folder)", "ok")
         if not dg["live_exists"]:
-            say("live.lua is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
+            say(f"{args.live.name} is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
                 "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded",
                 "wait")
     last_log_sig = None
@@ -839,11 +842,26 @@ def main(argv: list[str] | None = None) -> int:
                 mtime = os.path.getmtime(args.live)
             except OSError:
                 mtime = -1.0
+            # The export may move: mod rev 9 writes to towns_industries/tf3dash_live.lua while rev 8 wrote to
+            # dashboard_export/live.lua (game build 40420 closed that folder). When the watched file has been silent
+            # for a while and another candidate is fresher, follow it (no explicit --live / config given).
+            if args.live_auto and mtime > 0 and time.time() - mtime > 20 and time.time() >= next_detect:
+                next_detect = time.time() + 10
+                found = tf3paths.live_path()
+                if found is not None and found != args.live:
+                    try:
+                        if os.path.getmtime(found) > mtime:
+                            args.live, last_mtime, slow_files = found, -1.0, None
+                            flush_minute()
+                            say(f"the mod now writes to {found}: following it", "ok")
+                            continue
+                    except OSError:
+                        pass
             if mtime != last_mtime and mtime > 0:
                 last_mtime = mtime
                 snap = read_live(args.live)
                 if snap is None:
-                    say("could not parse live.lua (will retry)", "error")
+                    say(f"could not parse {args.live.name} (will retry)", "error")
                 else:
                     schema = snap.get("schema") or 1
                     if schema >= 4:
@@ -854,7 +872,7 @@ def main(argv: list[str] | None = None) -> int:
                         if not slow_files.complete_for(snap.get("slow_seq")):
                             if not warned_incomplete or time.time() >= warned_incomplete:
                                 have = {n: sorted(v) for n, v in slow_files.data.items()}
-                                say(f"waiting for the mod's slow_*.lua files to reach slow_seq {snap.get('slow_seq')} "
+                                say(f"waiting for the mod's {slow_files.prefix}slow_*.lua files to reach slow_seq {snap.get('slow_seq')} "
                                     f"(normal for a few seconds after loading a save); have: {have}", "wait")
                                 warned_incomplete = time.time() + 30
                             # re-check the live file on the next loop even if its mtime did not change
@@ -906,7 +924,7 @@ def main(argv: list[str] | None = None) -> int:
                         last_game_key = game_key or last_game_key
             if args.once:
                 if mtime <= 0:
-                    say("live.lua not found", "error")
+                    say(f"{args.live.name} not found", "error")
                     return 1
                 break
             time.sleep(args.poll)

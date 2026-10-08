@@ -19,11 +19,17 @@ local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
 -- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
+-- 7: files moved to towns_industries/tf3dash_* (rev 9, game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
 -- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (rev 8, companion >= 0.3.1)
-local SCHEMA = 6
-local DIR = "dashboard_export"
-local FILE = "live"
-local SLOW_FILE_PREFIX = "slow_"
+local SCHEMA = 7
+-- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
+-- towns_industries ("The directory you trying to access is not available or invalid" for any other). Up to rev 8 the
+-- export lived in its own dashboard_export folder. towns_industries is the least visible of the three (only the map
+-- editor lists it), so the files go there with a tf3dash_ prefix so that they are never mistaken for anything else.
+local DIR = "towns_industries"
+local PREFIX = "tf3dash_"
+local FILE = PREFIX .. "live"
+local SLOW_FILE_PREFIX = PREFIX .. "slow_"
 -- The slow sections (lines, stations, towns, industries, depots) are collected one item per step, a few steps per
 -- frame, so that a slow cycle never stalls the game: this is the CPU budget per guiUpdate call, in seconds.
 -- A step is started only while the budget is not exhausted, so a frame costs at most budget + one step.
@@ -38,7 +44,7 @@ local PARAM_VALUES = {
 	debug_log = { false, true },
 }
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
-local CMD_FILE = "cmd"
+local CMD_FILE = PREFIX .. "cmd"
 
 local cachedOptions
 local function options()
@@ -1322,7 +1328,7 @@ end
 -- second screen, so for ACTIVITY_WINDOW seconds the mod may do its heavy work (collect the slow cycle, write the
 -- slow_*.lua files) without anybody noticing a hitch in the game, and the dashboard gets fresh data right when it is
 -- being looked at. Not a command: works whatever "Permit game control" is set to, changes timing only.
-local ACTIVITY_FILE = "activity"
+local ACTIVITY_FILE = PREFIX .. "activity"
 local ACTIVITY_WINDOW = 2.0      -- seconds of relaxed budget after a hint
 local ACTIVITY_BUDGET = 0.05     -- per-frame budget for slow steps during the window (50 ms = a frame nobody sees)
 local ACTIVITY_MIN_AGE = 5.0     -- restart the slow cycle on a hint only if the last one is older than this

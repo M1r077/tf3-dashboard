@@ -499,6 +499,24 @@ def api_stations(q: dict) -> dict:
     return {"stations": st}
 
 
+def api_station_history(q: dict) -> dict:
+    """Waiting items, overflow and capacity of one station over the range, plus the lines calling there."""
+    sid = int(q["id"][0])
+    gid = _gid()
+    hist = rows("""SELECT s.real_time, s.year, s.month, s.day, ss.used, ss.overflow, ss.pool_capacity, ss.terminal_capacity, ss.lines
+                   FROM station_state ss JOIN snapshot s USING(snapshot_id)
+                   WHERE s.game_id=? AND s.real_time >= ? AND ss.station_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), sid, _limit(q, 300)))
+    hist.reverse()
+    _stamp(hist)
+    # lines calling at this station: a line stop references the station *group* (line_stop.station is not
+    # resolved by the mod, it is 0), so match on the group the station belongs to
+    lines = rows("""SELECT DISTINCT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes
+                    FROM station st JOIN line_stop ls ON ls.game_id=st.game_id AND ls.station_group=st.station_group
+                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    WHERE st.game_id=? AND st.station_id=? ORDER BY l.name""", (gid, sid))
+    return {"history": hist, "lines": lines}
+
+
 def api_depots(q: dict) -> dict:
     gid = _gid()
     d = rows("""SELECT d.depot_id, d.name, d.carrier, ds.* FROM depot d JOIN depot_state ds ON ds.depot_id=d.depot_id
@@ -722,7 +740,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

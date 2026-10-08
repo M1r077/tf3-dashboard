@@ -294,7 +294,7 @@
   }
 
   // ------------------------------------------------------------ tabs
-  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, cache: {} };
+  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
   function showTab(name, push = true) {
     const b = $(`#tabs button[data-tab="${name}"]`); if (!b) return;
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
@@ -998,6 +998,8 @@
   // ------------------------------------------------------------ stations & depots
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
+    const stations = s.stations || []; state.cache.stations = stations;
+    if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     renderTable($("#st-table"), [
       { key: "name", label: t("th_station"), render: x => `${ico(x.is_cargo ? "cargo" : "passengers", "sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
@@ -1007,7 +1009,8 @@
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
-    ], s.stations || [], { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, defaultSort: "used", defaultAsc: false });
+    ], stations, { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
+    if (state.selSt) renderStationDetail(state.selSt);
     const DEPOT_ICON = { RAIL: "depot_rail", ROAD: "depot_road", TRAM: "depot_tram", WATER: "depot_water", AIR: "depot_air" };
     renderTable($("#dep-table"), [
       { key: "name", label: t("th_depot"), render: x => `${ico(DEPOT_ICON[x.carrier] || "depot", "sm")}${esc(x.name)}` },
@@ -1017,6 +1020,30 @@
       { key: "maintenance_pool", label: t("th_maint_pool"), num: true, render: x => x.maintenance_pool == null ? "–" : t("pool_fmt", { avg: num(x.pool_avg, 1), max: num(x.pool_max, 0), n: x.maintenance_pool }) },
       { key: "act", label: "", render: x => entBtns(x.depot_id) },
     ], d.depots || [], { empty: { icon: "depot", text: t("empty_depots") }, defaultSort: "name" });
+  }
+
+  // Detail card: waiting items against the capacity (platforms + storage) and the overflow over time, plus the lines
+  // calling at the station. Game figures only, as in the station window.
+  async function renderStationDetail(id) {
+    const st = (state.cache.stations || []).find(x => x.station_id === id); if (!st) return;
+    const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
+    const hist = h.history || [], labels = hist.map(x => dateLabel(x)), lines = h.lines || [];
+    const cap = (st.terminal_capacity || 0) + (st.pool_capacity || 0);
+    $("#st-detail").innerHTML = `<h2>${ico(st.is_cargo ? "cargo" : "passengers", "lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
+      <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
+        <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
+        <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr></table>
+      <h2>${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
+      ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
+      <h2 style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
+    bindActions($("#st-detail"));
+    $$(".row.goto[data-line]", $("#st-detail")).forEach(r => r.addEventListener("click", () => { state.selLine = +r.dataset.line; showTab("lines"); }));
+    Charts.lineChart($("#chart-st-1"), [
+      { name: t("th_waiting"), values: hist.map(x => x.used), color: "#4f8a8a", area: true },
+      { name: t("th_capacity"), values: hist.map(x => (x.terminal_capacity || 0) + (x.pool_capacity || 0) || null), color: "#8b98a8", dash: [4, 4] },
+      { name: t("th_overflow"), values: hist.map(x => x.overflow), color: "#d62560", step: true },
+    ], labels, { zeroBase: true, ...tsOpts(hist, "st") });
   }
 
   // ------------------------------------------------------------ finance (secondary)

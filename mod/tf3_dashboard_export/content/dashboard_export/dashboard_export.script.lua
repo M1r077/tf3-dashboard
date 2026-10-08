@@ -1170,10 +1170,17 @@ local COMMANDS = {
 				-- dense arrays over all cargo types, Lua index = cargo id + 1 (see cargofilter_window.tl)
 				local blocked = {}
 				for _, ct in pairs(args.no_load) do local c = num(ct); if c then blocked[c] = true end end
+				-- no_load only covers the cargo types the dashboard knows (getAll(), the ones exported in
+				-- cargo_types). getAll(true) also lists types that getAll() leaves out (on a 1900 start: books,
+				-- cement, paper, rubber, sawdust, tires); the game's filter window does not show them either and
+				-- defaults them to "not loaded". They stay not loaded here: allowing them because they are missing
+				-- from no_load made them appear on the stop after every filter change, with no way to remove them.
+				local known = {}
+				for k in pairs(api.res.cargoTypeRep.getAll()) do known[num(k)] = true end
 				local load, maxLoad = {}, {}
 				for k in pairs(api.res.cargoTypeRep.getAll(true)) do
 					local id = num(k)
-					load[id + 1] = not blocked[id]
+					load[id + 1] = known[id] == true and not blocked[id]
 					local old = stop.stopConfig and stop.stopConfig.maxLoad and stop.stopConfig.maxLoad[id + 1]
 					maxLoad[id + 1] = num(old) or 1
 				end

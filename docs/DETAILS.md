@@ -126,7 +126,7 @@ Three independent parts:
    `industries`, `stations`, `depots`, `map`) + `POST /api/cmd` (`{cmd, args}` -> writes `cmd.lua` for the mod; local
    only; `--no-cmd` to disable, `--cmd-dir` to change the folder) and the page `static\index.html` (3 s refresh,
    `?tab=lines` to open a tab, `?lang=de` to force a language).
-   - **Multilingual**: `static\i18n.js` (en / fr / de). Language = `?lang=` > selector choice (localStorage) > game
+   - **Multilingual**: `static\i18n.js` (en / fr / de / pt-BR). Language = `?lang=` > selector choice (localStorage) > game
      language (exported by the mod) > browser. To add a language: copy the `en` block and translate.
    - **Game icons**: `dashboard\extract_icons.py` extracts the TGA files from `base\content\gui.zip`,
      `game_mechanics.zip` and `cargos\*.zip` as white-on-alpha PNG (recolored in CSS via mask) into `static\icons\`

@@ -12,6 +12,11 @@
             "name": "Second Screen Dashboard",
             "summary": "Live-Dashboard Ihrer Firma auf einem zweiten Monitor: Linien, Fahrzeuge, Städte, Industrien, Warnungen. Nur PC.",
             "description": "Macht aus einem zweiten Monitor eine Live-Leitstelle für Ihre Firma: Finanzen, Linien, Fahrzeuge, Stationen, Städte, Industrien, Depots und Warnungen, mit den Icons des Spiels und Verlaufsdiagrammen.\n\nDer Mod schreibt alle paar Sekunden einen Schnappschuss nach userdata/dashboard_export/live.lua; ein kostenloses Open-Source-Begleitprogramm (Windows, keine Installation) zeigt das Dashboard im Browser. Alles bleibt auf Ihrem PC.\nBegleitprogramm herunterladen: https://github.com/M1r077/tf3-dashboard\n\nOptionale Fernsteuerung (standardmässig aus): Geschwindigkeit, Kamera, Fahrzeugaktionen, Halt- und Terminal-Konfiguration - genau das, was der entsprechende Klick im Spiel tut. Ändert nie den Spielstand; nichts wird gekauft, verkauft oder abgerissen. Nur PC.\n\nVon Miro."
+        },
+        "pt_BR": {
+            "name": "Second Screen Dashboard",
+            "summary": "Painel ao vivo da sua empresa em um segundo monitor: linhas, veículos, cidades, indústrias, alertas. Somente PC.",
+            "description": "Transforma um segundo monitor em uma central de controle ao vivo da sua empresa: finanças, linhas, veículos, estações, cidades, indústrias, depósitos e alertas, com os ícones do jogo e gráficos de histórico.\n\nO mod grava um snapshot em userdata/dashboard_export/live.lua a cada poucos segundos; um programa complementar gratuito e de código aberto (Windows, nada para instalar) mostra o painel no seu navegador. Tudo fica no seu PC.\nBaixe o programa complementar: https://github.com/M1r077/tf3-dashboard\n\nControle remoto opcional (desligado por padrão): velocidade, câmera, ações de veículos, configuração de paradas e terminais - exatamente o que o clique correspondente no jogo faz. Nunca modifica o jogo salvo; nada é comprado, vendido ou demolido. Somente PC.\n\nPor Miro."
         }
     },
     "authors": [

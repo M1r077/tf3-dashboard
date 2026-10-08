@@ -864,11 +864,18 @@ def main(argv: list[str] | None = None) -> int:
                         now = time.time()
                         game_key = snap.get("player")  # same key Store.game_id() uses to tell saves apart
                         resumed = now - last_import_at > 120 and last_import_at > 0
-                        if imported <= FULL_LINES or resumed or n_err or (game_key and game_key != last_game_key):
+                        # a live.lua left over from a previous session is imported too (it is data); say so, else
+                        # the player believes the game is exporting right now
+                        written = snap.get("real_time")
+                        stale_min = int((now - written) // 60) if isinstance(written, (int, float)) and now - written > 120 else 0
+                        if imported <= FULL_LINES or resumed or n_err or stale_min or (game_key and game_key != last_game_key):
                             flush_minute()
                             if resumed:
                                 say(f"export resumed after {int((now - last_import_at) // 60)} min", "ok")
-                            say(f"snapshot #{sid} {desc}", "ok" if not n_err else "warn")
+                            say(f"snapshot #{sid} {desc}", "ok" if not (n_err or stale_min) else "warn")
+                            if stale_min:
+                                say(f"this export was written by the game {stale_min} min ago (left over from an earlier session); "
+                                    f"nothing new until the game runs with the mod enabled", "wait")
                             if imported == FULL_LINES:
                                 say("from now on: one summary line per minute (errors are always shown)", "info")
                         else:

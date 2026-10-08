@@ -308,9 +308,12 @@
       langFromGameApplied = true;
     }
     const s = o.snapshot, f = o.finance || {}, v = o.vehicles || {};
-    const age = (Date.now() - new Date(s.received_at).getTime()) / 1000;
+    // age = when the game wrote the export (real_time), not when the collector stored it: a leftover live.lua
+    // imported at startup must show as old, not as "42 s ago"
+    const written = s.real_time || s.received_at;
+    const age = (Date.now() - new Date(written).getTime()) / 1000;
     dot.className = "dot " + (age < 15 ? "live" : age < 120 ? "stale" : "dead");
-    txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(s.received_at) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
+    txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(written) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
     $("#k-date").textContent = date(s);
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
     const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;

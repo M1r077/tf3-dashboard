@@ -228,6 +228,15 @@ Three independent parts:
      cards with model image, speed, capacity, power, price, "until <year>", multiple unit, how many in the fleet.
      `new_vehicle` alerts (info) = models available from the current game year (not wagons, not the ones the game
      itself does not announce); they are not counted in the header and are notified at any Windows notification level.
+   - **Advice** (`dashboard\advisor.py`, 0.4.2, `/api/todo`, `/api/renewal`, `/api/town_demand`): fleet renewal
+     groups vehicles by (current model, suggested model); a vehicle qualifies when its model is withdrawn
+     (`year_to` < game year), it is worn out (condition < 35 %) or a successor exists: same key category, on sale, newer,
+     not multiple unit, >= 25 % better in speed or capacity (power for locomotives), not > 10 % worse in either, sharing a
+     cargo type when both list one. Town demand: `needed` >= 10/yr and `supplied` < 50 % of it (town_supply land use 0),
+     nearest producing industry by straight-line distance. The to-do list merges, by priority: vehicles without path /
+     blocked, line problems, chain bottlenecks and failing industries (urgent); closing industries, full lines, late
+     cargo, missing inputs, vehicles below 30 % condition, renewals of withdrawn or worn models (important); idle
+     vehicles, lines with too many vehicles, other renewals, town demand (suggestions). Wording is done by the page.
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier

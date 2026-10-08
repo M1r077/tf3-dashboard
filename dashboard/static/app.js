@@ -455,8 +455,43 @@
 
   // ------------------------------------------------------------ overview = operations
   const miniRow = (v, right) => `<div class="row" data-veh="${v.vehicle_id}"><div><div class="n">${vehIcon(v, "sm")}${esc(v.name)}</div><div class="d">${CA(v.carrier)} · ${esc(v.line_name || t("no_line"))}</div></div><div class="r">${right}</div></div>`;
+  // ------------------------------------------------------------ what to do now (advisor.py)
+  const TODO_ICON = { vehicles_blocked: "no_path", line_problem: "line_problem", industry_closing: "industry_closed", chain_bottleneck_0: "terminal_full",
+    chain_bottleneck_1: "vehicles", chain_bottleneck_2: "cargo_time", chain_overcapacity: "vehicles", chain_industry_0: "industry_down", chain_industry_1: "industry_closed",
+    chain_input_short: "cargo_received", vehicles_worn: "wrench", vehicles_idle: "to_depot", renew: "refresh", renew_none: "refresh", town_demand: "town_supplies" };
+  function todoText(it) {
+    const p = { ...it.params };
+    if (p.cargo) p.cargo = cargoName(p.cargo);
+    if (p.n != null) p.n = int(p.n);
+    if (p.a != null) p.a = int(p.a);
+    if (p.b != null) p.b = int(p.b);
+    let txt = t("todo." + it.kind, p);
+    if (it.kind === "line_problem" && p.code != null) { const c = t("line_problem")[p.code]; if (c) txt += " — " + c; }
+    if (it.kind === "town_demand" && !p.producer) txt = t("todo.town_demand_none", p);
+    return txt;
+  }
+  function openTodo(it) {
+    if (it.tab === "lines" && it.entity) state.selLine = it.entity;
+    if (it.tab === "towns" && it.entity) state.selTown = it.entity;
+    if (it.tab === "industries") $("#ind-filter").value = it.params.name || "";
+    if (it.tab === "vehicles") {
+      $("#veh-worn").checked = it.kind === "vehicles_worn"; $("#veh-problem").checked = it.kind === "vehicles_blocked" || it.kind === "vehicles_idle";
+      $("#veh-filter").value = "";
+    }
+    showTab(it.tab);
+    if (it.kind.startsWith("renew")) setTimeout(() => $("#renewal-card").scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+  }
+  function renderTodo(items) {
+    $("#todo-count").textContent = items.length || "";
+    const el = $("#todo-list");
+    if (!items.length) { el.innerHTML = emptyState({ icon: "check", text: t("todo_none"), hint: t("todo_none_hint") }); return; }
+    el.innerHTML = items.map((it, i) => `<div class="ti" data-i="${i}"><div class="p p${it.prio}"></div>${ico(TODO_ICON[it.kind] || "info")}<div>${esc(todoText(it))}</div><span class="go">›</span></div>`).join("");
+    $$(".ti", el).forEach(r => r.addEventListener("click", () => openTodo(items[+r.dataset.i])));
+  }
+
   async function renderOverview() {
-    const [fleet, al, ld] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines")]);
+    const [fleet, al, ld, td] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines"), api("/api/todo").catch(() => ({ items: [] }))]);
+    renderTodo(td.items || []);
     state.cache.fleet = fleet; state.cache.lines = ld.lines || [];
     if (fleet.empty) return;
     const hist = fleet.history || [];
@@ -531,7 +566,32 @@
   }
 
   // ------------------------------------------------------------ vehicles
+  // ------------------------------------------------------------ fleet renewal (advisor.py)
+  async function renderRenewal() {
+    let d; try { d = await api("/api/renewal"); } catch (e) { return; }
+    const groups = d.groups || [], el = $("#renewal-list");
+    $("#renewal-count").textContent = groups.length ? t("renew_count", { n: groups.reduce((a, g) => a + g.count, 0) }) : "";
+    if (!groups.length) { el.innerHTML = emptyState({ icon: "check", text: t("renew_none_list"), hint: t("renew_hint") }); return; }
+    const pctTxt = (x) => Math.round(x * 100);
+    const card = (g, i) => {
+      const m = g.model, s = g.successor, ty = CAT_TYPE[m.category];
+      const img = (x) => modelImg({ model_key: x.model_key, model: x.name, carrier: CAT_CARRIER[CAT_TYPE[x.category]] || g.carrier, icon_type: g.icon_type }, "sm");
+      const gains = s ? [s.speed_gain > 0.01 ? `<span class="chip ok">${t("renew_speed", { n: pctTxt(s.speed_gain) })}</span>` : "",
+        s.capacity_gain > 0.01 ? `<span class="chip ok">${t(s.gain_on === "power" ? "renew_power" : "renew_capacity", { n: pctTxt(s.capacity_gain) })}</span>` : ""].join("") : "";
+      return `<div class="rgroup p${g.priority}">
+        <div class="swap"><span class="m">${img(m)}<b>${g.count} × ${esc(m.name || m.model_key)}</b></span>${s ? `<span class="arrow">→</span><span class="m">${img(s)}<b>${esc(s.name || s.model_key)}</b></span>` : `<span class="muted">${t("renew_no_successor")}</span>`}</div>
+        <div class="chips">${g.reasons.map(r => `<span class="chip ${r === "outdated" ? "info" : "warn"}">${t("renew_reason." + r)}${r === "withdrawn" && m.year_to ? " " + m.year_to : ""}${r === "worn" && g.worn < g.count ? `: ${g.worn}` : ""}</span>`).join("")}${gains}</div>
+        <div class="meta">${[g.condition != null ? t("renew_cond", { n: pctTxt(g.condition) }) : "", s && s.speed_ms ? kmh(s.speed_ms) : "", s && g.cost ? t("renew_cost", { m: money(g.cost) }) : "",
+          g.lines.length ? t("renew_lines", { names: g.lines.slice(0, 3).map(l => l.name).join(", ") + (g.lines.length > 3 ? "…" : "") }) : ""].filter(Boolean).map(esc).join(" · ")}</div>
+        <div class="actions"><button class="btn rshow" data-i="${i}">${ico("vehicles", "sm")}${t("renew_show")}</button>${s ? `<button class="btn rcat" data-name="${esc(s.name || "")}">${ico("calendar", "sm")}${t("tab_catalogue")}</button>` : ""}</div></div>`;
+    };
+    el.innerHTML = groups.map(card).join("");
+    $$(".rshow", el).forEach(b => b.addEventListener("click", () => { const g = groups[+b.dataset.i]; $("#veh-filter").value = g.model.name || ""; $("#veh-worn").checked = false; $("#veh-problem").checked = false; renderVehicles(); $("#veh-table").scrollIntoView({ behavior: "smooth" }); }));
+    $$(".rcat", el).forEach(b => b.addEventListener("click", () => { $("#cat-filter").value = b.dataset.name; $("#cat-past").checked = true; showTab("catalogue"); }));
+  }
+
   async function renderVehicles() {
+    renderRenewal();
     const d = await api("/api/vehicles"); const veh = d.vehicles || []; state.cache.vehicles = veh;
     if (!state.selVeh) { const u = +new URLSearchParams(location.search).get("veh"); if (u && veh.some(v => v.vehicle_id === u)) state.selVeh = u; }  // deep link ?tab=vehicles&veh=<id>
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
@@ -885,7 +945,21 @@
   }
 
   // ------------------------------------------------------------ towns
+  // ------------------------------------------------------------ unmet town demand (advisor.py)
+  async function renderTownDemand() {
+    let d; try { d = await api("/api/town_demand"); } catch (e) { return; }
+    renderTable($("#demand-table"), [
+      { key: "town", label: t("th_town"), render: x => esc(x.town) },
+      { key: "cargo", label: t("th_cargo_filter"), render: x => cargoChip(x) },
+      { key: "missing", label: t("th_needed"), num: true, render: x => bar(x.supplied, x.needed, x.supplied / x.needed < 0.2 ? "bad" : "warn", `${int(x.supplied)} / ${int(x.needed)}`), sortValue: x => x.missing },
+      { key: "producer", label: t("th_producer"), render: x => x.producer ? `${ico("industry", "sm")}${esc(x.producer.name)} <small class="muted">${t("demand_km", { km: num(x.producer.km, 1) })}</small>` : `<span class="muted">${t("demand_no_producer")}</span>`, sortValue: x => x.producer ? x.producer.km : 1e9 },
+      { key: "act", label: "", render: x => x.producer ? entBtns(x.producer.industry_id) : "" },
+    ], d.demand || [], { empty: { icon: "check", text: t("demand_none") }, defaultSort: "missing", defaultAsc: false, id: "town_id",
+      onRow: (id) => { state.selTown = +id; renderTowns(); $("#town-detail").scrollIntoView({ behavior: "smooth" }); } });
+  }
+
   async function renderTowns() {
+    renderTownDemand();
     const d = await api("/api/towns"); const towns = d.towns || []; state.cache.towns = towns;
     const unhappy = (x) => (x.hap_inside_unhappy || 0) + (x.hap_to_res_unhappy || 0) + (x.hap_from_res_unhappy || 0) + (x.hap_to_nonres_unhappy || 0) + (x.hap_from_nonres_unhappy || 0);
     const total = (x) => (x.hap_inside_total || 0) + (x.hap_to_res_total || 0) + (x.hap_from_res_total || 0) + (x.hap_to_nonres_total || 0) + (x.hap_from_nonres_total || 0);

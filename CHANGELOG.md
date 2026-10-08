@@ -3,6 +3,21 @@
 Companion program versions (`VERSION` in `dashboard/server.py`) and mod revisions (`revision` in
 `mod/tf3_dashboard_export/mod.json`). Earlier versions: see the [Releases](https://github.com/M1r077/tf3-dashboard/releases) page.
 
+## Companion 0.4.2 — mod revision 8 (unchanged)
+
+### New
+
+- **What to do now** (Operations, first card): one prioritised to-do list (urgent / important / suggestion) built
+  from the game alerts, the supply chain alerts, the fleet state, the fleet renewal and the town demand, e.g. "Line X:
+  120/yr produced but not picked up, add vehicles", "11 vehicles below 30 % condition", "Renew 10 × A with B",
+  "Town X needs food: gets 15 of 200/yr, nearest producer Y (4 km)". Clicking an item opens the right tab.
+- **Fleet renewal** (Vehicles tab): vehicles grouped by model when the model is withdrawn, worn out, or a clearly
+  better model of the same kind is on sale (newer, at least 25 % faster or bigger / more powerful for locomotives,
+  same cargo for trucks): suggested model, gains, cost for the whole group, lines concerned, buttons to show the
+  vehicles and the model in the catalogue. Uses the vehicle catalogue (mod revision 8+).
+- **Unmet town demand** (Towns tab): cargo a town needs (the town window's figures) and gets less than half of, with
+  the nearest industry producing it and its distance.
+
 ## Companion 0.4.1 — mod revision 8 (unchanged)
 
 ### Interface

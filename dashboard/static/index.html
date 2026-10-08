@@ -90,7 +90,11 @@
   <!-- ------------------------------------------------ overview = operations -->
   <section id="tab-overview" class="tab active">
     <div class="panels" data-layout="overview">
-      <div class="card" data-panel="alerts" data-w="5">
+      <div class="card" data-panel="todo" data-w="6">
+        <h2><i class="ico" data-ico="check"></i><span data-i18n="todo_title"></span> <small id="todo-count"></small></h2>
+        <div id="todo-list" class="todo"></div>
+      </div>
+      <div class="card" data-panel="alerts" data-w="6">
         <h2><i class="ico" data-ico="alert"></i><span data-i18n="alerts"></span> <small id="alerts-count"></small></h2>
         <div id="alerts-list" class="alerts tall"></div>
       </div>
@@ -104,23 +108,23 @@
         <h2 class="sub"><i class="ico" data-ico="stop"></i><span data-i18n="stuck_title"></span> <small data-i18n="stuck_sub"></small></h2>
         <div id="stuck-list" class="minilist"></div>
       </div>
-      <div class="card" data-panel="worn" data-w="7">
-        <h2><i class="ico" data-ico="wrench"></i><span data-i18n="worn_first"></span></h2>
-        <canvas id="chart-worn"></canvas>
-      </div>
       <div class="card" data-panel="by-carrier" data-w="7">
         <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="by_carrier"></span></h2>
         <table class="data compact" id="fleet-carrier"></table>
       </div>
-      <div class="card" data-panel="fleet-perf" data-w="5">
+      <div class="card" data-panel="worn" data-w="5">
+        <h2><i class="ico" data-ico="wrench"></i><span data-i18n="worn_first"></span></h2>
+        <canvas id="chart-worn"></canvas>
+      </div>
+      <div class="card" data-panel="fleet-perf" data-w="4">
         <h2><i class="ico" data-ico="speed"></i><span data-i18n="fill_speed"></span></h2>
         <canvas id="chart-fleet-perf" data-h="200"></canvas>
       </div>
-      <div class="card" data-panel="lines-bad" data-w="6">
+      <div class="card" data-panel="lines-bad" data-w="4">
         <h2><i class="ico" data-ico="unhappy"></i><span data-i18n="lines_unhappy"></span></h2>
         <canvas id="chart-lines-bad"></canvas>
       </div>
-      <div class="card" data-panel="lines-load" data-w="6">
+      <div class="card" data-panel="lines-load" data-w="4">
         <h2><i class="ico" data-ico="terminal_full"></i><span data-i18n="lines_loaded"></span></h2>
         <canvas id="chart-lines-load"></canvas>
       </div>
@@ -144,6 +148,7 @@
     <div class="panels" data-layout="vehicles">
       <div class="card tablecard" data-panel="veh-table" data-w="7"><table id="veh-table" class="data"></table></div>
       <div class="card sticky" id="veh-detail" data-panel="veh-detail" data-w="5"><h2 data-i18n="detail"></h2><div class="emptystate"><i class="ico" data-ico="select"></i><div class="t" data-i18n="click_vehicle"></div></div></div>
+      <div class="card" id="renewal-card" data-panel="renewal" data-w="12"><h2><i class="ico" data-ico="refresh"></i><span data-i18n="renew_title"></span> <small id="renewal-count"></small></h2><div id="renewal-list" class="renewal"></div></div>
     </div>
   </section>
 
@@ -189,6 +194,7 @@
     <div class="panels" data-layout="towns">
       <div class="card tablecard" data-panel="towns-table" data-w="7"><table id="towns-table" class="data"></table></div>
       <div class="card sticky" id="town-detail" data-panel="town-detail" data-w="5"><h2 data-i18n="detail"></h2><div class="emptystate"><i class="ico" data-ico="town"></i><div class="t" data-i18n="select_town"></div></div></div>
+      <div class="card tablecard" data-panel="town-demand" data-w="12"><h2><i class="ico" data-ico="town_supplies"></i><span data-i18n="demand_title"></span> <small data-i18n="demand_hint"></small></h2><table id="demand-table" class="data"></table></div>
     </div>
   </section>
 

@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.4.1"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.4.2"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -26,6 +26,7 @@ import console  # noqa: E402
 import tf3paths  # noqa: E402
 
 sys.path.insert(0, str(HERE))
+import advisor  # noqa: E402
 import chains  # noqa: E402
 
 DEFAULT_DB = tf3paths.DEFAULT_DB
@@ -605,6 +606,35 @@ def api_catalogue(q: dict) -> dict:
     return {"year": _game_year(gid), "models": models}
 
 
+# ---------------------------------------------------------------- advice (advisor.py, 0.4.2)
+def _renewal_groups(gid: int) -> list[dict]:
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.maintenance, vs.line_id, l.name AS line_name
+                  FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
+                  LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id
+                  WHERE v.game_id=? AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)""", (gid,))
+    return advisor.renewal(veh, _catalogue_rows(gid), _game_year(gid))
+
+
+def api_renewal(q: dict) -> dict:
+    gid = _gid()
+    return {"year": _game_year(gid), "groups": _renewal_groups(gid)}
+
+
+def api_town_demand(q: dict) -> dict:
+    return {"demand": advisor.town_demand(api_towns({})["towns"], api_industries({})["industries"])}
+
+
+def api_todo(q: dict) -> dict:
+    gid = _gid()
+    f = one("""SELECT SUM(vs.maintenance < 0.3) worn_bad,
+                      SUM(vs.line_id IS NULL OR vs.line_id <= 0 OR vs.days_in_depot > 2) idle
+               FROM vehicle_state vs WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)""") or {}
+    groups = _renewal_groups(gid)
+    demand = advisor.town_demand(api_towns({})["towns"], api_industries({})["industries"])
+    items = advisor.todo(api_alerts({}).get("alerts", []), {k: f.get(k) or 0 for k in ("worn_bad", "idle")}, groups, demand)
+    return {"items": items}
+
+
 def _ids(q: dict, name: str) -> list[int]:
     out = []
     for part in ",".join(q.get(name, [])).split(","):
@@ -834,7 +864,7 @@ ROUTES = {
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
     "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
     "/api/chains": api_chains, "/api/chain_view": api_chain_view, "/api/chain_connected": api_chain_connected,
-    "/api/catalogue": api_catalogue,
+    "/api/catalogue": api_catalogue, "/api/renewal": api_renewal, "/api/town_demand": api_town_demand, "/api/todo": api_todo,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

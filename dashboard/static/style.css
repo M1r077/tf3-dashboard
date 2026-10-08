@@ -473,6 +473,26 @@ table.stops .termgrid .tg-star .ico { margin: 0; }
 table.stops .termgrid .tg-star.on { color: #f0c84a; }
 table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 
+/* ------------------------------------------------ what to do now / fleet renewal (0.3.2) */
+.todo { display: flex; flex-direction: column; gap: 5px; max-height: 290px; overflow: auto; }
+.todo .ti { display: grid; grid-template-columns: 6px var(--isz) minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.todo .ti:hover { border-color: var(--accent); }
+.todo .ti .p { width: 6px; align-self: stretch; border-radius: 3px; }
+.todo .ti .p.p1 { background: var(--bad); } .todo .ti .p.p2 { background: var(--warn); } .todo .ti .p.p3 { background: var(--info); }
+.todo .ti .ico { margin: 0; color: var(--muted); }
+.todo .ti .go { color: var(--muted); font-size: 16px; }
+.renewal { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 8px; }
+.rgroup { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.rgroup.p1 { border-left: 3px solid var(--bad); } .rgroup.p2 { border-left: 3px solid var(--warn); } .rgroup.p3 { border-left: 3px solid var(--info); }
+.rgroup .swap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rgroup .swap .m { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.rgroup .swap .modelimg { max-height: 30px; max-width: 120px; }
+.rgroup .swap .arrow { color: var(--accent); font-size: 18px; }
+.rgroup .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.rgroup .chip { margin: 0; }
+.rgroup .meta { font-size: 12px; color: var(--muted); }
+.rgroup .actions { margin: 0; }
+
 /* ------------------------------------------------ vehicle catalogue */
 .catyear { margin: 14px 0 6px; display: flex; align-items: baseline; gap: 8px; font-size: 15px; }
 .catyear:first-of-type { margin-top: 4px; }

@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS company (
     total_assets         INTEGER,
     debt                 INTEGER,
     hq_x                 REAL,
-    hq_y                 REAL
+    hq_y                 REAL,
+    hq_id                INTEGER
 );
 
 -- ---------------------------------------------------------------- reference data

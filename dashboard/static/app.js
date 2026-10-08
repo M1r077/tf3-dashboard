@@ -1273,7 +1273,7 @@
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));
     if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}`));
-    if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", null, `<b>${t("map_hq")}</b>`);
+    if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", d.headquarters.id ?? null, `<b>${t("map_hq")}</b>`);
     return best ? { ...best, mx, my } : null;
   }
   function hoverMap(canvas, e) {

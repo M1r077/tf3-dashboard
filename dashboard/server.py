@@ -539,7 +539,7 @@ def api_map(q: dict) -> dict:
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
     st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
     ind = rows("SELECT industry_id, name, x, y FROM industry WHERE game_id=? AND x IS NOT NULL", (gid,))
-    hq = one("""SELECT c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
+    hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
     al = rows("SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot) AND x IS NOT NULL")

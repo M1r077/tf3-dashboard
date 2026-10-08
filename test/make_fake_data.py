@@ -137,7 +137,7 @@ for k in range(N):
             "alerts": alerts, "vehicles": vehicles}
     if k == 0 or seq % 6 == 0:
         nveh = len(VEHICLES)
-        snap["company"] = {"headquarterX": 5300, "headquarterY": 3900, "totalScore": int(1000 + k * 12), "railVehicles": sum(1 for v in VEHICLES if v["carrier"] == "RAIL"), "trams": 0, "roadVehicles": sum(1 for v in VEHICLES if v["carrier"] == "ROAD"), "aircrafts": 0, "ships": 0,
+        snap["company"] = {"headquarterId": 9000, "headquarterX": 5300, "headquarterY": 3900, "totalScore": int(1000 + k * 12), "railVehicles": sum(1 for v in VEHICLES if v["carrier"] == "RAIL"), "trams": 0, "roadVehicles": sum(1 for v in VEHICLES if v["carrier"] == "ROAD"), "aircrafts": 0, "ships": 0,
                            "trackTotalLength": 42000 + k * 30, "trackElectricLength": 18000 + k * 20, "bridgeTotalLength": 1200, "tunnelTotalLength": 600, "roadTotalLength": 15000, "suppliedTowns": 6, "connectedIndustries": 6,
                            "numberOfLines": len(LINES), "totalStations": len(STATIONS), "railStations": 9, "tramStations": 0, "roadStations": 3, "aircraftStations": 0, "shipStations": 0, "topSpeed": 33.3, "topLength": 180,
                            "oldestTransportVehicle": 1900, "balance": int(balance), "totalAssets": int(balance + nveh * 150000), "debt": loan}

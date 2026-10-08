@@ -978,6 +978,10 @@
   // the overview (snapshot.camera, mod rev 7+); recalling a view sends set_camera to the game.
   const camViews = { list: [], loaded: false, cur: null };
   const fmtCam = (c) => c ? `x ${Math.round(c.x)} · y ${Math.round(c.y)} · ${Math.round(c.dist)} m · ${Math.round(c.angle * 180 / Math.PI)}° / ${Math.round(c.pitch * 180 / Math.PI)}°` : "";
+  // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
+  const angDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
+  const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
+  const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
   function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   async function editViews(body) {
     const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -990,8 +994,8 @@
     const box = $("#cam-views"); if (!box) return;
     const cur = camViews.cur, off = cmdOff();
     if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
-    const views = camViews.list;
-    const row = (v, i) => `<div class="cv" data-id="${v.id}">
+    const views = camViews.list, act = activeView();
+    const row = (v, i) => `<div class="cv ${act && act.id === v.id ? "on" : ""}" data-id="${v.id}">
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
       <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
       <span class="cv-tools">
@@ -1072,6 +1076,30 @@
     const o = oc.getContext("2d"); o.clearRect(0, 0, size, size); o.drawImage(im, 0, 0, size, size); o.globalCompositeOperation = "source-in"; o.fillStyle = color; o.fillRect(0, 0, size, size); o.globalCompositeOperation = "source-over";
     ctx.drawImage(oc, x - size / 2, y - size / 2); return true;
   }
+  // Heading convention of api.gui.camera.getCameraData().angle: assumed 0 = looking towards +y (north), turning
+  // counter-clockwise. If the cone points the wrong way in the game, fix CAM_ANGLE_OFFSET / CAM_ANGLE_SIGN here.
+  const CAM_ANGLE_OFFSET = 0, CAM_ANGLE_SIGN = 1, CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
+  function drawViewCone(ctx, c, color) {
+    const a = CAM_ANGLE_SIGN * c.angle + CAM_ANGLE_OFFSET;
+    const dx = -Math.sin(a), dy = Math.cos(a);                            // unit vector eye -> target (game coords)
+    // horizontal distance eye -> target, in metres; kept readable on screen (>= 36 px) when the map is zoomed out
+    const back = Math.max(c.dist * Math.cos(Math.abs(c.pitch)), 36 / map.scale);
+    const ex = c.x - dx * back, ey = c.y - dy * back;                     // eye on the ground plane
+    const far = back * 1.6, half = Math.tan(CAM_HALF_FOV) * far;
+    const fx = ex + dx * far, fy = ey + dy * far;                         // centre of the far edge
+    const [px, py] = P(ex, ey), [tx, ty] = P(c.x, c.y);
+    const [lx, ly] = P(fx - dy * half, fy + dx * half), [rx, ry] = P(fx + dy * half, fy - dx * half);
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(lx, ly); ctx.lineTo(rx, ry); ctx.closePath();
+    ctx.fillStyle = color; ctx.globalAlpha = 0.10; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(px, py); ctx.lineTo(rx, ry); ctx.stroke();   // the two converging lines
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(tx, ty, 4, 0, 7); ctx.stroke();                                         // the target point
+    ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(px, py, 10, 0, 7); ctx.fill(); ctx.stroke();
+    if (!drawIcon(ctx, "camera", px, py, 12, color)) { ctx.fillStyle = color; ctx.fillRect(px - 3, py - 3, 6, 6); }
+    ctx.restore();
+  }
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
@@ -1100,10 +1128,17 @@
       if (showLabels || lf != null) { ctx.fillStyle = "#e6edf3"; ctx.textAlign = "left"; ctx.fillText(v.name, x + 11, y + 4); }
     });
     if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 14, "#f85149"); });
-    // current camera (dashed square, drawn first so a saved pin at the same spot stays readable), then the saved
-    // views as numbered pins (the number = the Shift+N slot)
-    if (camViews.cur) { const [x, y] = P(camViews.cur.x, camViews.cur.y); ctx.strokeStyle = "#e6edf3"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.strokeRect(x - 12, y - 12, 24, 24); ctx.setLineDash([]); if (!drawIcon(ctx, "camera", x, y - 18, 12, "#e6edf3")) { ctx.fillStyle = "#e6edf3"; ctx.fillRect(x - 2, y - 2, 4, 4); } }
-    camViews.list.forEach((v, i) => { const [x, y] = P(v.x, v.y); drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b"); ctx.fillStyle = "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font; });
+    // current camera as a view cone: eye position (behind the target, by dist * cos(pitch)) and two lines diverging
+    // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
+    // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
+    const act = activeView();
+    if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : "#e6edf3");
+    camViews.list.forEach((v, i) => {
+      const [x, y] = P(v.x, v.y), on = act && act.id === v.id;
+      drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b");
+      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
+    });
     const px = 1000 * map.scale; ctx.strokeStyle = "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>`;
   }

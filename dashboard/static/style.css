@@ -258,6 +258,8 @@ h2 .ico { color: var(--accent); }
 .camviews .cv-list { display: flex; flex-direction: column; gap: 4px; }
 .cv { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
 .cv .cv-n { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.cv.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
+.cv.on .cv-n { color: var(--warn); font-weight: 600; }
 .cv .cv-go { background: none; border: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv .cv-go:hover { color: var(--accent, #58a6ff); }
 .cv .cv-go:disabled { cursor: default; color: var(--muted); }

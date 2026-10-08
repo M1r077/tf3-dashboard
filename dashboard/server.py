@@ -41,6 +41,7 @@ ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "set_camera": ("x", "y", "dist"),  # mod rev 7+
+    "horn": (),  # mod rev 8+: args.vehicle or args.line
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
     "vehicle_depart": ("vehicle",), "vehicle_to_depot": ("vehicle",),

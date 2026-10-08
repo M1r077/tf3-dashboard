@@ -1125,6 +1125,23 @@ local COMMANDS = {
 		return true
 	end,
 	close_windows = function() api.gui.closeAllWindows(); return true end,
+	-- horn: a sound only, nothing changes in the simulation (api.gui.sound.letVehicleHorn, GUI thread).
+	-- args.vehicle = one vehicle, or args.line = every vehicle of the line
+	horn = function(args)
+		local vs
+		if num(args and args.line) then
+			vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(lineEntity(args)))
+			if #vs == 0 then error("line has no vehicle") end
+		else
+			vs = { vehicleEntity(args) }
+		end
+		local n = 0
+		for _, v in ipairs(vs) do
+			if pcall(api.gui.sound.letVehicleHorn, v) then n = n + 1 end
+		end
+		if n == 0 then return false, "no horn sounded" end
+		return true, nil
+	end,
 	-- vehicles (reversible actions only)
 	vehicle_stop = function(args) return sendCmd(api.cmd.makeVehicleSetStoppedByUserCmd(vehicleEntity(args), true)) end,
 	vehicle_start = function(args) return sendCmd(api.cmd.makeVehicleSetStoppedByUserCmd(vehicleEntity(args), false)) end,

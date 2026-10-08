@@ -222,7 +222,12 @@
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));
   // calendar speed (the game's slider, 0.25x..4x): the engine reports it as millis_per_day, 1x = 4000 ms
   $$("#cal-speed .cbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_calendar_speed", { factor: +b.dataset.cal }, b)));
-  window.addEventListener("keydown", e => { if (!settings.keys || e.target.matches("input,select,textarea")) return; if (e.code === "Space") { e.preventDefault(); sendCmd("toggle_pause", {}); } else if (["Digit1", "Digit2", "Digit3"].includes(e.code)) { sendCmd("set_speed", { speed: { Digit1: 1, Digit2: 2, Digit3: 4 }[e.code] }); } });
+  window.addEventListener("keydown", e => {
+    if (!settings.keys || e.target.matches("input,select,textarea") || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.code === "Space") { e.preventDefault(); sendCmd("toggle_pause", {}); }
+    else if (/^Digit[1-9]$/.test(e.code) && e.shiftKey) { const v = camViews.list[+e.code.slice(5) - 1]; if (v) { e.preventDefault(); gotoView(v); } }  // Shift+1..9 = saved camera view
+    else if (["Digit1", "Digit2", "Digit3"].includes(e.code)) { sendCmd("set_speed", { speed: { Digit1: 1, Digit2: 2, Digit3: 4 }[e.code] }); }
+  });
   const vehActions = (v) => {
     const off = !cmd.enabled || cmd.accepted === 0;
     const b = (name, icon, label, extra = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${v.vehicle_id}" ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
@@ -928,10 +933,61 @@
     Charts.hbars($("#chart-costs"), (fleet.by_carrier || []).map(x => ({ label: `${CA(x.carrier)} (${x.n})`, value: x.running_cost || 0, color: CARRIER_COLOR[x.carrier], text: money(x.running_cost) })), {});
   }
 
+  // ------------------------------------------------------------ camera views (Map tab panel)
+  // Saved on the server next to the database (db/camera_views.json), per savegame. The current camera comes with
+  // the overview (snapshot.camera, mod rev 7+); recalling a view sends set_camera to the game.
+  const camViews = { list: [], loaded: false, cur: null };
+  const fmtCam = (c) => c ? `x ${Math.round(c.x)} · y ${Math.round(c.y)} · ${Math.round(c.dist)} m · ${Math.round(c.angle * 180 / Math.PI)}° / ${Math.round(c.pitch * 180 / Math.PI)}°` : "";
+  function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
+  async function editViews(body) {
+    const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return false; }
+    camViews.list = j.views || []; renderCamViews(); if (map.data) drawMap($("#map")); return true;
+  }
+  async function loadViews() { try { const j = await api("/api/views"); camViews.list = j.views || []; } catch (e) { camViews.list = []; } camViews.loaded = true; }
+  function renderCamViews() {
+    const box = $("#cam-views"); if (!box) return;
+    const cur = camViews.cur, off = cmdOff();
+    if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
+    const views = camViews.list;
+    const row = (v, i) => `<div class="cv" data-id="${v.id}">
+      <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
+      <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
+      <span class="cv-tools">
+        <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("camera", "sm")}</button>
+        <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">✎</button>
+        <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>▲</button>
+        <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === views.length - 1 ? "disabled" : ""}>▼</button>
+        <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
+      </span></div>`;
+    box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("camera", "sm")}${esc(t("cam_save"))}</button>` +
+      (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
+      `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
+    $(".cv-save", box).addEventListener("click", () => {
+      const name = prompt(t("cam_name_prompt"), t("cam_default_name", { n: views.length + 1 })); if (name === null) return;
+      editViews({ action: "add", name, camera: camViews.cur });
+    });
+    $$(".cv", box).forEach(el => {
+      const id = +el.dataset.id, v = views.find(x => x.id === id); if (!v) return;
+      $$("[data-act]", el).forEach(b => b.addEventListener("click", e => {
+        e.stopPropagation(); const a = b.dataset.act;
+        if (a === "go") gotoView(v);
+        else if (a === "update") { if (confirm(t("cam_update_confirm", { name: v.name }))) editViews({ action: "update", id, camera: camViews.cur }); }
+        else if (a === "rename") { const name = prompt(t("cam_name_prompt"), v.name); if (name !== null && name.trim()) editViews({ action: "rename", id, name }); }
+        else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
+        else if (a === "delete") { if (confirm(t("cam_delete_confirm", { name: v.name }))) editViews({ action: "delete", id }); }
+      }));
+    });
+  }
+
   // ------------------------------------------------------------ map
   const map = { data: null, scale: 1, ox: 0, oy: 0, drag: null, init: false, fitted: false, lineFilter: null, icons: {} };
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
-  async function renderMap() {
+  async function renderMap(o) {
+    camViews.cur = (o && o.camera) || null;
+    if (!camViews.loaded) await loadViews();
+    renderCamViews();
     map.data = await api("/api/map");
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
@@ -945,14 +1001,18 @@
     canvas.addEventListener("mousedown", e => { map.drag = { x: e.clientX, y: e.clientY, ox: map.ox, oy: map.oy, moved: false }; canvas.style.cursor = "grabbing"; });
     window.addEventListener("mouseup", () => { map.drag = null; canvas.style.cursor = "grab"; });
     canvas.addEventListener("mousemove", e => { if (map.drag) { if (Math.abs(e.clientX - map.drag.x) + Math.abs(e.clientY - map.drag.y) > 3) map.drag.moved = true; map.ox = map.drag.ox + e.clientX - map.drag.x; map.oy = map.drag.oy + e.clientY - map.drag.y; drawMap(canvas); } else hoverMap(canvas, e); });
-    canvas.addEventListener("click", e => { const hit = pickMap(canvas, e); if (hit && hit.entity != null && !(map.lastDragMoved)) sendCmd(hit.kind === "vehicle" && e.shiftKey ? "follow_entity" : "focus_entity", { entity: hit.entity }); });
+    canvas.addEventListener("click", e => {
+      const hit = pickMap(canvas, e); if (!hit || map.lastDragMoved) return;
+      if (hit.kind === "view") gotoView(hit.view);
+      else if (hit.entity != null) sendCmd(hit.kind === "vehicle" && e.shiftKey ? "follow_entity" : "focus_entity", { entity: hit.entity });
+    });
     canvas.addEventListener("mousedown", () => { map.lastDragMoved = false; });
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });
     $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; drawMap(canvas); });
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
-    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert"].forEach(mapIcon);
+    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera"].forEach(mapIcon);
   }
   function fitMap(canvas) {
     const d = map.data; const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles].filter(p => p.x != null);
@@ -1000,6 +1060,10 @@
       if (showLabels || lf != null) { ctx.fillStyle = "#e6edf3"; ctx.textAlign = "left"; ctx.fillText(v.name, x + 11, y + 4); }
     });
     if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 14, "#f85149"); });
+    // current camera (dashed square, drawn first so a saved pin at the same spot stays readable), then the saved
+    // views as numbered pins (the number = the Shift+N slot)
+    if (camViews.cur) { const [x, y] = P(camViews.cur.x, camViews.cur.y); ctx.strokeStyle = "#e6edf3"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.strokeRect(x - 12, y - 12, 24, 24); ctx.setLineDash([]); if (!drawIcon(ctx, "camera", x, y - 18, 12, "#e6edf3")) { ctx.fillStyle = "#e6edf3"; ctx.fillRect(x - 2, y - 2, 4, 4); } }
+    camViews.list.forEach((v, i) => { const [x, y] = P(v.x, v.y); ctx.fillStyle = "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font; });
     const px = 1000 * map.scale; ctx.strokeStyle = "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>`;
   }
@@ -1007,7 +1071,8 @@
     const d = map.data; if (!d) return null;
     const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;
     let best = null, bd = 140;
-    const consider = (obj, kind, entity, txt) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y }; } };
+    const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
+    camViews.list.forEach((v, i) => consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v }));
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));

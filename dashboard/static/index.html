@@ -172,7 +172,13 @@
       <button id="map-fit" class="btn"><i class="ico sm" data-ico="locate"></i><span data-i18n="recenter"></span></button>
       <span class="hint" data-i18n="map_hint"></span>
     </div>
-    <div class="panels" data-layout="map"><div class="card mapcard" data-panel="map" data-w="12"><canvas id="map"></canvas><div id="map-tip" class="tip"></div><div id="map-legend" class="maplegend"></div></div></div>
+    <div class="panels" data-layout="map">
+      <div class="card mapcard" data-panel="map" data-w="9"><canvas id="map"></canvas><div id="map-tip" class="tip"></div><div id="map-legend" class="maplegend"></div></div>
+      <div class="card camviews" data-panel="cam-views" data-w="3">
+        <h2><i class="ico" data-ico="camera"></i><span data-i18n="cam_views"></span></h2>
+        <div id="cam-views"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ------------------------------------------------ towns -->

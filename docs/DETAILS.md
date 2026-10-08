@@ -141,6 +141,14 @@ Three independent parts:
      vehicles / lines / towns / industries / stations / depots / alerts, vehicle sheet: follow, stop / start, reverse,
      depart, send to depot; click on the map = camera on the object (Shift+click on a vehicle = follow). Greyed out when
      the mod parameter "accept commands" is off.
+   - **Camera views** (Map tab panel, mod rev 7 / companion 0.3.0): the mod exports `snapshot.camera`
+     (`api.gui.camera.getCameraData()` = {x, y, dist, angle, pitch} + the followed entity) in every fast snapshot;
+     the collector stores it as JSON in `snapshot.camera`; the server returns it in `/api/overview` and the map draws
+     it (dashed square). "Save the current view" stores those five numbers under a name in `db\camera_views.json`,
+     keyed by the collector's game key (`player:<entity>`), so each savegame has its own list (9 at most). Recall =
+     `set_camera` command (the mod detaches a running follow camera first, else it pulls the view back); also
+     Shift+1..9 and a click on the numbered pin on the map. Update / rename / reorder / delete through
+     `POST /api/views`. With a rev 6 mod the panel explains that revision 7 is needed.
    - **Stops & departures** (line detail): one row per stop with departure mode, min / max stop time, extra wait,
      allowed cargos, terminals; pencil = edit a stop (mode list, seconds fields, cargo chips, "force unload"), "Apply"
      only sends the changed fields, "Apply to all stops" copies mode + waits to the whole line. Line buttons: stop /

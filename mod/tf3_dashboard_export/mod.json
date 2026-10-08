@@ -1,6 +1,6 @@
-{
+﻿{
     "modId": "tf3_dashboard_export",
-    "revision": 6,
+    "revision": 7,
     "severityAdd": "None",
     "severityRemove": "None",
     "cosmetic": true,

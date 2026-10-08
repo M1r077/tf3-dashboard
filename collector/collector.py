@@ -146,6 +146,7 @@ class Store:
         ("line_stop", "max_load", "TEXT"),
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
+        ("snapshot", "camera", "TEXT"),
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -203,15 +204,17 @@ class Store:
         if dup:
             return None
         ack = snap.get("cmd_ack")
+        cam = snap.get("camera")  # mod rev 7+: {x, y, dist, angle, pitch, follow?}; absent with rev 6
         cur = self.con.execute(
             """INSERT INTO snapshot(game_id, seq, slow_seq, real_time, received_at, game_time_ms, year, month, day,
-               time_of_day_s, speed, millis_per_day, tick, update_count, n_errors, accept_commands, cmd_ack)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               time_of_day_s, speed, millis_per_day, tick, update_count, n_errors, accept_commands, cmd_ack, camera)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (gid, seq, snap.get("slow_seq"), real_time, now, t.get("game_time_ms"), t.get("year"), t.get("month"),
              t.get("day"), t.get("time_of_day_sec"), t.get("speed"), t.get("millis_per_day"), t.get("tick"),
              t.get("update_count"), len(as_list(snap.get("errors"))),
              b(snap.get("accept_commands")) if snap.get("accept_commands") is not None else None,
-             json.dumps(ack) if isinstance(ack, dict) else None),
+             json.dumps(ack) if isinstance(ack, dict) else None,
+             json.dumps(cam) if isinstance(cam, dict) else None),
         )
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:

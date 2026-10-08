@@ -253,6 +253,19 @@ h2 .ico { color: var(--accent); }
 .btn.iconbtn { padding: 3px 6px; line-height: 0; }
 .btn.iconbtn .ico { margin: 0; }
 .entbtns { display: inline-flex; gap: 3px; white-space: nowrap; }
+/* camera views panel (Map tab): one row per saved view, the slot number doubles as the Shift+N shortcut */
+.camviews .cv-save { width: 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.camviews .cv-list { display: flex; flex-direction: column; gap: 4px; }
+.cv { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
+.cv .cv-n { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
+.cv .cv-go { background: none; border: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv .cv-go:hover { color: var(--accent, #58a6ff); }
+.cv .cv-go:disabled { cursor: default; color: var(--muted); }
+.cv .cv-tools { display: inline-flex; gap: 2px; opacity: .35; }
+.cv:hover .cv-tools { opacity: 1; }
+.cv .cv-tools .btn { padding: 1px 4px; font-size: 11px; line-height: 1.2; }
+.camviews .cv-cur { margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.camviews .cv-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
 td .ico, .row .ico { color: var(--muted); }
 .alert .ico { width: 20px; height: 20px; margin: 0; }
 .alert .sev.bad ~ div .ico { color: var(--bad); }

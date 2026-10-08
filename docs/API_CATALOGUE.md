@@ -82,7 +82,7 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Entities within a radius | `octree.findEntitiesInCircle(center, r, componentType)` | "what happens around this point" | EASY |
 | Closest town to a position | `town.getClosestTown(pos)` | | DONE (approximated) |
 | Theoretical path | `pathfinding.findPathNodeToNode` | check whether two stations are connected | MEDIUM |
-| Current camera | `api.gui.camera.getCameraData()`, `getFollowEntity()` | show on the map what the player is looking at | EASY |
+| Current camera | `api.gui.camera.getCameraData()`, `getFollowEntity()` | `snapshot.camera {x, y, dist, angle, pitch, follow}`; drawn on the Map tab | DONE (rev 7) |
 | Estimated max speed | `api.gui.game.getEstimatedMaximumGameSpeed()` | grey out the x4 button when the machine cannot keep up | EASY |
 | Performance | `api.gui.benchmark.get*Times()` | mini FPS/sim monitor | EASY |
 | Visibility | `api.gui.byEntity.isVehicleVisible(e)` | know whether the vehicle is on screen | EASY |
@@ -100,8 +100,8 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Follow a vehicle | `camera.followEntity(e, jump)` | `follow_entity {entity, jump}` | DONE |
 | Cockpit view | `camera.enterFollowCameraCockpit(e)` / `leaveFollowCameraCockpit()` | `cockpit {entity}` / `cockpit_leave` | EASY |
 | Free camera | `camera.toggleFreeCamera()` | | EASY |
-| Place the camera precisely | `camera.setCameraData(Vec5f{x,y,dist,angleH,angleV})`, `setManualCamera(center, dist)` | `set_camera {...}` | EASY — enables "favourite views" stored in the dashboard |
-| Read the camera | `camera.getCameraData()` | export in live.lua | EASY |
+| Place the camera precisely | `camera.setCameraData(Vec5f{x, y, dist, angle, pitch})` (`setManualCamera(center, dist)` exists too, less complete) | `set_camera {x, y, dist, angle, pitch}` | DONE (rev 7) — "Camera views" panel on the Map tab: named views saved in `db/camera_views.json` per savegame, recalled by click or Shift+1..9. A running follow camera is detached first (`focusPosition`), otherwise it pulls the view back to the vehicle. |
+| Read the camera | `camera.getCameraData()` | `snapshot.camera`, every fast snapshot | DONE (rev 7) — the Vec5f fields are `x, y, z, w, q` = center.x, center.y, distance, angle, pitch (radians) |
 | Screenshot | `camera.takeScreenshot(scale)` -> userdata folder | `screenshot {scale}` | EASY (the file lands on the game side, not served by the dashboard) |
 | Horn | `api.gui.sound.letVehicleHorn(e)` | `horn {entity}` | EASY (gadget) |
 | Open an entity window (line, vehicle, station, town, industry, depot...) | `fireReactEvent("selectEntity", {entity=e, stack=bool})` | `select_entity {entity, focus, stack}` | DONE |
@@ -227,9 +227,9 @@ stopConfig{load{bool}, maxLoad{0..1}, forceUnload, destroyForConfigChange, destr
 ## 5. Proposed roadmap (by value / risk)
 
 1. **No risk, big win** — open entity window (`select_entity`), line manager, world marker (`mark`), zone (`zone`),
-   stored camera views (`set_camera`), "no path" reason and per-stop problems in the line/vehicle sheet, manual
-   departure, rename line/vehicle/station, line color, game statistics/finances on the wanted tab, layers (noise,
-   cargo...).
+   "no path" reason and per-stop problems in the line/vehicle sheet, manual departure, rename line/vehicle/station,
+   line color, game statistics/finances on the wanted tab, layers (noise, cargo...). *(Done: select_entity, line
+   manager, rename, stored camera views `set_camera` (rev 7).)*
 2. **Line management without touching the route** — load mode, waiting times, cargo filters per stop, stop/start the
    whole line, send everything to the depot, move a vehicle to another line. *(Done except moving a vehicle.)*
 3. **Money (with confirmation + price shown)** — "+1 identical vehicle", sell, replace with the same model new.

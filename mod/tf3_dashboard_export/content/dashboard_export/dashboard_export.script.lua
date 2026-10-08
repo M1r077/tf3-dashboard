@@ -18,7 +18,8 @@
 local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
-local SCHEMA = 4
+-- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
+local SCHEMA = 5
 local DIR = "dashboard_export"
 local FILE = "live"
 local SLOW_FILE_PREFIX = "slow_"
@@ -822,6 +823,7 @@ local slowJob = nil    -- cycle in progress
 local slowCache = nil  -- last cycle whose slow_*.lua files are all written: what the fast snapshots refer to
 local slowPending = nil    -- a finished cycle whose files are still being written (one per frame)
 local slowWriteQueue = {}  -- section names of slowPending still to be written
+local slowFailure = nil    -- error text of the last failed cycle, reported in every fast snapshot until a cycle succeeds
 
 local function slowJobStart(player, names, keys, seqNow)
 	local slow = { errors = {} }
@@ -914,6 +916,20 @@ local announced = false
 local lastCmdId = nil
 local lastAck = nil
 
+-- Where the player is looking: api.gui.camera.getCameraData() is a Vec5f {center.x, center.y, distance, angle, pitch}
+-- (map coordinates, metres, radians). follow = the vehicle the camera is attached to, if any. The dashboard stores
+-- named views from this and sends them back through the set_camera command.
+local function collectCamera()
+	local c = api.gui.camera.getCameraData()
+	local cam = { x = num(c.x), y = num(c.y), dist = num(c.z), angle = num(c.w), pitch = num(c.q) }
+	local okF, f = pcall(api.gui.camera.getFollowEntity)
+	if okF and type(f) == "table" then
+		local e = num(f[1])
+		if e and e > 0 then cam.follow = e end
+	end
+	return cam
+end
+
 local function buildSnapshot(player, names)
 	seq = seq + 1
 	local snap = { schema = SCHEMA, mod = MOD_ID, seq = seq, real_time = os.time(), errors = {} }
@@ -925,11 +941,15 @@ local function buildSnapshot(player, names)
 	if options().export_vehicles then
 		section(snap, "vehicles", collectVehicles)
 	end
+	-- cosmetic: no entry in snap.errors if the camera API is missing (the dashboard then hides the views panel)
+	local okC, cam = pcall(collectCamera)
+	if okC then snap.camera = cam end
 
 	-- the slow sections live in their own files; the fast snapshot only says which cycle they belong to, so the
 	-- collector knows when a new set is complete (slow_seq changes once all slow_*.lua of a cycle are written)
 	snap.slow_seq = slowCache.collected_seq
 	snap.slow_errors = slowCache.errors
+	if slowFailure then snap.errors[#snap.errors + 1] = { section = "slow_cycle", error = slowFailure } end
 	snap.cmd_ack = lastAck
 	snap.accept_commands = options().accept_commands and true or false
 	return snap
@@ -1051,6 +1071,19 @@ local COMMANDS = {
 	follow_entity = function(args)
 		local e = num(args and args.entity); if not e then error("missing args.entity") end
 		api.gui.camera.followEntity(e, args.jump ~= false); return true
+	end,
+	-- recall a stored view: the five numbers of snapshot.camera. A running follow camera would pull the view back
+	-- to the vehicle, so detach it first by focusing the target position.
+	set_camera = function(args)
+		local x, y, dist = num(args and args.x), num(args and args.y), num(args and args.dist)
+		if not x or not y or not dist then error("missing args.x/y/dist") end
+		local angle, pitch = num(args.angle) or 0, num(args.pitch) or 0
+		local okF, f = pcall(api.gui.camera.getFollowEntity)
+		if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
+			pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(x, y, 0), dist)
+		end
+		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
+		return true
 	end,
 	-- selection: opens the entity window (line, vehicle, station, town, industry...) exactly like a click in the
 	-- game; same react event the game's notifications use. args.focus (default true) also moves the camera.
@@ -1306,7 +1339,12 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		if not ok then
 			log("slow cycle failed:", tostring(done))
 			slowJob = nil
+			slowFailure = tostring(done)
+			-- rev 7: a failing first cycle used to block live.lua forever (the dashboard stayed empty with no hint).
+			-- Stand in with an empty cycle so the fast snapshots flow and carry the error to the dashboard.
+			if slowCache == nil then slowCache = { collected_seq = 0, errors = { { section = "slow_cycle", error = slowFailure } } } end
 		elseif done then
+			slowFailure = nil
 			slowPending = done
 			slowWriteQueue = {}
 			for _, name in ipairs(SLOW_FILE_SECTIONS) do slowWriteQueue[#slowWriteQueue + 1] = name end

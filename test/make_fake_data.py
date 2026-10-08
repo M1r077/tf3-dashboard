@@ -131,6 +131,8 @@ for k in range(N):
     snap = {"schema": 2, "mod": "tf3_dashboard_export", "seq": seq, "slow_seq": seq - (seq % 6), "real_time": int(real0 + k * REAL_STEP), "player": 42, "errors": [],
             "time": {"game_time_ms": game_ms, "year": year, "month": month, "day": day, "speed": speed, "millis_per_day": 2000, "tick": k * 100, "update_count": k * 90, "time_of_day_sec": (k * 3600) % 86400, "lang": "fr"},
             "accept_commands": True, "cmd_ack": {"id": 1, "cmd": "ping", "ok": True, "real_time": int(real0 + k * REAL_STEP)} if k == N - 1 else None,
+            # mod rev 7: where the player looks (drifts slowly across the map)
+            "camera": {"x": 10000 + 1500 * math.sin(k / 40), "y": 10500 + 1200 * math.cos(k / 55), "dist": 400 + 200 * math.sin(k / 20), "angle": (k / 80) % 6.28, "pitch": -0.9},
             "finance": {"balance": int(balance), "loan": loan, "earnings_year_to_date": int(earnings_ytd), "passengers_transported": pax_total, "cargo_transported": cargo_total, "bank_balance": int(balance)},
             "alerts": alerts, "vehicles": vehicles}
     if k == 0 or seq % 6 == 0:

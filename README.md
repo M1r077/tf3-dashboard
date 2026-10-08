@@ -66,7 +66,8 @@ No pip, no venv, no packages.
 ### Remote control (optional)
 
 In the game: Mods ▸ Second Screen Dashboard ▸ **Permit game control = On** (off by default). The dashboard
-then shows the game controls (pause / speed, camera, vehicle actions, stop and terminal editor on each line).
+then shows the game controls (pause / speed, camera and saved camera views, vehicle actions, stop and terminal
+editor on each line).
 Every command does exactly what the matching click in the game does; nothing is ever bought, sold or demolished,
 and no route is changed. The channel is a local file (`cmd.lua`) read by the mod four times a second.
 
@@ -77,7 +78,10 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
 - **Vehicles** — every vehicle with model icon, line, state, load, speed, condition, history on click. Filter by type.
 - **Lines** — load, headway, waiting passengers/cargo, history, and the **stop editor**: load mode, min/max waiting
   time, cargo filter (game icons), preferred and alternative terminals, whole-line actions.
-- **Map**, **Towns**, **Industries**, **Stations & depots**, **Finances**.
+- **Map** — lines, vehicles, stations, industries, towns, alerts; click = camera on the object. **Camera views**
+  (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
+  per savegame in `db\camera_views.json`.
+- **Towns**, **Industries**, **Stations & depots**, **Finances**.
 - Languages: English, French, German — follows the game language automatically.
 
 ## Configuration

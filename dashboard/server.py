@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.7"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.3.0"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -40,6 +40,7 @@ _cmd_seq = [int(__import__("time").time() * 1000) % 1_000_000_000]
 ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
+    "set_camera": ("x", "y", "dist"),  # mod rev 7+
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
     "vehicle_depart": ("vehicle",), "vehicle_to_depot": ("vehicle",),
@@ -184,8 +185,14 @@ def api_overview(q: dict) -> dict:
         except ValueError:
             ack = None
     pending = (CMD_DIR / "cmd.lua").exists() if CMD_DIR else False
+    camera = None  # None = mod rev 6 (no camera export): the views panel says so
+    if snap.get("camera"):
+        try:
+            camera = json.loads(snap["camera"])
+        except ValueError:
+            camera = None
     return {"snapshot": snap, "finance": fin, "company": comp, "vehicles": veh, "alerts": alerts, "errors": errors,
-            "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION,
+            "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION, "camera": camera,
             "commands": {"enabled": not CMD_DISABLED, "accepted": snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
@@ -548,6 +555,95 @@ def _gid() -> int:
     return r["game_id"] if r else -1
 
 
+# ---------------------------------------------------------------- camera views (saved next to the database)
+# db/camera_views.json = { "<game key>": [ {id, name, x, y, dist, angle, pitch}, ... ] }. Views belong to a savegame
+# (map coordinates), so they are keyed by the collector's game key ("player:<entity>"). Kept out of the database on
+# purpose: the database is a rebuildable cache, the views are the player's own work.
+VIEWS_MAX = 9       # Shift+1..9 on the dashboard
+VIEWS_NAME_MAX = 40
+_views_lock = threading.Lock()
+
+
+def _views_path() -> Path:
+    return DB_PATH.parent / "camera_views.json"
+
+
+def _views_load() -> dict:
+    p = _views_path()
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (ValueError, OSError):
+        return {}
+
+
+def _views_save(d: dict) -> None:
+    p = _views_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(p)
+
+
+def _game_key() -> str | None:
+    r = one("SELECT g.key FROM game g JOIN snapshot s USING(game_id) ORDER BY s.snapshot_id DESC LIMIT 1") if DB_PATH.exists() else None
+    return r["key"] if r else None
+
+
+def _view_num(v, name: str) -> float:
+    if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+        raise ValueError(f"bad {name}")
+    return float(v)
+
+
+def api_views(q: dict) -> dict:
+    key = _game_key()
+    return {"game": key, "views": _views_load().get(key, []) if key else [], "max": VIEWS_MAX}
+
+
+def edit_views(body: dict) -> dict:
+    """POST /api/views: {action: add|update|rename|delete|move, ...}. Returns the new list."""
+    key = _game_key()
+    if not key:
+        raise ValueError("no game in the database yet")
+    action = str(body.get("action", ""))
+    with _views_lock:
+        store = _views_load()
+        views = [v for v in store.get(key, []) if isinstance(v, dict)]
+        vid = body.get("id")
+        idx = next((i for i, v in enumerate(views) if v.get("id") == vid), None)
+        if action == "add":
+            if len(views) >= VIEWS_MAX:
+                raise ValueError(f"at most {VIEWS_MAX} views")
+            cam = body.get("camera") or {}
+            name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX] or f"View {len(views) + 1}"
+            views.append({"id": max([v.get("id", 0) for v in views] + [0]) + 1, "name": name,
+                          **{k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")}})
+        elif idx is None:
+            raise ValueError("unknown view")
+        elif action == "update":  # overwrite the camera, keep the name
+            cam = body.get("camera") or {}
+            views[idx].update({k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")})
+        elif action == "rename":
+            name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX]
+            if not name:
+                raise ValueError("empty name")
+            views[idx]["name"] = name
+        elif action == "delete":
+            views.pop(idx)
+        elif action == "move":  # delta -1 / +1 in the list (= the Shift+N slot)
+            j = idx + (1 if body.get("delta", 0) > 0 else -1)
+            if 0 <= j < len(views):
+                views[idx], views[j] = views[j], views[idx]
+        else:
+            raise ValueError(f"unknown action: {action}")
+        store[key] = views
+        _views_save(store)
+    return {"game": key, "views": views, "max": VIEWS_MAX}
+
+
 def api_diag(q: dict) -> dict:
     """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
     is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
@@ -574,7 +670,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
-    "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag,
+    "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -621,7 +717,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
@@ -638,6 +734,10 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
+            if u.path == "/api/views":
+                res = edit_views(body if isinstance(body, dict) else {})
+                self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+                return
             res = write_command(str(body.get("cmd", "")), body.get("args") or {})
             console.say(f"command -> game: {body.get('cmd')} {json.dumps(body.get('args') or {})}", "info")
             self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")

@@ -1037,6 +1037,10 @@
   async function renderCatalogue() {
     const d = await api("/api/catalogue"); const all = d.models || [], year = d.year;
     const el = $("#cat-list");
+    // the catalogue is static for the session: the refresh loop must not rebuild hundreds of cards (and reload their images) for nothing
+    const sig = JSON.stringify([d, $("#cat-filter").value, $("#cat-past").checked, $("#cat-wagons").checked, [...state.catTypes], loc(), !!VEH_MANIFEST.map]);
+    if (sig === state.catSig && el.firstChild && !state.catScroll) return;
+    state.catSig = sig;
     if (!all.length) { $("#cat-types").innerHTML = ""; el.innerHTML = `<div class="cmdhint">${ico("warning", "sm")}<span>${t("cat_need_mod")}</span></div>`; return; }
     const wagons = $("#cat-wagons").checked, past = $("#cat-past").checked, q = $("#cat-filter").value.toLowerCase();
     const base = all.filter(m => (wagons || m.category !== "waggon") && (past || year == null || m.year_from >= year));

@@ -15,6 +15,14 @@ Companion program versions (`VERSION` in `dashboard/server.py`) and mod revision
 - Tabs never wrap ("Stations & depots" stays on one line) and scroll sideways on narrow screens.
 - The time range is a compact drop-down, shown only on the tabs that have time charts.
 - Narrow screens (< 1000 px): the figures get a row of their own instead of being squeezed out.
+- Operations tab reorganised: alerts first (next to the fleet chart), idle and stuck vehicles in one "attention"
+  card, the cards of a row share its height, alert rows keep their text width (age and buttons stacked on the
+  right), the per-carrier table fits.
+- Empty tables and detail panels show a centred message with an icon and what to do ("No line yet — create a line
+  in the game…", "Nothing matches the filters"), instead of a small "no data" row.
+- Tables always use the full card width (a card with a set height made its table shrink to the content).
+- Scrollbars are thin and dark; the resize handles of "Arrange panels" no longer stick out of the cards (they made
+  both scrollbars appear).
 
 ## Companion 0.4.0 — mod revision 8
 

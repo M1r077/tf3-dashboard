@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;  /* native scrollbars, selects and checkboxes in the dark theme (no white scrollbars) */
   --bg: #0f1419; --panel: #161c23; --panel2: #1c242d; --border: #273140; --text: #e6edf3; --muted: #8b98a8;
   --accent: #4f8a8a; --accent2: #d62560; --ok: #3fb950; --warn: #e8b04b; --bad: #f85149; --info: #58a6ff;
   --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, "Cascadia Mono", monospace;
@@ -6,7 +7,12 @@
   --fs: 14px;           /* base font size */
   --rowpad: 6px;        /* table density */
 }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4656 transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3a4656; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #4f5d70; }
+::-webkit-scrollbar-corner { background: transparent; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs)/1.4 var(--font); height: 100%; }
 body { display: flex; flex-direction: column; min-height: 100vh; }
 a { color: var(--info); }
@@ -84,12 +90,19 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .panels > .card.sized > .alerts, .panels > .card.sized > .minilist, .panels > .card.sized > table, .panels > .card.sized > pre { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
 .panels > .card.tablecard.sized { display: flex; }
-.panels > .card.tablecard.sized > table { display: block; }
+/* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
+.panels > .card.tablecard.sized { overflow: auto; }
+.panels > .card.tablecard.sized > table { flex: none; overflow: visible; }
 .hidden-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
 .hidden-bar .chip.restore { cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px; }
 .hidden-bar .chip.restore:hover { border-color: var(--accent); color: var(--text); }
 .card.sticky { position: sticky; top: 0; max-height: calc(100vh - 230px); overflow: auto; }
-.alerts.tall { max-height: 300px; }
+.alerts.tall { max-height: 290px; }  /* about the height of the fleet chart next to it; scrolls beyond */
+.card h2.sub { margin-top: 14px; }
+/* Operations: the cards of a row share its height (no ragged gaps); wide tables scroll inside their card */
+.panels[data-layout="overview"] { align-items: stretch; }
+.panels[data-layout="overview"] > .card[data-panel="by-carrier"] { overflow-x: auto; }
+#fleet-carrier .bar { width: 56px; }
 
 /* empty-database checklist */
 .card.setup { max-width: 900px; margin: 0 auto 14px; border-color: var(--warn); }
@@ -180,13 +193,24 @@ table.kv { width: 100%; border-collapse: collapse; }
 
 /* ---------------- alerts */
 .alerts { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; }
-.alert { display: grid; grid-template-columns: 8px var(--isz) 1fr auto auto; gap: 10px; align-items: center; padding: 6px 10px; background: var(--panel2); border-radius: 6px; border: 1px solid var(--border); }
+/* alert row: severity bar | icon | text | age over the buttons (the text keeps the width, even in a narrow card) */
+.alert > :nth-child(1), .alert > :nth-child(2), .alert > :nth-child(3) { grid-row: span 2; }
+.alert > .age { grid-column: 4; grid-row: 1; align-self: end; }
+.alert > :nth-child(5) { grid-column: 4; grid-row: 2; justify-self: end; align-self: start; }
+.alert { display: grid; grid-template-columns: 6px var(--isz) minmax(0, 1fr) auto; column-gap: 10px; row-gap: 2px; align-items: center; padding: 6px 10px; background: var(--panel2); border-radius: 6px; border: 1px solid var(--border); }
 .alert .sev { width: 8px; height: 100%; min-height: 28px; border-radius: 3px; }
 .alert .sev.bad { background: var(--bad); } .alert .sev.warn { background: var(--warn); } .alert .sev.info { background: var(--info); }
 .alert .what { font-weight: 600; }
 .alert .who { color: var(--muted); font-size: 12px; }
 .alert .age { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 .empty { color: var(--muted); padding: 16px; text-align: center; }
+/* empty state: icon + message (+ what to do) centred in the card */
+.emptystate { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 36px 16px; text-align: center; color: var(--muted); }
+.emptystate > .ico { width: calc(var(--isz) * 1.5); height: calc(var(--isz) * 1.5); opacity: .5; margin: 0; }
+.emptystate .t { font-size: 14px; color: var(--text); opacity: .8; }
+.emptystate .h { font-size: 12px; max-width: 420px; white-space: normal; }
+table.data tr.emptyrow:hover { background: none; }
+table.data tr.emptyrow td { white-space: normal; border-bottom: 0; }
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
 pre { font-family: var(--mono); font-size: 12px; color: var(--warn); white-space: pre-wrap; margin: 0; }
 
@@ -212,10 +236,10 @@ body.layout-edit .panels > .card > .panel-tools + .toolbar { pointer-events: non
 .panel-tools .pbtn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 5px; min-width: 24px; height: 24px; padding: 0 6px; cursor: pointer; font: inherit; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .panel-tools .pbtn:hover { border-color: var(--accent); }
 .panel-tools .pbtn .ico { margin: 0; }
-.rz { position: absolute; z-index: 5; }
-.rz-e { top: 0; right: -4px; width: 10px; height: 100%; cursor: ew-resize; }
-.rz-s { left: 0; bottom: -4px; height: 10px; width: 100%; cursor: ns-resize; }
-.rz-se { right: -4px; bottom: -4px; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
+.rz { position: absolute; z-index: 5; }  /* inside the card edge: handles sticking out made scrolling cards show both scrollbars */
+.rz-e { top: 0; right: 0; width: 10px; height: 100%; cursor: ew-resize; }
+.rz-s { left: 0; bottom: 0; height: 10px; width: 100%; cursor: ns-resize; }
+.rz-se { right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
 .rz-se::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
 .rz-e:hover, .rz-s:hover { background: rgba(79,138,138,.25); }
 .rz-ghost { position: absolute; right: 10px; bottom: 10px; background: rgba(15,20,25,.95); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 8px; font-family: var(--mono); font-size: 12px; color: var(--text); pointer-events: none; z-index: 7; }

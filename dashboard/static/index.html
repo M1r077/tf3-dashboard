@@ -90,39 +90,37 @@
   <!-- ------------------------------------------------ overview = operations -->
   <section id="tab-overview" class="tab active">
     <div class="panels" data-layout="overview">
-      <div class="card" data-panel="fleet-state" data-w="5">
-        <h2><i class="ico" data-ico="vehicles"></i><span data-i18n="fleet_in_service"></span> <small id="fleet-sub"></small></h2>
-        <canvas id="chart-fleet-state" data-h="240"></canvas>
-      </div>
-      <div class="card" data-panel="by-carrier" data-w="4">
-        <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="by_carrier"></span></h2>
-        <table class="data compact" id="fleet-carrier"></table>
-      </div>
-      <div class="card" data-panel="alerts" data-w="3">
+      <div class="card" data-panel="alerts" data-w="5">
         <h2><i class="ico" data-ico="alert"></i><span data-i18n="alerts"></span> <small id="alerts-count"></small></h2>
         <div id="alerts-list" class="alerts tall"></div>
       </div>
-      <div class="card" data-panel="fleet-perf" data-w="4">
-        <h2><i class="ico" data-ico="speed"></i><span data-i18n="fill_speed"></span></h2>
-        <canvas id="chart-fleet-perf" data-h="200"></canvas>
+      <div class="card" data-panel="fleet-state" data-w="7">
+        <h2><i class="ico" data-ico="vehicles"></i><span data-i18n="fleet_in_service"></span> <small id="fleet-sub"></small></h2>
+        <canvas id="chart-fleet-state" data-h="260"></canvas>
       </div>
-      <div class="card" data-panel="idle" data-w="4">
+      <div class="card" data-panel="idle" data-w="5">
         <h2><i class="ico" data-ico="eye"></i><span data-i18n="watch_idle"></span> <small id="idle-count"></small></h2>
         <div id="idle-list" class="minilist"></div>
+        <h2 class="sub"><i class="ico" data-ico="stop"></i><span data-i18n="stuck_title"></span> <small data-i18n="stuck_sub"></small></h2>
+        <div id="stuck-list" class="minilist"></div>
       </div>
-      <div class="card" data-panel="worn" data-w="4">
+      <div class="card" data-panel="worn" data-w="7">
         <h2><i class="ico" data-ico="wrench"></i><span data-i18n="worn_first"></span></h2>
         <canvas id="chart-worn"></canvas>
       </div>
-      <div class="card" data-panel="stuck" data-w="4">
-        <h2><i class="ico" data-ico="stop"></i><span data-i18n="stuck_title"></span> <small data-i18n="stuck_sub"></small></h2>
-        <div id="stuck-list" class="minilist"></div>
+      <div class="card" data-panel="by-carrier" data-w="7">
+        <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="by_carrier"></span></h2>
+        <table class="data compact" id="fleet-carrier"></table>
       </div>
-      <div class="card" data-panel="lines-bad" data-w="4">
+      <div class="card" data-panel="fleet-perf" data-w="5">
+        <h2><i class="ico" data-ico="speed"></i><span data-i18n="fill_speed"></span></h2>
+        <canvas id="chart-fleet-perf" data-h="200"></canvas>
+      </div>
+      <div class="card" data-panel="lines-bad" data-w="6">
         <h2><i class="ico" data-ico="unhappy"></i><span data-i18n="lines_unhappy"></span></h2>
         <canvas id="chart-lines-bad"></canvas>
       </div>
-      <div class="card" data-panel="lines-load" data-w="4">
+      <div class="card" data-panel="lines-load" data-w="6">
         <h2><i class="ico" data-ico="terminal_full"></i><span data-i18n="lines_loaded"></span></h2>
         <canvas id="chart-lines-load"></canvas>
       </div>
@@ -145,7 +143,7 @@
     </div>
     <div class="panels" data-layout="vehicles">
       <div class="card tablecard" data-panel="veh-table" data-w="7"><table id="veh-table" class="data"></table></div>
-      <div class="card sticky" id="veh-detail" data-panel="veh-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="click_vehicle"></p></div>
+      <div class="card sticky" id="veh-detail" data-panel="veh-detail" data-w="5"><h2 data-i18n="detail"></h2><div class="emptystate"><i class="ico" data-ico="select"></i><div class="t" data-i18n="click_vehicle"></div></div></div>
     </div>
   </section>
 
@@ -159,7 +157,7 @@
     </div>
     <div class="panels" data-layout="lines">
       <div class="card tablecard" data-panel="lines-table" data-w="7"><table id="lines-table" class="data"></table></div>
-      <div class="card sticky" id="line-detail" data-panel="line-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_line"></p></div>
+      <div class="card sticky" id="line-detail" data-panel="line-detail" data-w="5"><h2 data-i18n="detail"></h2><div class="emptystate"><i class="ico" data-ico="line"></i><div class="t" data-i18n="select_line"></div></div></div>
     </div>
   </section>
 
@@ -190,7 +188,7 @@
   <section id="tab-towns" class="tab">
     <div class="panels" data-layout="towns">
       <div class="card tablecard" data-panel="towns-table" data-w="7"><table id="towns-table" class="data"></table></div>
-      <div class="card sticky" id="town-detail" data-panel="town-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_town"></p></div>
+      <div class="card sticky" id="town-detail" data-panel="town-detail" data-w="5"><h2 data-i18n="detail"></h2><div class="emptystate"><i class="ico" data-ico="town"></i><div class="t" data-i18n="select_town"></div></div></div>
     </div>
   </section>
 

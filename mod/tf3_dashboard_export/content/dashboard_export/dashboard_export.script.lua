@@ -206,6 +206,21 @@ local function collectFinance(player)
 	return f
 end
 
+-- the player's headquarters (construction with company metadata headquarters = true): its position on the map
+local function collectHeadquarterPos()
+	local pos
+	pcall(function()
+		api.engine.system.streetConnectorSystem.forEachConstructionWithMetadata("company", true, false,
+			function(_, con, conId)
+				if pos or not con or not con.transf or not conId or conId < 0 then return end
+				local desc = api.res.constructionRep.get(conId)
+				local meta = desc and desc.metadata and desc.metadata.company
+				if meta and meta.headquarters then pos = { x = num(con.transf[13]), y = num(con.transf[14]) } end
+			end, true)
+	end)
+	return pos
+end
+
 local function collectCompany()
 	local cv = api.engine.util.headquarters.getCompaniesValue()
 	local keys = { "totalScore", "railVehicles", "trams", "roadVehicles", "aircrafts", "ships", "trackTotalLength", "trackElectricLength",
@@ -214,6 +229,8 @@ local function collectCompany()
 		"balance", "totalAssets", "debt" }
 	local out = {}
 	for _, k in ipairs(keys) do out[k] = num(cv[k]) end
+	local hq = collectHeadquarterPos()
+	if hq then out.headquarterX, out.headquarterY = hq.x, hq.y end
 	return out
 end
 

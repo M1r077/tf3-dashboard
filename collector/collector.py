@@ -135,6 +135,8 @@ class Store:
         ("line", "custom_filters", "INTEGER"),
         ("line", "reservation_priority", "REAL"),
         ("line_stop", "load_mode", "INTEGER"),
+        ("company", "hq_x", "REAL"),
+        ("company", "hq_y", "REAL"),
         ("line_stop", "min_wait", "REAL"),
         ("line_stop", "max_wait", "REAL"),
         ("line_stop", "max_add_wait", "REAL"),
@@ -257,13 +259,14 @@ class Store:
         if not isinstance(c, dict):
             return
         self.con.execute(
-            """INSERT OR REPLACE INTO company VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            """INSERT OR REPLACE INTO company VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, c.get("totalScore"), c.get("railVehicles"), c.get("trams"), c.get("roadVehicles"), c.get("aircrafts"),
              c.get("ships"), c.get("trackTotalLength"), c.get("trackElectricLength"), c.get("bridgeTotalLength"),
              c.get("tunnelTotalLength"), c.get("roadTotalLength"), c.get("suppliedTowns"), c.get("connectedIndustries"),
              c.get("numberOfLines"), c.get("totalStations"), c.get("railStations"), c.get("tramStations"),
              c.get("roadStations"), c.get("aircraftStations"), c.get("shipStations"), c.get("topSpeed"),
-             c.get("topLength"), c.get("oldestTransportVehicle"), c.get("totalAssets"), c.get("debt")),
+             c.get("topLength"), c.get("oldestTransportVehicle"), c.get("totalAssets"), c.get("debt"),
+             c.get("headquarterX"), c.get("headquarterY")),
         )
 
     def _cargo_types(self, gid: int, cts: Any):

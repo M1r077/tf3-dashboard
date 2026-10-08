@@ -206,8 +206,11 @@ local function collectFinance(player)
 	return f
 end
 
--- the player's headquarters (construction with company metadata headquarters = true): its position on the map
+-- the player's headquarters (construction with company metadata headquarters = true): its position on the map.
+-- Looked up once and kept: the headquarters cannot be removed, so the scan only runs again while none was found.
+local hqPos
 local function collectHeadquarterPos()
+	if hqPos and api.engine.entityExists(hqPos.id) then return hqPos end
 	local pos
 	pcall(function()
 		api.engine.system.streetConnectorSystem.forEachConstructionWithMetadata("company", true, false,
@@ -218,6 +221,7 @@ local function collectHeadquarterPos()
 				if meta and meta.headquarters then pos = { id = entity, x = num(con.transf[13]), y = num(con.transf[14]) } end
 			end, true)
 	end)
+	hqPos = pos
 	return pos
 end
 

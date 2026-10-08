@@ -260,7 +260,12 @@ class Store:
         if not isinstance(c, dict):
             return
         self.con.execute(
-            """INSERT OR REPLACE INTO company VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            """INSERT OR REPLACE INTO company (snapshot_id, total_score, rail_vehicles, trams, road_vehicles, aircrafts, ships,
+                   track_length_m, track_electric_m, bridge_length_m, tunnel_length_m, road_length_m, supplied_towns,
+                   connected_industries, number_of_lines, total_stations, rail_stations, tram_stations, road_stations,
+                   aircraft_stations, ship_stations, top_speed, top_length, oldest_vehicle, total_assets, debt,
+                   hq_x, hq_y, hq_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, c.get("totalScore"), c.get("railVehicles"), c.get("trams"), c.get("roadVehicles"), c.get("aircrafts"),
              c.get("ships"), c.get("trackTotalLength"), c.get("trackElectricLength"), c.get("bridgeTotalLength"),
              c.get("tunnelTotalLength"), c.get("roadTotalLength"), c.get("suppliedTowns"), c.get("connectedIndustries"),

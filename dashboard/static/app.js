@@ -352,8 +352,9 @@
       const where = mono(d.export_dir) + (others.length ? `<br>${t("setup_other_folders")} ${others.map(c => `${esc(c.store)}: ${mono(c.dir)}`).join(", ")}` : "");
       // the game does not always create dashboard_export itself (saveUserdata then fails); the companion creates it
       // at startup, so a missing folder here means it could not
-      if (!d.dir_exists) step(false, t("setup_folder_missing", { store: esc(d.store || d.source) }), where + "<br>" + t("setup_folder_missing_help"));
-      else step(true, t("setup_folder", { store: esc(d.store || (d.source === "config" ? "config.json" : d.source)) }), where);
+      const storeLabel = esc(d.store || (d.source === "config" ? "config.json" : d.source === "auto" ? "?" : t("setup_source_configured")));
+      if (!d.dir_exists) step(false, t("setup_folder_missing", { store: storeLabel }), where + "<br>" + t("setup_folder_missing_help"));
+      else step(true, t("setup_folder", { store: storeLabel }), where);
       // 1b. what the game's own log (crash_dump/stdout.txt) says, when it contradicts the above: another userdata
       // folder (other Steam account, moved profile), mod not in the list, mod never ran, writes refused
       const g = d.game_log;

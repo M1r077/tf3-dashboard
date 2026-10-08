@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.5"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.6"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -153,7 +153,14 @@ def one(sql: str, args: tuple = ()) -> dict | None:
 
 # ---------------------------------------------------------------- API
 def api_overview(q: dict) -> dict:
-    snap = one("SELECT * FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
+    # no database file yet (the collector creates it at the first snapshot) or no snapshot: the page shows the
+    # checklist instead of the dashboard. Must not raise: a 503 here hid the checklist behind "server unreachable"
+    if not DB_PATH.exists():
+        return {"empty": True, "version": VERSION}
+    try:
+        snap = one("SELECT * FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
+    except sqlite3.Error:
+        snap = None
     if not snap:
         return {"empty": True, "version": VERSION}
     sid = snap["snapshot_id"]

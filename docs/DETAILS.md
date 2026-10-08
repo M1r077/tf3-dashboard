@@ -1,6 +1,7 @@
 # TF3 Dashboard — technical details
 
 Short version: [../README.md](../README.md). Repository: https://github.com/M1r077/tf3-dashboard
+Other mods (what we may read, what needs permission): [INTEGRATIONS.md](INTEGRATIONS.md).
 
 Quick start (game running, mod "Second Screen Dashboard" enabled in the savegame): `run_dashboard.cmd`
 -> opens a Windows Terminal window (2 panes: collector | server; the "TF3 Dashboard" profile is used if it exists,

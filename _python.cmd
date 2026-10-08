@@ -4,7 +4,8 @@ REM Order: bundled python_embedded\python.exe (release zip, no installation need
 REM Nothing is installed; stdlib only is required (Python 3.10+).
 set "PY="
 if exist "%~dp0python_embedded\python.exe" (
-    set "PY=%~dp0python_embedded\python.exe"
+    REM quoted: the install folder may contain spaces ("C:\Users\John Doe\TF3-Dashboard")
+    set "PY="%~dp0python_embedded\python.exe""
     goto :found
 )
 where py.exe >nul 2>nul

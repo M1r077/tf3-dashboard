@@ -448,3 +448,63 @@ window.I18N = {
     town_problem: { 0: "desconectada", 1: "trajeto longo demais" },
   },
 };
+
+/* 简体中文 — partial: the frequent words (tabs, headers, states, actions) in Chinese, using the game's own terms
+   (载具, 线路, 车站, 车库...); everything else stays in English until a native speaker completes it (see README,
+   "Translating"). Built on top of "en" so no key is ever missing. */
+window.I18N.zh = Object.assign({}, window.I18N.en, {
+  _locale: "zh-CN", _ymd: true, _months: ["", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+  // top bar
+  kpi_date: "日期", kpi_vehicles: "载具", kpi_fill: "装载率", kpi_maint: "状况", kpi_alerts: "警告", kpi_transported: "已运输", kpi_balance: "结余",
+  sim_speed: "游戏速度", calendar_speed: "日历速度", pause: "已暂停", en_route: "在途", at_terminal: "在站", in_depot: "车库", no_path: "无通路", seats: "{a} / {b} 座位",
+  worn_count: "{n} 辆载具 < 50 %", pax: "乘客", cargo: "货物", connecting: "连接中…",
+  // tabs
+  tab_overview: "概览", tab_vehicles: "载具", tab_lines: "线路", tab_map: "地图", tab_towns: "城镇", tab_industries: "产业", tab_stations: "车站与车库", tab_finance: "资金",
+  // overview
+  fleet_in_service: "运营中的载具", by_carrier: "按运输方式", alerts: "警告", none: "无",
+  fill_speed: "装载率与平均速度", watch_idle: "关注 — 闲置 / 无线路", worn_first: "磨损 — 优先维护",
+  stuck_title: "途中停滞", stuck_sub: "速度为零超过 20 秒", lines_unhappy: "乘客最不满的线路", lines_loaded: "最繁忙的线路", export_errors: "导出错误",
+  th_veh: "载具", th_en_route: "在途", th_terminal: "在站", th_depot: "车库", th_fill: "装载", th_cond: "状况", th_avg_speed: "平均速度", th_idle: "闲置", goto_line: "打开线路", goto_station: "打开车站",
+  everyone_moving: "所有载具都在运行。", none_stuck: "没有停滞的载具。", all_good: "一切正常。", no_line: "无线路", stopped: "已停止", new: "新",
+  samples: "{n} 个样本", stuck_n: "{n} 个样本为 0", idle_days: "闲置 {n} 天", state_cond: "状况 {n} %", samples_range: "{n} 个点 · {r}", dur_s: "{n} 秒", dur_m: "{n} 分钟", dur_h: "{n} 小时",
+  range: { "5m": "5 分钟", "10m": "10 分钟", "15m": "15 分钟", "20m": "20 分钟", "30m": "30 分钟", "45m": "45 分钟", "1h": "1 小时", all: "全部" },
+  // vehicles
+  filter_vehicles: "筛选（名称、线路、城镇）…", all_carriers: "所有运输方式", all_states: "所有状态", worn_filter: "状况 < 50 %", problems: "问题",
+  th_vehicle: "载具", th_type: "类型", th_line: "线路", th_state: "状态", th_speed: "速度", th_load: "装载", th_cond_short: "状况", th_idle_short: "闲置", th_cost_year: "成本/年", th_value: "价值", th_near: "附近",
+  detail: "详情", click_vehicle: "点击一辆载具。", stop: "停靠点", speed_load: "速度与装载", condition: "状况",
+  act_focus: "镜头", act_follow: "跟随", act_select: "在游戏中打开", act_manage_line: "管理线路", act_horn: "鸣笛", stops_title: "停靠点与发车", th_stop: "停靠点", th_load_mode: "发车", th_cargo_filter: "货物",
+  load_mode_0: "有货即走", load_mode_1: "满载（任何）", load_mode_2: "满载（全部）", wait_unlimited: "无限制", wait_s: "{n} 秒", apply: "应用", cancel: "取消", edit: "编辑",
+  line_stop_all: "停止所有载具", line_start_all: "启动所有载具", line_all_to_depot: "全部回车库", all_cargo: "所有货物", rename: "重命名", new_name: "新名称", lang_auto: "自动（游戏语言）",
+  line_vehicles: "本线路的载具", th_next_stop: "下一站", no_line_vehicles: "本线路没有载具。", act_stop: "停止", act_start: "启动", act_reverse: "倒转", act_depart: "发车", act_depot: "回车库", act_sent: "已发送", act_done: "完成", act_failed: "失败：{msg}",
+  // lines
+  filter: "筛选…", problems_only: "仅显示问题", click_line_hint: "点击线路查看历史", select_line: "选择一条线路。",
+  th_stops: "停靠点", th_headway: "间隔", th_onboard: "在车上", th_pax_unhappy: "不满乘客", th_cargo_late: "延误货物", th_carries: "运载",
+  veh_and_pax: "载具与在车乘客", service_quality: "服务质量", see_on_map: "在地图上查看",
+  // map
+  map_lines: "线路", map_vehicles: "载具", map_stations: "车站", map_industries: "产业", map_towns: "城镇", map_alerts: "警告", map_labels: "载具名称", map_hq: "总部",
+  all_lines: "所有线路", recenter: "重新居中", map_hint: "滚轮：缩放 · 拖动：平移 · 悬停：信息 · 点击：游戏内镜头",
+  legend_vehicle: "载具（颜色 = 线路）", legend_stopped: "途中停止", legend_pax_station: "客运站", legend_cargo_station: "货运站", legend_industry: "产业",
+  legend_counts: "{v} 载具 · {s} 车站 · {i} 产业", station_pax: "客运站", station_cargo: "货运站", industry: "产业", capacity_n: "容量 {n}", load_n: "装载 {a}/{b}",
+  cam_views: "镜头视角", cam_save: "保存当前视角", cam_rename: "重命名", cam_delete: "删除", cam_current: "当前镜头", cam_default_name: "视角 {n}", confirm_title: "请确认",
+  // towns
+  th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_stations: "车站", th_growth: "增长",
+  select_town: "选择一个城镇。", select_station: "选择一个车站。", select_industry: "选择一个产业。",
+  capacities: "容量", residential: "居民区", commercial: "商业区", industrial: "工业区", pt_share: "公共交通占比", top_lines: "使用最多的线路", cargo_needs: "货物需求",
+  // industries
+  th_industry: "产业", th_level: "等级", th_status: "状态", th_yield: "产量", th_inputs: "输入（年）", th_outputs: "输出（年）",
+  producing: "生产中", halted: "已停止", closing: "即将关闭", shipped: "已运出", delivered: "已送达",
+  // stations
+  stations: "车站", depots: "车库", th_station: "车站", th_waiting: "等待", th_occupancy: "占用", th_overflow: "溢出", th_lines: "线路",
+  th_depot: "车库", th_parked: "停放", th_incoming: "进站", th_maint_pool: "维护池",
+  // finance
+  balance: "结余", company: "公司", costs_by_carrier: "按运输方式的运营成本", per_year: "/ 年", debt: "债务", annual_result: "年度结果", lines: "线路", passengers: "乘客", no_data: "无数据", top_speed: "最高速度",
+  // settings
+  settings: "设置", set_lang: "语言", set_icons: "图标大小", set_font: "文字大小", set_density: "表格密度", set_refresh: "刷新", set_default_tab: "起始页", set_reset: "恢复默认", set_layout: "面板",
+  // enums
+  state: { EN_ROUTE: "在途", AT_TERMINAL: "在站", IN_DEPOT: "在车库", GOING_TO_DEPOT: "返回车库" },
+  carrier: { ROAD: "道路", RAIL: "铁路", TRAM: "有轨电车", AIR: "航空", WATER: "水运", OTHER: "其他" },
+  line_type: { Bus: "巴士", Truck: "卡车", Tram: "有轨电车", Train: "列车", Ship: "船舶", Aircraft: "飞机", Helicopter: "直升机" }, all_types: "所有类型",
+  icon_type: { Bus: "巴士", Truck: "卡车", TrainSteam: "蒸汽列车", TrainElectric: "电力列车", TrainDiesel: "柴油列车", Tram: "有轨电车", Aircraft: "飞机", Helicopter: "直升机", Ship: "船舶" },
+  all: "全部", terminals: "停靠位", term_main: "首选", term_alt: "备用", term_unused: "本线路未使用", term_pax: "乘客", term_cargo: "所有货物类型", term_both: "乘客与货物",
+  alert: { line_problem: "线路：问题", line_issue: "线路：配置", vehicle_problem: "载具", blocked_train: "列车受阻", no_path_vehicle: "载具无通路", town_problem: "城镇", closing_industry: "产业即将关闭", thrown_away_cargo: "货物被丢弃" },
+});

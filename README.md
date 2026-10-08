@@ -11,6 +11,24 @@ Everything runs locally on your PC. Nothing leaves your computer. No account, no
 
 ![Overview](mod/tf3_dashboard_export/_metadata/0.png)
 
+<details>
+<summary><b>中文简介</b> (Chinese summary)</summary>
+
+**Second Screen Dashboard（第二屏仪表盘）** 把你的第二台显示器变成《Transport Fever 3》公司的实时调度中心：
+资金、每一条线路和每一辆载具、车站、城镇、产业、车库和警告，全部使用游戏自带的图标，并带有历史曲线。
+还可以在游戏保持全屏的同时，从仪表盘控制游戏：游戏速度、镜头、停止/启动/倒转载具、停靠点配置、停靠位。
+
+- 一切都在本机运行，不会上传任何数据。不需要账号、不需要安装、不需要管理员权限。
+- 由两部分组成：mod.io 上的模组（导出数据）+ 一个配套程序（Windows，自带 Python，解压即用）。
+- 中文存档完全支持：中文的城镇、车站、线路和载具名称原样显示。
+- 界面已有英文、法文、德文、巴西葡萄牙文，**中文界面目前只翻译了常用词**（标签页、表头、状态、按钮），其余仍为英文。
+  欢迎母语者补全：只需修改两个文本文件（见下方 "Translating"），通过 Pull Request、GitHub issue 或 mod.io 评论提交均可，
+  我们会把你的名字加入致谢。
+
+下载：模组在 [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard)，配套程序在 [Releases](https://github.com/M1r077/tf3-dashboard/releases/latest)。
+
+</details>
+
 ## How it works
 
 Two halves:
@@ -140,12 +158,15 @@ test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simu
 
 ## Translating
 
-English, French, German and Brazilian Portuguese so far. Any other language is welcome, Chinese in particular.
-Two files, no build step:
+English, French, German and Brazilian Portuguese are complete; Chinese (`zh` / `zh_CN`) covers the frequent words
+only and falls back to English for the rest — completing it is the most wanted contribution. Any other language is
+welcome too. Two files, no build step:
 
 - `dashboard/static/i18n.js` — the dashboard (about 420 short strings). Copy the `en: { ... }` block, rename it with
-  the two-letter code (`zh`, `es`, ...), translate the right-hand sides; `{name}`-style placeholders stay as they are.
-  Add an `<option value="zh">中文</option>` in the `#lang` select of `dashboard/static/index.html`.
+  the two-letter code (`es`, `ja`, ...), translate the right-hand sides; `{name}`-style placeholders stay as they are.
+  Add an `<option value="es">Español</option>` in the `#lang` select of `dashboard/static/index.html`. For Chinese,
+  the `zh` block at the end of the file already exists: add the missing keys to it (any key not listed falls back
+  to English).
 - `mod/tf3_dashboard_export/strings.json` — the mod settings and the in-game status window (27 strings). Same idea;
   the block name is the game's locale code (`zh_CN`, `es`, ...).
 

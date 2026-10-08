@@ -138,8 +138,9 @@
   const kmh = (ms) => ms == null ? "–" : Math.round(ms * 3.6) + " km/h";
   const km = (m) => m == null ? "–" : (m / 1000).toFixed(1) + " km";
   const MON = () => i18n.dict._months;
-  const date = (s) => s ? `${s.day ?? "?"} ${MON()[s.month] || s.month || ""} ${s.year ?? ""}` : "–";
-  const dateLabel = (s) => s && s.month ? `${s.day ? s.day + " " : ""}${MON()[s.month]} ${s.year}` : "";
+  // _ymd: year-first languages (zh: 2769年9月9日); otherwise "9 Sep 2769"
+  const date = (s) => !s ? "–" : i18n.dict._ymd ? `${s.year ?? ""}年${s.month ?? "?"}月${s.day ?? "?"}日` : `${s.day ?? "?"} ${MON()[s.month] || s.month || ""} ${s.year ?? ""}`;
+  const dateLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月${s.day ? s.day + "日" : ""}` : `${s.day ? s.day + " " : ""}${MON()[s.month]} ${s.year}`;
   const headway = (sec) => sec == null ? "–" : sec >= 3600 ? (sec / 3600).toFixed(1) + " h" : sec >= 60 ? Math.round(sec / 60) + " min" : Math.round(sec) + " s";
   const rgb = (r, g, b) => (r == null) ? "#8b98a8" : `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
   const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (d < 90) return Math.round(d) + " s"; if (d < 5400) return Math.round(d / 60) + " min"; return (d / 3600).toFixed(1) + " h"; };

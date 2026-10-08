@@ -9,7 +9,7 @@ function compare(label, dicts, ref) {
   for (const l of Object.keys(dicts)) {
     if (l === ref) continue;
     const k = new Set(Object.keys(dicts[l]));
-    const missing = [...en].filter(x => !k.has(x)), extra = [...k].filter(x => !en.has(x));
+    const missing = [...en].filter(x => !k.has(x)), extra = [...k].filter(x => !en.has(x) && !x.startsWith("_"));  // _ymd & co are per-language options
     const empty = [...k].filter(x => typeof dicts[l][x] === "string" && !dicts[l][x].trim());
     console.log(`${label} ${l}: ${k.size} keys` + (missing.length ? `, MISSING ${missing.length}: ${missing.join(", ")}` : "") + (extra.length ? `, EXTRA ${extra.length}: ${extra.join(", ")}` : "") + (empty.length ? `, EMPTY: ${empty.join(", ")}` : ""));
     if (missing.length || extra.length || empty.length) bad++;

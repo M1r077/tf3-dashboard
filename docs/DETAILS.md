@@ -167,7 +167,13 @@ Three independent parts:
      combined, cross to clear).
      Deep links: `?tab=lines&line=<id>`; `?tab=vehicles&veh=<id>`.
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
-     refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
+     refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab, Windows notifications.
+   - **Windows notifications** (Settings: off / serious / serious and warnings): the browser's Notification API, shown
+     by Chrome / Edge as native Windows notifications. The page polls `/api/alerts` every 10 s (game and chain alerts);
+     the alerts present when the page opens or when notifications are switched on are the baseline, after that each new
+     alert of the chosen severity is notified once (10 min cooldown per alert, more than 3 at once = one summary).
+     Clicking a notification opens the matching tab. Needs the page open (background is fine) and the browser's
+     permission; Windows "Do not disturb" hides them.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
      between the charts of one tab. Time range (5 min ... 1 h, all) right of the tabs; the older part (per-minute
      averages, see retention) is hatched and marked "1 min average" in the tooltip.

@@ -38,7 +38,7 @@
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
 
   // ------------------------------------------------------------ settings (browser-local)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, defaultTab: "overview", range: "1h" };
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, defaultTab: "overview", range: "1h", notify: 0 };
   const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "all"];
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
@@ -49,6 +49,8 @@
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-default-tab").value = settings.defaultTab;
+    $$("#set-notify button").forEach(b => b.classList.toggle("active", String(settings.notify || 0) === b.dataset.v));
+    if (window.Notify) window.Notify.hint();
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
@@ -58,7 +60,7 @@
   $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); });
   $("#settings-close").addEventListener("click", () => { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); });
   document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
-  $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); }));
+  $$("#settings .seg[data-set] button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); }));
   $("#set-refresh").addEventListener("input", e => { settings.refresh = +e.target.value; applySettings(); });
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
@@ -478,19 +480,23 @@
     Charts.hbars($("#chart-lines-load"), load.map(x => ({ label: x.l.name, value: x.p, max: 100, color: x.p >= 80 ? "#3fb950" : x.p < 25 ? "#e8b04b" : "#4f8a8a", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), {});
   }
 
+  // what an alert says (shared by the alert lists and the Windows notifications)
+  function alertDesc(a) {
+    const codeTable = ALERT_CODE[a.kind] ? t(ALERT_CODE[a.kind]) : null;
+    const code = codeTable && a.type_code != null ? (codeTable[a.type_code] ?? ("code " + a.type_code)) : "";
+    // chain alerts (chains.py) carry their own wording: amount is a percentage or a quantity per year depending on the code
+    const extra = a.chain
+      ? [t(`chain_code.${a.kind}.${a.type_code}`, { n: int(a.amount), cargo: cargoName(a.cargo) }), (a.chains || []).length ? t("chain_in", { names: a.chains.join(", ") }) : ""].filter(Boolean).join(" · ")
+      : [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
+    const who = a.entity_name || (a.entity_id != null ? "#" + a.entity_id : "");
+    return { sev: ALERT_SEV[a.kind] || "info", label: alertLabel(a.kind), extra, who };
+  }
   function renderAlerts(el, alerts) {
     if (!alerts.length) { el.innerHTML = `<div class="empty">${t("all_good")}</div>`; return; }
     const order = { bad: 0, warn: 1, info: 2 };
     alerts.sort((a, b) => (order[ALERT_SEV[a.kind]] ?? 3) - (order[ALERT_SEV[b.kind]] ?? 3) || b.seen - a.seen);
     el.innerHTML = alerts.map(a => {
-      const sev = ALERT_SEV[a.kind] || "info";
-      const codeTable = ALERT_CODE[a.kind] ? t(ALERT_CODE[a.kind]) : null;
-      const code = codeTable && a.type_code != null ? (codeTable[a.type_code] ?? ("code " + a.type_code)) : "";
-      // chain alerts (chains.py) carry their own wording: amount is a percentage or a quantity per year depending on the code
-      const extra = a.chain
-        ? [t(`chain_code.${a.kind}.${a.type_code}`, { n: int(a.amount), cargo: cargoName(a.cargo) }), (a.chains || []).length ? t("chain_in", { names: a.chains.join(", ") }) : ""].filter(Boolean).join(" · ")
-        : [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
-      const who = a.entity_name || (a.entity_id != null ? "#" + a.entity_id : "");
+      const { sev, extra, who } = alertDesc(a);
       // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
       // industry and an extra button opens the Industries tab on it
       const focus = a.kind === "thrown_away_cargo"
@@ -1324,6 +1330,75 @@
     if (hit) { tip.style.display = "block"; tip.style.left = (hit.mx + 14) + "px"; tip.style.top = (hit.my + 14) + "px"; tip.innerHTML = hit.txt; } else tip.style.display = "none";
   }
 
+  // ------------------------------------------------------------ Windows notifications
+  // The browser's Notification API: Chrome / Edge show them as native Windows notifications (toast + notification
+  // centre). Settings > Windows notifications: off / serious only / serious and warnings. The alerts already present
+  // when the page opens (or when notifications are switched on) are the baseline and are not announced; after that,
+  // every new alert of the chosen severity is notified once, then not again for COOLDOWN even if it flickers.
+  const Notify = (() => {
+    const supported = "Notification" in window;
+    const COOLDOWN = 10 * 60 * 1000, POLL = 10000;
+    let known = null, lastPoll = 0;
+    const lastShown = new Map();
+    const keyOf = (a) => [a.kind, a.entity_id, a.type_code, a.related_id].join("|");
+    const wanted = (a) => { const sev = ALERT_SEV[a.kind] || "info"; return settings.notify >= 2 ? sev !== "info" : sev === "bad"; };
+    const tabFor = (a) => a.chain ? "chains" : ["line_problem", "line_issue"].includes(a.kind) ? "lines"
+      : ["vehicle_problem", "blocked_train", "no_path_vehicle"].includes(a.kind) ? "vehicles" : ["closing_industry", "thrown_away_cargo"].includes(a.kind) ? "industries" : "overview";
+    function hint() {
+      const el = $("#notify-hint"); if (!el) return;
+      const denied = supported && Notification.permission === "denied";
+      el.textContent = !supported ? t("notify_unsupported") : denied ? t("notify_denied") : settings.notify ? t("notify_on_hint") : "";
+      el.className = "hintline" + (!supported || denied ? " bad" : "");
+      $("#notify-test").disabled = !supported || denied;
+    }
+    async function permission() {
+      if (!supported || Notification.permission === "denied") return false;
+      if (Notification.permission === "granted") return true;
+      return (await Notification.requestPermission()) === "granted";
+    }
+    function show(title, body, tag, onclick) {
+      try {
+        const n = new Notification(title, { body, tag, icon: ICON_URL("alert") });
+        n.onclick = () => { window.focus(); if (onclick) onclick(); n.close(); };
+      } catch (e) { console.warn("notification failed", e); }
+    }
+    function open(a) {
+      const tab = tabFor(a);
+      if (tab === "lines") state.selLine = a.entity_id;
+      else if (tab === "vehicles") state.selVeh = a.entity_id;
+      else if (tab === "industries") $("#ind-filter").value = a.entity_name || "";
+      showTab(tab);
+    }
+    async function check(force) {
+      if (!settings.notify || !supported || Notification.permission !== "granted") { known = null; return; }
+      const now = Date.now();
+      if (!force && now - lastPoll < POLL) return;
+      lastPoll = now;
+      let al;
+      try { al = (await api("/api/alerts")).alerts || []; } catch (e) { return; }
+      const cur = new Map(al.map(a => [keyOf(a), a]));
+      if (known === null) { known = new Set(cur.keys()); return; }
+      const fresh = [...cur].filter(([k, a]) => !known.has(k) && wanted(a) && now - (lastShown.get(k) || 0) > COOLDOWN);
+      known = new Set(cur.keys());
+      for (const [k, at] of lastShown) if (now - at > COOLDOWN) lastShown.delete(k);
+      if (!fresh.length) return;
+      fresh.forEach(([k]) => lastShown.set(k, now));
+      if (fresh.length > 3) {
+        show(t("notify_many", { n: fresh.length }), fresh.slice(0, 5).map(([, a]) => { const d = alertDesc(a); return `${d.label}: ${d.who}`; }).join("\n"), "tf3-many", () => showTab("overview"));
+        return;
+      }
+      fresh.forEach(([k, a]) => { const d = alertDesc(a); show(`${d.label} — ${d.who}`, d.extra || "", k, () => open(a)); });
+    }
+    $$("#set-notify button").forEach(b => b.addEventListener("click", async () => {
+      const v = +b.dataset.v;
+      settings.notify = v && await permission() ? v : 0;
+      known = null; applySettings(); check(true);
+    }));
+    $("#notify-test").addEventListener("click", async () => { if (await permission()) show("TF3 Dashboard", t("notify_test_body"), "tf3-test"); hint(); });
+    return { check, hint };
+  })();
+  window.Notify = Notify;
+
   // ------------------------------------------------------------ refresh loop
   const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, chains: renderChains, stations: renderStations, map: renderMap, finance: renderFinance };
   let busy = false, again = false;
@@ -1332,6 +1407,7 @@
     try {
       const o = await renderTop();
       if (o && RENDER[state.tab]) await RENDER[state.tab](o);
+      if (o && !o.empty) Notify.check();
     } catch (e) { $("#st-dot").className = "dot dead"; $("#st-text").textContent = t("server_down", { msg: e.message }); console.error(e); }
     busy = false;
     if (again) { again = false; refresh(); }

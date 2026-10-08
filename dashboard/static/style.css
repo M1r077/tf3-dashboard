@@ -425,6 +425,12 @@ table.stops .termgrid .tg-star .ico { margin: 0; }
 table.stops .termgrid .tg-star.on { color: #f0c84a; }
 table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 
+/* ------------------------------------------------ Windows notifications (settings) */
+.notifyset { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.notifyset .btn { padding: 3px 9px; font-size: 12px; }
+.notifyset .hintline { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.notifyset .hintline.bad { color: var(--bad); }
+
 /* ------------------------------------------------ supply chains */
 .chain-form select, .chain-form input { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font: inherit; }
 .chain-form select { width: 100%; }

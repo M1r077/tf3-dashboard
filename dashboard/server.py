@@ -539,8 +539,6 @@ def api_map(q: dict) -> dict:
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
     st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
     ind = rows("SELECT industry_id, name, x, y FROM industry WHERE game_id=? AND x IS NOT NULL", (gid,))
-    hq = one("""SELECT c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
-                WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
     al = rows("SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot) AND x IS NOT NULL")
     # line paths: stops -> station group -> station position (first station of the group with coordinates)
@@ -557,7 +555,7 @@ def api_map(q: dict) -> dict:
         d = lines.setdefault(p["line_id"], {"line_id": p["line_id"], "name": p["name"], "color_r": p["color_r"], "color_g": p["color_g"], "color_b": p["color_b"], "points": []})
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
-    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
+    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "alerts": al, "lines": list(lines.values())}
 
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL

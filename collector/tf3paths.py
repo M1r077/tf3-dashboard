@@ -593,7 +593,7 @@ def game_log_lines(info: dict | None, watched_dir: Path | None) -> list[tuple[st
     if info["userdata"]:
         if info["userdata_matches"] is False and watched_dir is not None:
             out.append(("error", f"the game uses userdata folder {info['userdata']} but the companion watches "
-                        f"{watched_dir}: create {CONFIG.name} with the game's folder + \\{EXPORT_SUBDIR}, or check "
+                        f"{watched_dir}: create {CONFIG.name} with the game's folder + {os.sep}{EXPORT_SUBDIR}, or check "
                         f"which Steam account launches the game"))
         else:
             out.append(("info", f"game userdata folder: {info['userdata']}"))
@@ -647,17 +647,56 @@ def sync_warning(*paths: str | os.PathLike | None) -> list[str]:
     """Console text for synced_dirs()."""
     return [f"{'the companion' if Path(p) == ROOT else 'the database'} is in a cloud-synced folder ({p}). SQLite "
             f"databases and OneDrive/Dropbox do not mix (locked files, conflict copies, empty database): move "
-            f"TF3-Dashboard to e.g. C:\\TF3-Dashboard" for p in synced_dirs(*paths)]
+            f"TF3-Dashboard to e.g. {move_to_hint()}" for p in synced_dirs(*paths)]
+
+
+# ---------------------------------------------------------------- platform-specific wording, shared by the console
+# messages here and the dashboard's checklist (through diag())
+
+def launcher_name() -> str:
+    return "run_dashboard.cmd" if sys.platform == "win32" else "run_dashboard.sh"
+
+
+def move_to_hint() -> str:
+    """A folder outside cloud sync to suggest for the companion."""
+    return r"C:\TF3-Dashboard" if sys.platform == "win32" else "~/TF3-Dashboard"
+
+
+def searched_places() -> list[str]:
+    """Where userdata_roots() looks, in words, for "not found" messages."""
+    if sys.platform == "win32":
+        return ["Steam userdata", r"%APPDATA%\Transport Fever 3 (Epic / GOG)"]
+    if sys.platform == "darwin":
+        return ["Steam userdata", "~/Library/Application Support/Transport Fever 3"]
+    return ["Steam userdata (native, Flatpak, Snap)",
+            "Wine / Proton prefixes (Heroic, Steam Proton, Lutris, Bottles, $WINEPREFIX, ~/.wine)",
+            "~/.local/share/Transport Fever 3 (native build)"]
+
+
+def example_export_dir() -> str:
+    """A plausible export_dir for config.json on this machine, for "not found" messages: the real %APPDATA% on
+    Windows; on Linux the AppData folder of the first Wine prefix found (the game most likely runs there when nothing
+    else was found), else the native build's folder."""
+    tail = Path("Transport Fever 3") / EXPORT_SUBDIR
+    if sys.platform == "win32":
+        return str(Path(os.environ.get("APPDATA", r"C:\Users\<you>\AppData\Roaming")) / tail)
+    if sys.platform == "darwin":
+        return str(Path.home() / "Library" / "Application Support" / tail)
+    for _, pfx in wine_prefixes():
+        users = [u for u in _glob(pfx / "drive_c" / "users", "*") if u.name.lower() != "public"]
+        if users:
+            return str(users[0] / "AppData" / "Roaming" / tail)
+    return str(_xdg("XDG_DATA_HOME", ".local/share") / tail)
 
 
 def not_found_hint() -> str:
-    appdata = os.environ.get("APPDATA", r"C:\Users\<you>\AppData\Roaming").replace("\\", "\\\\")
+    example = json.dumps({"export_dir": example_export_dir()})
     return (
-        "Could not find the Transport Fever 3 userdata folder (neither Steam nor Epic/GOG).\n"
-        "  - Start the game once with the 'Second Screen Dashboard' mod enabled in your savegame, or\n"
-        f"  - create {CONFIG.name} next to run_dashboard.cmd with the folder of your installation:\n"
-        '      Steam:    { "export_dir": "C:\\\\Program Files (x86)\\\\Steam\\\\userdata\\\\<id>\\\\3493540\\\\local\\\\towns_industries" }\n'
-        f'      Epic/GOG: {{ "export_dir": "{appdata}\\\\Transport Fever 3\\\\towns_industries" }}'
+        "Could not find the Transport Fever 3 userdata folder. Looked in:\n"
+        + "".join(f"      {p}\n" for p in searched_places())
+        + "  - Start the game once with the 'Second Screen Dashboard' mod enabled in your savegame, or\n"
+        f"  - create {CONFIG.name} next to {launcher_name()} with the folder of your installation, e.g.\n"
+        f"      {example}"
     )
 
 
@@ -691,6 +730,13 @@ def diag(explicit: str | os.PathLike | None = None, db: str | os.PathLike | None
         "candidates": [{"store": s, "dir": str(r / EXPORT_SUBDIR), "exists": (r / EXPORT_SUBDIR).is_dir()}
                        for s, r in userdata_roots()],
         "config_present": CONFIG.exists(),
+        # wording for the checklist: launcher name, path separator, examples that fit this OS
+        "platform": sys.platform,
+        "launcher": launcher_name(),
+        "sep": os.sep,
+        "searched": searched_places(),
+        "example_export_dir": example_export_dir(),
+        "move_to": move_to_hint(),
     }
     if d:
         out["live_name"] = live_name(d)

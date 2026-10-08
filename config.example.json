@@ -1,9 +1,13 @@
 {
-    "_comment": "Optional. Copy to config.json and keep only the keys you need. Everything is auto-detected by default (Steam, Epic, GOG).",
+    "_comment": "Optional. Copy to config.json and keep only the keys you need. Everything is auto-detected by default (Steam, Epic, GOG, Heroic, Wine/Proton prefixes).",
     "_export_dir_steam": "C:\\Program Files (x86)\\Steam\\userdata\\<your steam id>\\3493540\\local\\dashboard_export",
     "_export_dir_epic_gog": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\dashboard_export",
+    "_export_dir_linux_steam": "/home/<you>/.local/share/Steam/userdata/<your steam id>/3493540/local/dashboard_export",
+    "_export_dir_linux_heroic_wine": "/home/<you>/Games/Heroic/Prefixes/default/Transport Fever 3/drive_c/users/<you>/AppData/Roaming/Transport Fever 3/dashboard_export",
+    "_export_dir_linux_native": "/home/<you>/.local/share/Transport Fever 3/dashboard_export",
+    "_game_dir_linux_heroic": "/home/<you>/Games/Heroic/Transport Fever 3",
     "export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<your steam id>\\3493540\\local\\dashboard_export",
     "game_dir": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Transport Fever 3",
-    "db": "db\\tf3_dashboard.db",
+    "db": "db/tf3_dashboard.db",
     "port": 8765
 }

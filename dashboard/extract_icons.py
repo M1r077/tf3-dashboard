@@ -497,7 +497,8 @@ def main() -> int:
     a = ap.parse_args()
     game = _game_root(Path(a.game).expanduser()) if a.game else find_game()
     if game is None:
-        print("Transport Fever 3 installation not found. Pass --game \"<folder containing base\\content\\gui.zip>\"\n"
+        gui = os.path.join("base", "content", "gui.zip")
+        print(f"Transport Fever 3 installation not found. Pass --game \"<folder containing {gui}>\"\n"
               "or add  \"game_dir\": \"...\"  to config.json. The dashboard works without icons (text fallback).",
               file=sys.stderr)
         return 1

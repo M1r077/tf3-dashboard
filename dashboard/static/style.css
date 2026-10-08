@@ -492,6 +492,7 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 .ckpis { position: sticky; top: -12px; z-index: 2; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: -12px -14px 0; padding: 12px 14px 8px; background: var(--panel); border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; }
 .catyear { margin: 14px 0 6px; display: flex; align-items: baseline; gap: 8px; font-size: 15px; }
 .catyear:first-of-type { margin-top: 4px; }
+.catyear.empty { margin: 2px 0; font-size: 13px; opacity: .6; }
 .catyear.now { color: var(--ok); }
 .catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
 .catcard { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }

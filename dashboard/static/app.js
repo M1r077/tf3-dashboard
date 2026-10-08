@@ -1049,9 +1049,15 @@
     const byYear = new Map();
     shown.forEach(m => { if (!byYear.has(m.year_from)) byYear.set(m.year_from, []); byYear.get(m.year_from).push(m); });
     const rel = (y) => y === year ? t("cat_this_year") : y > year ? t("cat_in_years", { n: y - year }) : t("cat_years_ago", { n: year - y });
+    // every year from the first to the last with a model, one after the other; a year with nothing is a single line
+    const ys = [...byYear.keys()].filter(y => y);
+    const years = []; for (let y = Math.min(...ys, year ?? Infinity); y <= Math.max(...ys, year ?? -Infinity); y++) years.push(y);
+    const yearRow = (y) => byYear.has(y)
+      ? `<div class="catyear ${y === year ? "now" : ""}"><b>${y || "–"}</b><span class="muted">${year != null ? rel(y) : ""} · ${byYear.get(y).length}</span></div>
+          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`
+      : `<div class="catyear empty ${y === year ? "now" : ""}"><b>${y}</b><span class="muted">${year != null ? rel(y) : ""} · –</span></div>`;
     el.innerHTML = `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew)}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut)}${kpi(t("cat_k_available"), avail.length)}</div>`
-      + ([...byYear.keys()].sort((a, b) => a - b).map(y => `<div class="catyear ${y === year ? "now" : ""}"><b>${y || "–"}</b><span class="muted">${year != null && y ? rel(y) : ""} · ${byYear.get(y).length}</span></div>
-          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`).join("") || `<p class="muted">${t("cat_none")}</p>`);
+      + (ys.length ? years.map(yearRow).join("") + (byYear.has(0) ? yearRow(0) : "") : `<p class="muted">${t("cat_none")}</p>`);
   }
 
   // ------------------------------------------------------------ stations & depots

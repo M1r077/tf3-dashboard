@@ -370,24 +370,28 @@ def api_vehicle_history(q: dict) -> dict:
 
 
 def _cargo_on_board(gid: int, rows_: list[dict]) -> None:
-    """vehicle_state.cargo (JSON {"<cargo id>": count}, mod rev 8+) -> list [{cargo_id, n, cargo, cargo_key}] sorted by count."""
+    """Mod rev 8+ JSON columns {"<cargo id>": number} -> lists [{cargo_id, n, cargo, cargo_key}] sorted by n:
+    vehicle_state.cargo = what is on board now, vehicle.capacities = what the vehicle can carry."""
     names = {c["cargo_id"]: c for c in rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=?", (gid,))}
     for r in rows_:
-        raw = r.get("cargo")
-        out = []
-        if isinstance(raw, str) and raw:
-            try:
-                for k, n in json.loads(raw).items():
-                    ct = names.get(int(k), {})
-                    out.append({"cargo_id": int(k), "n": n, "cargo": ct.get("name"), "cargo_key": ct.get("key")})
-            except (ValueError, TypeError):
-                pass
-        r["cargo"] = sorted(out, key=lambda c: -c["n"])
+        for col in ("cargo", "capacities"):
+            if col not in r:
+                continue
+            raw = r.get(col)
+            out = []
+            if isinstance(raw, str) and raw:
+                try:
+                    for k, n in json.loads(raw).items():
+                        ct = names.get(int(k), {})
+                        out.append({"cargo_id": int(k), "n": n, "cargo": ct.get("name"), "cargo_key": ct.get("key")})
+                except (ValueError, TypeError):
+                    pass
+            r[col] = sorted(out, key=lambda c: -c["n"])
 
 
 def api_vehicles(q: dict) -> dict:
     gid = _gid()
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.capacities, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
                   FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
                   LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id
                   LEFT JOIN town t ON t.game_id=v.game_id AND t.town_id=vs.closest_town

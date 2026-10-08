@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model       TEXT,                             -- localized model name of the leading part
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
+    capacities  TEXT,                             -- mod rev 8+: JSON {"<cargo id>": capacity} = what the vehicle can carry
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)

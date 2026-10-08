@@ -415,7 +415,15 @@
         const logRef = mono(g.log);
         if (g.userdata_matches === false) step(false, t("setup_log_other_folder"), t("setup_log_other_folder_help", { dir: mono(g.userdata), cfg: mono("config.json"), log: logRef }));
         else if (!g.mod_loaded) step(false, t("setup_log_no_mod"), t("setup_log_no_mod_help", { log: logRef }));
-        else if (g.save_errors > 0) step(false, t("setup_log_write_error", { n: g.save_errors }), mono(g.last_error) + "<br>" + t("setup_log_write_error_help", { log: logRef }));
+        else if (g.save_errors > 0) {
+          // the game refuses to write. Narrow it down: a junction/symlink on the path (moved Steam folder), or the
+          // companion writes fine in that very folder -> only the game process is refused (Controlled folder access,
+          // antivirus, game and Steam not run the same way)
+          let help = d.reparse_point ? t("setup_write_reparse_help")
+            : (d.companion_files || []).length ? t("setup_write_game_only_help", { files: d.companion_files.map(mono).join(", ") })
+            : t("setup_log_write_error_help", { log: logRef });
+          step(false, t("setup_log_write_error", { n: g.save_errors }), mono(g.last_error) + "<br>" + help + "<br>" + t("setup_write_report", { log: logRef }));
+        }
         else if (g.mod_lines === 0) step(false, t("setup_log_mod_idle"), t("setup_log_mod_idle_help", { log: logRef }));
         else step(null, t("setup_log_ok", { n: g.written, src: esc(g.mod_source || "?") }), logRef);
       }

@@ -205,6 +205,19 @@ def heroic_config_dirs() -> list[Path]:
                            Path.home() / ".var" / "app" / "com.heroicgameslauncher.hgl" / "config" / "heroic"])
 
 
+def heroic_install_paths() -> list[Path]:
+    """Install folder of every game Heroic knows (GOG, Epic, Amazon, sideloaded), plus the subfolders of its default
+    install folder. Used to find the game's own files (icons); not filtered by game, the caller checks."""
+    found: list[Path] = []
+    for cfg in heroic_config_dirs():
+        for f in (cfg / "gog_store" / "installed.json", cfg / "legendaryConfig" / "legendary" / "installed.json",
+                  cfg / "nile_config" / "nile" / "installed.json", cfg / "sideload_apps" / "library.json"):
+            found += [Path(v).expanduser() for v in _json_values(_read_json(f), ("install_path", "folder_name"))]
+        for parent in [Path(v).expanduser() for v in _json_values(_read_json(cfg / "config.json"), ("defaultInstallPath",))]:
+            found += [parent / name for name in GAME_FOLDER_NAMES]
+    return _existing_dirs(found)
+
+
 def _is_prefix(p: Path) -> bool:
     try:
         return (p / "drive_c").is_dir()
@@ -702,6 +715,7 @@ if __name__ == "__main__":
     print("steam roots:", *[str(r) for r in steam_roots()] or ["-"], sep="\n  ")
     print("steam libraries:", *[str(r) for r in steam_libraries()] or ["-"], sep="\n  ")
     print("heroic config:", *[str(r) for r in heroic_config_dirs()] or ["-"], sep="\n  ")
+    print("heroic installs:", *[str(r) for r in heroic_install_paths()] or ["-"], sep="\n  ")
     print("wine prefixes:", *[f"{s}: {p}" for s, p in wine_prefixes()] or ["-"], sep="\n  ")
     print("userdata roots:", *[f"{s}: {r}" for s, r in userdata_roots()] or ["-"], sep="\n  ")
     print("candidates:", *[str(c) for c in candidate_export_dirs()] or ["-"], sep="\n  ")

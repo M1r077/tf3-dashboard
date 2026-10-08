@@ -255,6 +255,9 @@ h2 .ico { color: var(--accent); }
 .brand .ico { width: calc(var(--isz) * 1.2); height: calc(var(--isz) * 1.2); color: var(--accent); vertical-align: calc(var(--isz) * -0.3); }
 .kpi .k .ico { color: var(--muted); }
 .vehicon { display: inline-flex; align-items: center; gap: 4px; }
+/* carrier cell (Operations, by-carrier table): icon and name share one flex box, so the name sits on the row's baseline instead of dropping below the icon */
+#fleet-carrier .vehicon { white-space: nowrap; }
+#fleet-carrier .vehicon > span { color: var(--text); }
 .vehicon .ico { margin: 0; }
 .cond { display: inline-block; width: calc(var(--isz) * 0.85); height: calc(var(--isz) * 0.85); vertical-align: calc(var(--isz) * -0.2); margin-right: 4px; }
 .cond.bad { color: var(--bad); } .cond.warn { color: var(--warn); } .cond.ok { color: var(--ok); }

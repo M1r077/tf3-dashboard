@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model       TEXT,                             -- localized model name of the leading part
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
+    capacities  TEXT,                             -- mod rev 8+: JSON {"<cargo id>": capacity} = what the vehicle can carry
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)
@@ -131,6 +132,7 @@ CREATE TABLE IF NOT EXISTS vehicle_state (
     days_in_depot    INTEGER,
     days_at_terminal INTEGER,
     closest_town     INTEGER,
+    cargo            TEXT,                       -- mod rev 8+: JSON {"<cargo id>": count} of what is on board
     PRIMARY KEY (snapshot_id, vehicle_id)
 );
 CREATE INDEX IF NOT EXISTS ix_vehicle_state_vehicle ON vehicle_state(vehicle_id, snapshot_id);

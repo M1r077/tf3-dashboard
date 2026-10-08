@@ -359,6 +359,17 @@ def not_found_hint() -> str:
     )
 
 
+def _is_reparse_point(p: Path) -> bool:
+    """Junction, symlink or other reparse point (Windows attribute 0x400; symlink elsewhere). A Steam folder moved
+    with a junction (C:\\Steam -> another drive) is a known way for the game's own writes to fail."""
+    try:
+        st = p.lstat()
+    except OSError:
+        return False
+    attrs = getattr(st, "st_file_attributes", 0)
+    return bool(attrs & 0x400) or p.is_symlink()
+
+
 def diag(explicit: str | os.PathLike | None = None, db: str | os.PathLike | None = None) -> dict:
     """What the dashboard needs to explain an empty database: where the game's export is looked for and what was
     found there, plus what the game's own log says. Cheap (a few stat calls; the log is re-read only when it
@@ -385,6 +396,11 @@ def diag(explicit: str | os.PathLike | None = None, db: str | os.PathLike | None
             out.update(live_exists=True, live_age_s=max(0.0, time.time() - st.st_mtime), live_size=st.st_size)
         except OSError:
             pass
+        # Files the companion itself writes there (activity.lua, cmd.lua): when they exist but the game reports
+        # write errors, the folder is fine for a normal process and only the game process is refused (two users
+        # so far: Controlled folder access / antivirus, or the game running under another token).
+        out["companion_files"] = [f for f in ("activity.lua", "cmd.lua") if (d / f).is_file()]
+        out["reparse_point"] = _is_reparse_point(d) or any(_is_reparse_point(p) for p in d.parents if len(p.parts) > 1)
     out["game_log"] = game_log(explicit)
     out["synced_dirs"] = synced_dirs(db)
     return out

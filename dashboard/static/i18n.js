@@ -76,6 +76,12 @@ window.I18N = {
     lines: "Lines", stations_detail: "{n} (rail {r}, road {ro}, tram {t}, air {a}, water {w})", tracks: "Tracks", electrified: "{a} incl. {b} electrified", roads: "Roads",
     bridges_tunnels: "Bridges / tunnels", towns_supplied: "Towns supplied", industries_connected: "Industries connected", top_speed: "Top speed", longest_train: "Longest train",
     passengers: "Passengers", no_data: "no data",
+    // empty tables
+    empty_filtered: "Nothing matches the filters", empty_filtered_hint: "Clear the text or the type / state filters.",
+    empty_vehicles: "No vehicle yet", empty_vehicles_hint: "Buy a vehicle in a depot and assign it to a line; it appears here within a few seconds.",
+    empty_lines: "No line yet", empty_lines_hint: "Create a line in the game; it appears here with the next slow export (about 30 s).",
+    empty_towns: "No town in this export yet", empty_industries: "No industry in this export yet",
+    empty_stations: "No station yet", empty_stations_hint: "Build a station in the game; it appears here with the next slow export.", empty_depots: "No depot yet",
     // settings
     settings: "Settings", set_lang: "Language", set_icons: "Icon size", set_font: "Text size", set_density: "Table density", dense: "dense", normal: "normal", airy: "airy",
     set_refresh: "Refresh", set_history: "History shown", set_finance: "Finances", set_finance_hint: "show the Finances tab and balance", set_keys: "Shortcuts", set_keys_hint: "Space = pause, 1/2/3 = speed",
@@ -167,6 +173,12 @@ window.I18N = {
     lines: "Lignes", stations_detail: "{n} (rail {r}, route {ro}, tram {t}, air {a}, eau {w})", tracks: "Voies", electrified: "{a} dont {b} électrifiées", roads: "Routes",
     bridges_tunnels: "Ponts / tunnels", towns_supplied: "Villes desservies", industries_connected: "Industries connectées", top_speed: "Vitesse max", longest_train: "Plus long train",
     passengers: "Passagers", no_data: "aucune donnée",
+    // tables vides
+    empty_filtered: "Rien ne correspond aux filtres", empty_filtered_hint: "Effacez le texte ou les filtres de type / d'état.",
+    empty_vehicles: "Aucun véhicule pour l'instant", empty_vehicles_hint: "Achetez un véhicule dans un dépôt et affectez-le à une ligne ; il apparaît ici en quelques secondes.",
+    empty_lines: "Aucune ligne pour l'instant", empty_lines_hint: "Créez une ligne dans le jeu ; elle apparaît ici au prochain export lent (environ 30 s).",
+    empty_towns: "Aucune ville dans cet export pour l'instant", empty_industries: "Aucune industrie dans cet export pour l'instant",
+    empty_stations: "Aucune gare pour l'instant", empty_stations_hint: "Construisez une gare dans le jeu ; elle apparaît ici au prochain export lent.", empty_depots: "Aucun dépôt pour l'instant",
     settings: "Réglages", set_lang: "Langue", set_icons: "Taille des icônes", set_font: "Taille du texte", set_density: "Densité des tableaux", dense: "dense", normal: "normale", airy: "aérée",
     set_refresh: "Rafraîchissement", set_history: "Historique affiché", set_finance: "Finances", set_finance_hint: "afficher l'onglet Finances et la trésorerie", set_keys: "Raccourcis", set_keys_hint: "Espace = pause, 1/2/3 = vitesse",
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
@@ -256,6 +268,12 @@ window.I18N = {
     lines: "Linien", stations_detail: "{n} (Bahn {r}, Strasse {ro}, Tram {t}, Luft {a}, Wasser {w})", tracks: "Gleise", electrified: "{a} davon {b} elektrifiziert", roads: "Strassen",
     bridges_tunnels: "Brücken / Tunnel", towns_supplied: "Versorgte Städte", industries_connected: "Angebundene Industrien", top_speed: "Höchsttempo", longest_train: "Längster Zug",
     passengers: "Passagiere", no_data: "keine Daten",
+    // leere Tabellen
+    empty_filtered: "Nichts entspricht den Filtern", empty_filtered_hint: "Text löschen oder die Typ- / Zustandsfilter zurücksetzen.",
+    empty_vehicles: "Noch kein Fahrzeug", empty_vehicles_hint: "Kaufen Sie ein Fahrzeug im Depot und weisen Sie es einer Linie zu; es erscheint hier nach wenigen Sekunden.",
+    empty_lines: "Noch keine Linie", empty_lines_hint: "Legen Sie im Spiel eine Linie an; sie erscheint hier mit dem nächsten langsamen Export (etwa 30 s).",
+    empty_towns: "Noch keine Stadt in diesem Export", empty_industries: "Noch keine Industrie in diesem Export",
+    empty_stations: "Noch keine Station", empty_stations_hint: "Bauen Sie im Spiel eine Station; sie erscheint hier mit dem nächsten langsamen Export.", empty_depots: "Noch kein Depot",
     settings: "Einstellungen", set_lang: "Sprache", set_icons: "Symbolgrösse", set_font: "Textgrösse", set_density: "Tabellendichte", dense: "dicht", normal: "normal", airy: "luftig",
     set_refresh: "Aktualisierung", set_history: "Angezeigter Verlauf", set_finance: "Finanzen", set_finance_hint: "Finanzen-Tab und Kontostand anzeigen", set_keys: "Tastenkürzel", set_keys_hint: "Leertaste = Pause, 1/2/3 = Tempo",
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
@@ -360,6 +378,12 @@ window.I18N = {
     lines: "Linhas", stations_detail: "{n} (ferrovia {r}, rodovia {ro}, bonde {t}, aéreo {a}, hidrovia {w})", tracks: "Trilhos", electrified: "{a} incl. {b} eletrificados", roads: "Estradas",
     bridges_tunnels: "Pontes / túneis", towns_supplied: "Cidades abastecidas", industries_connected: "Indústrias conectadas", top_speed: "Velocidade máxima", longest_train: "Trem mais longo",
     passengers: "Passageiros", no_data: "sem dados",
+    // tabelas vazias
+    empty_filtered: "Nada corresponde aos filtros", empty_filtered_hint: "Apague o texto ou os filtros de tipo / estado.",
+    empty_vehicles: "Nenhum veículo ainda", empty_vehicles_hint: "Compre um veículo em um depósito e atribua-o a uma linha; ele aparece aqui em alguns segundos.",
+    empty_lines: "Nenhuma linha ainda", empty_lines_hint: "Crie uma linha no jogo; ela aparece aqui na próxima exportação lenta (cerca de 30 s).",
+    empty_towns: "Nenhuma cidade nesta exportação ainda", empty_industries: "Nenhuma indústria nesta exportação ainda",
+    empty_stations: "Nenhuma estação ainda", empty_stations_hint: "Construa uma estação no jogo; ela aparece aqui na próxima exportação lenta.", empty_depots: "Nenhum depósito ainda",
     // settings
     settings: "Configurações", set_lang: "Idioma", set_icons: "Tamanho dos ícones", set_font: "Tamanho do texto", set_density: "Densidade das tabelas", dense: "compacta", normal: "normal", airy: "espaçada",
     set_refresh: "Atualização", set_history: "Histórico exibido", set_finance: "Finanças", set_finance_hint: "mostrar a aba Finanças e o saldo", set_keys: "Atalhos", set_keys_hint: "Espaço = pausa, 1/2/3 = velocidade",

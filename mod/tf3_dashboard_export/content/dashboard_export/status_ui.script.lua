@@ -77,9 +77,12 @@ end
 local function row(children) return builtin.BoxLayout { orientation = builtin.type.Orientation.Horizontal, children = children } end
 local function column(children) return builtin.BoxLayout { orientation = builtin.type.Orientation.Vertical, children = children } end
 
+local readFailures = 0
 local function readState()
 	local ok, res = pcall(api.gui.fireGuiScriptEvent, UI_ID, "read", {})
 	if ok and type(res) == "table" then return res end
+	readFailures = readFailures + 1
+	if readFailures <= 3 then print("[dashboard_export] status read failed: " .. tostring(ok and type(res) or res)) end
 	return nil
 end
 
@@ -111,12 +114,15 @@ end
 
 StatusWindow = react.RegisterWrapperRecipe("TF3DashboardStatusWindow", builtin.Window, function()
 	local data = react.useState(nil)
-	local function refresh() data:set(readState()) end
+	-- a failed read (nil) keeps what is shown. Note: react.onStepTimer is not an option for the refresh, inside a
+	-- deferred step api.gui.fireGuiScriptEvent answers "API is currently restricted" (build 40420); the export script
+	-- fires STATUS_EVENT every 2 s instead, and onEvent is an allowed context.
+	local function refresh()
+		local d = readState()
+		if d ~= nil then data:set(d) end
+	end
 	react.onMount(refresh)
 	react.onEvent(STATUS_EVENT, refresh)
-	-- "x s ago" and "companion seen" move while the window is open: re-read every 2 s (one gui script event, nothing
-	-- heavy), only while the window exists
-	react.onStepTimer(refresh, 2.0)
 
 	local d = data:old()
 	local st = d and d.status or nil

@@ -72,6 +72,8 @@ end
 -- refused: Controlled folder access, antivirus, read-only folder...). The React side is told only when it changes.
 local status = { state = "starting", last_ok = nil, last_error = nil, companion_seen = nil, folder = nil }
 local STATUS_EVENT = "TF3DashboardStatus"
+local STATUS_TICK = 2.0  -- the open status window re-reads on this event ("x s ago", companion seen); a timer on the
+local lastStatusTick = -1e9  -- React side cannot read gui script state (build 40420: "API is currently restricted")
 local function setStatus(state, err)
 	local now = os.time()
 	if state == "ok" then status.last_ok = now
@@ -80,6 +82,11 @@ local function setStatus(state, err)
 		status.state = state
 		pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = state })
 	end
+end
+local function statusTick(now)
+	if now - lastStatusTick < STATUS_TICK then return end
+	lastStatusTick = now
+	pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = status.state })
 end
 
 local function log(...)
@@ -1390,6 +1397,7 @@ local lastPoll = -1e9
 function script.guiUpdate(_userParams, _state, _guiState)
 	local now = os.clock()
 	local o = options()
+	statusTick(now)
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()

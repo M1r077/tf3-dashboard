@@ -208,10 +208,14 @@ def api_finance(q: dict) -> dict:
                       ORDER BY snapshot_id DESC LIMIT ?""",
         agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, balance, loan, earnings_ytd, passengers_transported, cargo_transported
                    FROM agg_finance_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
-    comp = rows("""SELECT s.snapshot_id, s.real_time, s.year, c.total_score, c.total_assets, c.debt, c.number_of_lines,
-                   c.total_stations, c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
-                   FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? ORDER BY s.snapshot_id DESC LIMIT 200""", (gid,))
+    # company figures come with the slow export (one row per ~30 s, kept 14 days): same range as the charts above
+    comp = rows("""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day, c.total_score, c.total_assets, c.debt, c.number_of_lines,
+                   c.total_stations, c.track_length_m, c.road_length_m,
+                   c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
+                   FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ?
+                   ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), limit))
     comp.reverse()
+    _stamp(comp)
     return {"series": series, "company": comp}
 
 
@@ -254,9 +258,13 @@ def api_lines(q: dict) -> dict:
                     WHERE l.game_id=? AND ls.snapshot_id=(SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id=l.line_id)
                     ORDER BY l.name""", (gid,))
     sid_by_line = {l["line_id"]: l["snapshot_id"] for l in lines}
+    # Correlated MAX per line (uses the (snapshot_id, line_id, cargo_id) primary key) instead of
+    # "IN (SELECT MAX ... GROUP BY line_id)", which scanned the whole table through a temp b-tree.
     caps = rows("""SELECT lc.line_id, lc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, lc.used, lc.capacity
-                   FROM line_capacity lc LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=lc.cargo_id
-                   WHERE lc.snapshot_id IN (SELECT MAX(snapshot_id) FROM line_capacity GROUP BY line_id)""", (gid,))
+                   FROM line l JOIN line_capacity lc ON lc.line_id=l.line_id
+                        AND lc.snapshot_id=(SELECT MAX(snapshot_id) FROM line_capacity x WHERE x.line_id=l.line_id)
+                   LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
+                   WHERE l.game_id=?""", (gid,))
     veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(vs.speed_ms) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
@@ -293,7 +301,7 @@ def api_line_history(q: dict) -> dict:
     lid = int(q["id"][0])
     gid = _gid()
     hist = rows("""SELECT s.real_time, s.year, s.month, ls.vehicles, ls.persons_on_line, ls.pax_bad, ls.pax_total, ls.cargo_bad, ls.cargo_total,
-                   ls.max_frequency FROM line_state ls JOIN snapshot s USING(snapshot_id)
+                   ls.max_frequency, ls.throughput, ls.pax_avg_quality, ls.cargo_avg_quality FROM line_state ls JOIN snapshot s USING(snapshot_id)
                    WHERE s.game_id=? AND s.real_time >= ? AND ls.line_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), lid, _limit(q, 300)))
     hist.reverse()
     _stamp(hist)
@@ -364,18 +372,41 @@ def api_vehicle_history(q: dict) -> dict:
         agg_sql="""SELECT bucket, n, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index
                    FROM agg_vehicle_min WHERE game_id=? AND bucket >= ? AND vehicle_id=? ORDER BY bucket""",
         extra=(vid,))
-    v = one("SELECT v.*, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
+    v = one("SELECT v.*, vs.cargo, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
+    if v:
+        _cargo_on_board(gid, [v])
     return {"vehicle": v, "history": hist}
+
+
+def _cargo_on_board(gid: int, rows_: list[dict]) -> None:
+    """Mod rev 8+ JSON columns {"<cargo id>": number} -> lists [{cargo_id, n, cargo, cargo_key}] sorted by n:
+    vehicle_state.cargo = what is on board now, vehicle.capacities = what the vehicle can carry."""
+    names = {c["cargo_id"]: c for c in rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=?", (gid,))}
+    for r in rows_:
+        for col in ("cargo", "capacities"):
+            if col not in r:
+                continue
+            raw = r.get(col)
+            out = []
+            if isinstance(raw, str) and raw:
+                try:
+                    for k, n in json.loads(raw).items():
+                        ct = names.get(int(k), {})
+                        out.append({"cargo_id": int(k), "n": n, "cargo": ct.get("name"), "cargo_key": ct.get("key")})
+                except (ValueError, TypeError):
+                    pass
+            r[col] = sorted(out, key=lambda c: -c["n"])
 
 
 def api_vehicles(q: dict) -> dict:
     gid = _gid()
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.capacities, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
                   FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
                   LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id
                   LEFT JOIN town t ON t.game_id=v.game_id AND t.town_id=vs.closest_town
                   WHERE v.game_id=? AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
                   ORDER BY v.carrier, l.name, v.name""", (gid,))
+    _cargo_on_board(gid, veh)
     return {"vehicles": veh}
 
 
@@ -684,6 +715,9 @@ class Handler(BaseHTTPRequestHandler):
         # polling stay silent; commands sent to the game are logged in do_POST where the command name is known
         req = str(args[0]) if args else ""
         code = str(args[1]) if len(args) > 1 else ""
+        # browsers probe these on their own (Chrome/Edge DevTools, favicon): not an error of ours
+        if code == "404" and (" /.well-known/" in req or " /favicon.ico " in req):
+            return
         if code[:1] in ("4", "5"):
             console.say(f"{code} {req}", "warn" if code == "404" else "error")
 

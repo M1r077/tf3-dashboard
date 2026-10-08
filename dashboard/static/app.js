@@ -995,13 +995,13 @@
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
       <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
       <span class="cv-tools">
-        <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("camera", "sm")}</button>
-        <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">✎</button>
+        <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("star_outline", "sm")}</button>
+        <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">${ico("edit", "sm")}</button>
         <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>▲</button>
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === views.length - 1 ? "disabled" : ""}>▼</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
       </span></div>`;
-    box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("camera", "sm")}${esc(t("cam_save"))}</button>` +
+    box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
@@ -1052,7 +1052,7 @@
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; drawMap(canvas); });
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
-    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera"].forEach(mapIcon);
+    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
   }
   function fitMap(canvas) {
     const d = map.data; const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles].filter(p => p.x != null);
@@ -1103,7 +1103,7 @@
     // current camera (dashed square, drawn first so a saved pin at the same spot stays readable), then the saved
     // views as numbered pins (the number = the Shift+N slot)
     if (camViews.cur) { const [x, y] = P(camViews.cur.x, camViews.cur.y); ctx.strokeStyle = "#e6edf3"; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.strokeRect(x - 12, y - 12, 24, 24); ctx.setLineDash([]); if (!drawIcon(ctx, "camera", x, y - 18, 12, "#e6edf3")) { ctx.fillStyle = "#e6edf3"; ctx.fillRect(x - 2, y - 2, 4, 4); } }
-    camViews.list.forEach((v, i) => { const [x, y] = P(v.x, v.y); ctx.fillStyle = "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font; });
+    camViews.list.forEach((v, i) => { const [x, y] = P(v.x, v.y); drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b"); ctx.fillStyle = "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, 8, 0, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font; });
     const px = 1000 * map.scale; ctx.strokeStyle = "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>`;
   }

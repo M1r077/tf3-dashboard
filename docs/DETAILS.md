@@ -149,6 +149,25 @@ Three independent parts:
      `set_camera` command (the mod detaches a running follow camera first, else it pulls the view back); also
      Shift+1..9 and a click on the numbered pin on the map. Update / rename / reorder / delete through
      `POST /api/views`. With a rev 6 mod the panel explains that revision 7 is needed.
+   - **Cargo per vehicle** (mod rev 8 / companion 0.3.1): the fast vehicle record carries `cargo` = {cargo id: count
+     on board} (from `getNumCargoPerTypeInVehicle`, the same call that gives the total load) and the slow record
+     `capacities` = {cargo id: capacity} (from `getVehicleCapacities`). Both are dense arrays over all cargo types in
+     the engine, read 1-based by Lua, handled like `getLineCapacityUsages`. Stored as JSON in `vehicle_state.cargo`
+     and `vehicle.capacities` (migration columns, NULL from older mods); `/api/vehicles` and `/api/vehicle_history`
+     decode them with the cargo names. The Vehicles table shows "Carries" (chips) and the on-board icons with counts
+     after the load bar; the text filter matches cargo names.
+   - **Horn** (mod rev 8): `horn` command with `vehicle` or `line` (every vehicle of the line) ->
+     `api.gui.sound.letVehicleHorn`, GUI thread, nothing changes in the simulation. H on the Vehicles / Lines tab,
+     "Horn" button in the vehicle sheet, "Horn (all vehicles)" in the line sheet.
+   - **Headquarters on the map** (mod rev 8, Guilherme Seibert Zulian): the mod looks the player's headquarters up
+     once (`forEachConstructionWithMetadata("company", ...)`, the construction whose company metadata has
+     `headquarters = true`) and exports `company.headquarterId/X/Y`; stored in `company.hq_id/hq_x/hq_y` (migration
+     columns), returned by `/api/map` as `headquarters`, drawn as a gold marker with an "HQ" toggle; click = camera.
+   - **Detail cards with history** (companion 0.3.1): Industries (`/api/industry_history`: produced / shipped /
+     consumed / delivered per cargo, level and yield) and Stations (`/api/station_history`: waiting, capacity,
+     overflow, lines calling there — matched on `station_group`, since the mod exports `line_stop.station` as 0)
+     join the Towns, Lines and Vehicles cards. Finance tab: network (track / road km, lines, stations) and company
+     value (score, assets, debt) over the selected range from the `company` table.
    - **Stops & departures** (line detail): one row per stop with departure mode, min / max stop time, extra wait,
      allowed cargos, terminals; pencil = edit a stop (mode list, seconds fields, cargo chips, "force unload"), "Apply"
      only sends the changed fields, "Apply to all stops" copies mode + waits to the whole line. Line buttons: stop /

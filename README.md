@@ -75,13 +75,19 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
 
 - **Operations** — fleet in service, load factor and average speed over time, per-carrier summary, stuck or idle
   vehicles, wear (service first), most unhappy and busiest lines, alerts with jump-to-entity.
-- **Vehicles** — every vehicle with model icon, line, state, load, speed, condition, history on click. Filter by type.
-- **Lines** — load, headway, waiting passengers/cargo, history, and the **stop editor**: load mode, min/max waiting
-  time, cargo filter (game icons), preferred and alternative terminals, whole-line actions.
-- **Map** — lines, vehicles, stations, industries, towns, alerts; click = camera on the object. **Camera views**
+- **Vehicles** — every vehicle with model icon, line, state, load, speed, condition, history on click. What the
+  vehicle carries (mod revision 8): the cargo icons on board with counts, and what it was bought for. Filter by
+  type or cargo. H or the "Horn" button sounds the horn.
+- **Lines** — load, headway, waiting passengers/cargo, transported per year, the game's rating, history, and the
+  **stop editor**: load mode, min/max waiting time, cargo filter (game icons), preferred and alternative terminals,
+  whole-line actions (including the horn of every vehicle).
+- **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on
+  the object. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
   per savegame in `db\camera_views.json`.
-- **Towns**, **Industries**, **Stations & depots**, **Finances**.
+- **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
+  satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
+- **Finances** — balance, yearly result, transported, network size and company value over time.
 - Languages: English, French, German, Brazilian Portuguese — follows the game language automatically.
 
 ## Configuration

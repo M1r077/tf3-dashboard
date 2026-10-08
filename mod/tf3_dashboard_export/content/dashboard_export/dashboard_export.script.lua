@@ -19,7 +19,8 @@ local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
 -- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
-local SCHEMA = 5
+-- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (rev 8, companion >= 0.3.1)
+local SCHEMA = 6
 local DIR = "dashboard_export"
 local FILE = "live"
 local SLOW_FILE_PREFIX = "slow_"
@@ -312,9 +313,9 @@ local function modelKey(modelId)
 	return k or nil
 end
 
--- Vehicles are exported in two parts (rev 6). Fast (every snapshot, live.lua): what moves — state, line, stop,
+-- Vehicles are exported in two parts (rev 6). Fast (every snapshot, live.lua): what moves â€” state, line, stop,
 -- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
--- what the game only changes when the player edits the vehicle — name, consist, model, capacity, icon, costs. The
+-- what the game only changes when the player edits the vehicle â€” name, consist, model, capacity, icon, costs. The
 -- collector merges both on vehicle id. Before rev 6 all of it was fetched and written every second.
 local function collectVehicles()
 	local out = {}

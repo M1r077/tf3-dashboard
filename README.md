@@ -111,6 +111,10 @@ companion still understands).
 Mod settings (in-game): fast interval (time, finances, alerts, vehicles — default 2 s), slow interval (lines,
 stations, towns, industries — default 30 s), export vehicles on/off, accept commands on/off, debug log.
 
+In the game, a small **(i)** button in the mod button area (top left, next to the layers button) shows the state of
+the export: green = running, red = the game could not write the files (with what to do), grey = starting; the window
+also shows the export folder, when the companion was last seen, and the current settings (mod revision 10+).
+
 ## Performance and privacy
 
 - Each snapshot is computed by the game's script thread and costs it some milliseconds (about 10-20 ms on a fast PC

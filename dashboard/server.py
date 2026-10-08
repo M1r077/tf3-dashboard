@@ -454,9 +454,18 @@ def api_towns(q: dict) -> dict:
     tmap: dict[int, list] = {}
     for t in top:
         tmap.setdefault(t["town_id"], []).append(t)
+    # the headquarters is exported as a position only (no town id): flag the town whose centre is nearest to it
+    hq = one("""SELECT c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
+                WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
+    hq_town = None
+    if hq:
+        near = [t for t in towns if t.get("x") is not None and t.get("y") is not None]
+        if near:
+            hq_town = min(near, key=lambda t: (t["x"] - hq["x"]) ** 2 + (t["y"] - hq["y"]) ** 2)["town_id"]
     for t in towns:
         t["cargo"] = cmap.get(t["town_id"], [])
         t["top_lines"] = tmap.get(t["town_id"], [])
+        t["has_hq"] = t["town_id"] == hq_town
     return {"towns": towns}
 
 

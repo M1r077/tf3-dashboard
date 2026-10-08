@@ -899,7 +899,7 @@
     const unhappy = (x) => (x.hap_inside_unhappy || 0) + (x.hap_to_res_unhappy || 0) + (x.hap_from_res_unhappy || 0) + (x.hap_to_nonres_unhappy || 0) + (x.hap_from_nonres_unhappy || 0);
     const total = (x) => (x.hap_inside_total || 0) + (x.hap_to_res_total || 0) + (x.hap_from_res_total || 0) + (x.hap_to_nonres_total || 0) + (x.hap_from_nonres_total || 0);
     const cols = [
-      { key: "name", label: t("th_town"), icon: "town" },
+      { key: "name", label: t("th_town"), icon: "town", render: x => esc(x.name) + (x.has_hq ? ` <span class="hqstar" title="${esc(t("town_hq"))}">${ico("star", "sm")}</span>` : "") },
       { key: "size", label: t("th_capacity"), num: true, render: x => int((x.cap_res || 0) + (x.cap_com || 0) + (x.cap_ind || 0)), sortValue: x => (x.cap_res || 0) + (x.cap_com || 0) + (x.cap_ind || 0) },
       { key: "res", label: t("th_res"), num: true, render: x => `${int(x.used_res)}/${int(x.cap_res)}`, sortValue: x => x.cap_res },
       { key: "com", label: t("th_com"), num: true, render: x => `${int(x.used_com)}/${int(x.cap_com)}`, sortValue: x => x.cap_com },
@@ -921,7 +921,7 @@
     const tw = (state.cache.towns || []).find(x => x.town_id === id); if (!tw) return;
     const h = await api("/api/town_history", { id, limit: settings.history, range: settings.range });
     const hap = [[t("hap_inside"), tw.hap_inside_unhappy, tw.hap_inside_total], [t("hap_res_out"), tw.hap_from_res_unhappy, tw.hap_from_res_total], [t("hap_res_in"), tw.hap_to_res_unhappy, tw.hap_to_res_total], [t("hap_visitors"), (tw.hap_to_nonres_unhappy || 0) + (tw.hap_from_nonres_unhappy || 0), (tw.hap_to_nonres_total || 0) + (tw.hap_from_nonres_total || 0)], [t("hap_car"), tw.hap_car_unhappy, tw.hap_car_total], [t("hap_walk"), tw.hap_walk_unhappy, tw.hap_walk_total]];
-    $("#town-detail").innerHTML = `<h2>${ico("town", "lg")}${esc(tw.name)} <small>#${tw.town_id} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : ""}</small></h2>
+    $("#town-detail").innerHTML = `<h2>${ico("town", "lg")}${esc(tw.name)}${tw.has_hq ? ` <span class="hqstar" title="${esc(t("town_hq"))}">${ico("star", "sm")}</span>` : ""} <small>#${tw.town_id} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv">${hap.map(([k, b, tot]) => `<tr><td>${k}</td><td>${barQuality(b || 0, tot || 0)}</td></tr>`).join("")}</table>
       <p class="muted" style="font-size:12px">${t("reach", { a: tw.reach_com_private ?? "–", b: tw.reach_com_public ?? "–", c: tw.reach_ind_private ?? "–", d: tw.reach_ind_public ?? "–" })}</p>

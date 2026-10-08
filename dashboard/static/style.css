@@ -483,3 +483,6 @@ table.stops .termgrid .tchip .ico { color: inherit; }
 table.stops .termgrid .tg-star .ico { margin: 0; }
 table.stops .termgrid .tg-star.on { color: #f0c84a; }
 table.stops .termgrid .tg-star:hover { color: #f0c84a; }
+
+.hqstar { color: #e8b04b; display: inline-flex; vertical-align: middle; }
+.hqstar .ico { margin: 0; color: inherit; }

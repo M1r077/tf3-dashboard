@@ -744,6 +744,24 @@ def edit_views(body: dict) -> dict:
     return {"game": key, "views": views, "max": VIEWS_MAX}
 
 
+# ---------------------------------------------------------------- vehicle catalogue (opt-in mod setting)
+def api_catalogue(q: dict) -> dict:
+    gid = _gid()
+    year = one("SELECT year FROM snapshot WHERE game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    try:
+        models = rows("""SELECT model_id, model_key, name, category, carrier, year_from, year_to, speed_ms, capacity, cargo, price, power_kw,
+                         multiple_unit, updated FROM vehicle_model WHERE game_id=? ORDER BY year_from, name""", (gid,))
+    except sqlite3.Error:
+        models = []  # database not migrated yet
+    # how many vehicles of the fleet use each model (leading part)
+    fleet = {r["model_key"]: r["n"] for r in rows("""SELECT v.model_key, COUNT(*) n FROM vehicle v
+                 JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
+                 WHERE v.game_id=? AND v.model_key IS NOT NULL GROUP BY v.model_key""", (gid,))}
+    for m in models:
+        m["in_fleet"] = fleet.get(m["model_key"], 0) if m["multiple_unit"] is None else 0
+    return {"year": year["year"] if year else None, "models": models}
+
+
 def api_diag(q: dict) -> dict:
     """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
     is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
@@ -771,6 +789,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/catalogue": api_catalogue,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

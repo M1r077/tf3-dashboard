@@ -87,6 +87,8 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   the object. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
   per savegame in `db\camera_views.json`.
+- **Catalogue** — every vehicle you can buy (mods included) by year of availability, with speed, capacity, price and
+  how many of each model are in your fleet. Optional: turn on "Vehicle catalogue" in the mod settings.
 - **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
   satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
 - **Finances** — balance, yearly result, transported, network size and company value over time.

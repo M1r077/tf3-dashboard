@@ -1008,6 +1008,52 @@
     ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
   }
 
+  // ------------------------------------------------------------ vehicle catalogue
+  // Every vehicle the player can buy (opt-in mod setting "Vehicle catalogue"), grouped by the year it becomes available: what is
+  // new this year, what comes next, what is withdrawn. Past years and wagons are hidden unless asked for.
+  const CAT_TYPE = { bus: "Bus", truck: "Truck", tram: "Tram", train: "Train", waggon: "Train", plane: "Aircraft", zeppelin: "Aircraft", helicopter: "Helicopter", ship: "Ship" };
+  const CAT_CARRIER = { Bus: "ROAD", Truck: "ROAD", Tram: "TRAM", Train: "RAIL", Aircraft: "AIR", Helicopter: "AIR", Ship: "WATER" };
+  const catType = (m) => CAT_TYPE[m.category] || null;
+  state.catTypes = new Set();
+  function catCard(m, year) {
+    const ty = catType(m);
+    const isNew = m.year_from === year, gone = m.year_to > 0 && m.year_to < year;
+    const chips = [
+      isNew ? `<span class="chip ok">${t("cat_new")}</span>` : "",
+      m.year_to > 0 && !gone ? `<span class="chip">${t("cat_until", { y: m.year_to })}</span>` : "",
+      gone ? `<span class="chip">${t("cat_retired", { y: m.year_to })}</span>` : "",
+      m.multiple_unit != null ? `<span class="chip info">${t("cat_mu")}</span>` : "",
+      m.in_fleet ? `<span class="chip info">${t("cat_in_fleet", { n: m.in_fleet })}</span>` : "",
+    ].join("");
+    const stats = [m.speed_ms ? kmh(m.speed_ms) : "", m.capacity ? t("cat_capacity", { n: int(m.capacity) }) : "", m.power_kw ? t("cat_power", { n: int(m.power_kw) }) : "", m.price ? money(m.price) : ""].filter(Boolean);
+    const typeLabel = m.category === "waggon" ? t("cat_wagon") : ty ? t("line_type." + ty) : (m.category || "");
+    return `<div class="catcard ${isNew ? "new" : ""} ${gone ? "gone" : ""}">
+      <div class="catimg">${modelImg({ model_key: m.model_key, model: m.name, carrier: CAT_CARRIER[ty] || "OTHER" })}</div>
+      <div class="n">${ty ? `<span class="vehicon" style="color:${LINE_TYPE_COLOR[ty]}">${ico(LINE_TYPE_ICON[ty], "sm", typeLabel)}</span>` : ""}${esc(m.name || m.model_key)}</div>
+      <div class="stats"><span>${esc(typeLabel)}</span>${stats.map(x => `<span>${x}</span>`).join("")}</div>
+      ${chips ? `<div class="chips">${chips}</div>` : ""}</div>`;
+  }
+  async function renderCatalogue() {
+    const d = await api("/api/catalogue"); const all = d.models || [], year = d.year;
+    const el = $("#cat-list");
+    if (!all.length) { $("#cat-types").innerHTML = ""; el.innerHTML = `<div class="cmdhint">${ico("warning", "sm")}<span>${t("cat_need_mod")}</span></div>`; return; }
+    const wagons = $("#cat-wagons").checked, past = $("#cat-past").checked, q = $("#cat-filter").value.toLowerCase();
+    const base = all.filter(m => (wagons || m.category !== "waggon") && (past || year == null || m.year_from >= year));
+    renderTypeBar($("#cat-types"), base, catType, state.catTypes, renderCatalogue);
+    const shown = base.filter(m => (!state.catTypes.size || state.catTypes.has(catType(m))) && (!q || (m.name || "").toLowerCase().includes(q) || m.model_key.includes(q)));
+    const avail = all.filter(m => m.category !== "waggon" && m.year_from <= year && !(m.year_to > 0 && m.year_to < year));
+    const kpi = (k, v, cls = "") => `<div class="kpi"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+    const nNew = all.filter(m => m.category !== "waggon" && m.year_from === year).length;
+    const nNext = all.filter(m => m.category !== "waggon" && m.year_from > year && m.year_from <= year + 5).length;
+    const nOut = all.filter(m => m.category !== "waggon" && m.year_to > 0 && m.year_to >= year && m.year_to <= year + 1).length;
+    const byYear = new Map();
+    shown.forEach(m => { if (!byYear.has(m.year_from)) byYear.set(m.year_from, []); byYear.get(m.year_from).push(m); });
+    const rel = (y) => y === year ? t("cat_this_year") : y > year ? t("cat_in_years", { n: y - year }) : t("cat_years_ago", { n: year - y });
+    el.innerHTML = `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew)}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut)}${kpi(t("cat_k_available"), avail.length)}</div>`
+      + ([...byYear.keys()].sort((a, b) => a - b).map(y => `<div class="catyear ${y === year ? "now" : ""}"><b>${y || "–"}</b><span class="muted">${year != null && y ? rel(y) : ""} · ${byYear.get(y).length}</span></div>
+          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`).join("") || `<p class="muted">${t("cat_none")}</p>`);
+  }
+
   // ------------------------------------------------------------ stations & depots
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
@@ -1289,7 +1335,7 @@
   }
 
   // ------------------------------------------------------------ refresh loop
-  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance };
+  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, catalogue: renderCatalogue, stations: renderStations, map: renderMap, finance: renderFinance };
   let busy = false, again = false;
   async function refresh() {
     if (busy) { again = true; return; } busy = true;
@@ -1300,7 +1346,7 @@
     busy = false;
     if (again) { again = false; refresh(); }
   }
-  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
+  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved", "#cat-filter", "#cat-past", "#cat-wagons"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
   let timer = null;
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);

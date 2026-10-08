@@ -87,6 +87,13 @@ Three independent parts:
      TrainSteam/Electric/Diesel, Tram, Aircraft, Helicopter, Ship), the localized model name (`model`), the neutral model
      key (`model_key`, e.g. `train/re_44i`) and the full consist (`parts`, e.g. `train/re_44i,waggon/ew_ii,-waggon/ew_ii`;
      `-` = reversed element) so the dashboard can show the real icons
+   - **vehicle catalogue** (opt-in setting `export_catalogue`, off by default): `tf3dash_catalogue.lua` next to the live
+     file, written once per session and again when the game language changes, collected time-sliced (SLOW_BUDGET
+     per frame) outside the slow cycle, removed when the setting is off. Every model of
+     `modelRep.forEachModelWithMetadata("transportVehicle")` with filter tags (= sold on its own) plus every multiple
+     unit (available when its last part is): model key, name, carrier, availability yearFrom / yearTo, top speed,
+     capacity and cargo types (compartments, best effort), price (`getPartPrice`, else the base price), rail engine
+     power. The collector replaces `vehicle_model` with it.
    - cargo types are exported with their localized name AND a neutral key (`key`, name of the `.cargo` file); language
      and cargo names are re-read every slow cycle, so **changing the game language is picked up without restart** (the
      dashboard follows the game language while the selector is on "auto")
@@ -215,6 +222,10 @@ Three independent parts:
    - **Industries**: level, status (producing, closing, boost, manual, discarding), production rating, inputs/outputs
      per year with max and shipped/delivered; filter "unserved / closing"
    - **Stations & depots**: waiting, occupancy, overflow, lines; parked vehicles, approaching, maintenance pool
+   - **Catalogue** (needs the mod setting "Vehicle catalogue", off by default): the models grouped by year of
+     availability (this year and later; past years and wagons on request), filter by type and text, counts (new this
+     year, next 5 years, withdrawn by next year, available now), cards with model image, speed, capacity, power,
+     price, "until <year>", multiple unit, how many in the fleet. Game data only, no alert.
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
@@ -227,6 +238,8 @@ Three independent parts:
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
+- `vehicle_model`: vehicle catalogue (opt-in mod setting), replaced as a whole on each `tf3dash_catalogue.lua`; `model_id` =
+  crc32 of the model key (+ multiple unit id), stable across rewrites
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);
   `PRAGMA user_version` on the database side (1 = fix applied to already stored `line_capacity`). The collector fixes

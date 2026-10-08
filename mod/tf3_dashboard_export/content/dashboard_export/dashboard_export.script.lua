@@ -40,10 +40,11 @@ local PARAM_VALUES = {
 	interval_fast = { 1, 2, 5, 10 },
 	interval_slow = { 10, 30, 60, 120 },
 	export_vehicles = { true, false },
+	export_catalogue = { false, true }, -- off by default (rev 10): walks every vehicle model once per session
 	accept_commands = { false, true }, -- off by default (rev 2): the player opts in to remote control
 	debug_log = { false, true },
 }
-local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
+local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, export_catalogue = 1, accept_commands = 1, debug_log = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
 local cachedOptions
@@ -960,6 +961,116 @@ local function slowJobRun(budget)
 	return nil
 end
 
+-- ---------------------------------------------------------------- vehicle catalogue
+-- Every vehicle model the player can buy (mods included), with the year it becomes available and the year it is
+-- withdrawn, for the dashboard's catalogue tab. Opt-in (export_catalogue, off by default): with vehicle packs the
+-- first pass walks thousands of models. Static for the session except the names
+-- (game language): collected once, time-sliced like the slow sections, again when the language changes, and written
+-- to its own file (catalogue.lua) independently of the slow cycle. Multiple units (sold as one train) are listed
+-- once, available when their last part is.
+local CATALOGUE_FILE = PREFIX .. "catalogue"
+local catalogueJob = nil
+local catalogueLang = nil   -- language of the catalogue last written (nil = not written yet)
+
+local function topSpeedOf(md)
+	for _, k in ipairs({ "landVehicle", "airVehicle", "waterVehicle" }) do
+		local v = md[k]
+		if v and num(v.topSpeed) and num(v.topSpeed) > 0 then return num(v.topSpeed) end
+	end
+	return nil
+end
+
+-- one model: what the dashboard shows on its card (all fields optional except key / year_from)
+local function catalogueModel(modelId, needTags)
+	local m = api.res.modelRep.get(modelId)
+	local md = m and m.metadata
+	local tvm = md and md.transportVehicle
+	if not tvm then return nil end
+	if needTags and #arr(tvm.filterTags) == 0 then return nil end  -- not sold on its own
+	local av = md.availability or {}
+	local rec = { key = modelKey(modelId), year_from = num(av.yearFrom) or 0, year_to = num(av.yearTo) or 0,
+		speed = topSpeedOf(md) }
+	if not rec.key then return nil end
+	pcall(function() rec.name = md.description.name end)
+	pcall(function() rec.carrier = tostring(tvm.carrier) end)
+	pcall(function()
+		-- the price the game asks today (inflation included), else the base price of the model
+		local part = api.type.VehiclePart.new(); part.modelId = modelId
+		local tvp = api.type.TransportVehiclePart.new(); tvp.part = part
+		rec.price = num(api.engine.util.getPartPrice(tvp))
+	end)
+	if not rec.price then pcall(function() rec.price = num(md.cost.price) end) end
+	pcall(function()
+		local total, cargo = 0, {}
+		for _, comp in ipairs(arr(tvm.compartmentsList or tvm.compartments)) do
+			local lc = arr(comp.loadConfigs)[1]
+			for _, ce in ipairs(arr(lc and lc.cargoEntries)) do
+				total = total + (num(ce.capacity) or 0)
+				local ct = tostring(ce.type)
+				if not cargo[ct] then cargo[ct] = true; cargo[#cargo + 1] = ct end
+			end
+		end
+		if total > 0 then rec.capacity = total end
+		if #cargo > 0 then rec.cargo = table.concat(cargo, ",") end
+	end)
+	pcall(function()
+		local p = 0
+		for _, e in ipairs(arr(md.railVehicle and md.railVehicle.engines)) do p = p + (num(e.power) or 0) end
+		if p > 0 then rec.power = p end
+	end)
+	return rec
+end
+
+local function catalogueMultipleUnit(muId)
+	local mu = api.res.multipleUnitRep.get(muId)
+	local parts = arr(mu and mu.vehicles)
+	if #parts == 0 then return nil end
+	local rec = nil
+	for _, v in ipairs(parts) do
+		local id = api.res.modelRep.find(v.name)
+		local p = id and id >= 0 and catalogueModel(id, false)
+		if p then
+			if rec == nil then
+				rec = { key = p.key, name = mu.name, carrier = p.carrier, speed = p.speed, year_from = p.year_from, year_to = p.year_to,
+					multiple_unit = num(muId), price = 0, capacity = 0, power = 0 }
+			end
+			rec.year_from = math.max(rec.year_from, p.year_from)
+			if p.year_to > 0 and (rec.year_to == 0 or p.year_to < rec.year_to) then rec.year_to = p.year_to end
+			if p.speed and (rec.speed == nil or p.speed < rec.speed) then rec.speed = p.speed end
+			rec.price = rec.price + (p.price or 0); rec.capacity = rec.capacity + (p.capacity or 0); rec.power = rec.power + (p.power or 0)
+			if p.cargo and not rec.cargo then rec.cargo = p.cargo end
+		end
+	end
+	if rec then
+		for _, k in ipairs({ "price", "capacity", "power" }) do if rec[k] == 0 then rec[k] = nil end end
+	end
+	return rec
+end
+
+local function catalogueStart(lang)
+	local items = {}
+	pcall(function() api.res.modelRep.forEachModelWithMetadata("transportVehicle", function(name) items[#items + 1] = { model = name } end) end)
+	pcall(function() for id in pairs(api.res.multipleUnitRep.getAll()) do items[#items + 1] = { mu = id } end end)
+	catalogueJob = { items = items, i = 0, out = {}, lang = lang, errors = 0 }
+end
+
+-- runs items until the budget is spent; returns true when the catalogue is complete
+local function catalogueRun(budget)
+	local job = catalogueJob
+	local t0 = os.clock()
+	repeat
+		job.i = job.i + 1
+		local it = job.items[job.i]
+		if it == nil then return true end
+		local ok, rec = pcall(function()
+			if it.mu then return catalogueMultipleUnit(it.mu) end
+			return catalogueModel(api.res.modelRep.find(it.model), true)
+		end)
+		if ok and rec then job.out[#job.out + 1] = rec elseif not ok then job.errors = job.errors + 1 end
+	until os.clock() - t0 >= budget
+	return false
+end
+
 -- ---------------------------------------------------------------- snapshot
 local seq = 0
 local lastFast, lastSlow = -1e9, -1e9
@@ -1385,6 +1496,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 			if not okA then debug("pollActivity failed:", tostring(hinted))
 			elseif hinted then debug("activity hint: relaxed budget for " .. ACTIVITY_WINDOW .. "s") end
 		end
+		if present[CATALOGUE_FILE] and not o.export_catalogue then pcall(app.removeUserdata, DIR, CATALOGUE_FILE) end  -- setting turned off: no stale catalogue
 		if present[CMD_FILE] then
 			local okP, errP = pcall(pollCommands)
 			if not okP then debug("pollCommands failed:", tostring(errP)) end
@@ -1438,6 +1550,27 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		if slowPending ~= nil then return end  -- do not write live.lua in the same frame as a slow file
 	end
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
+
+	-- vehicle catalogue (opt-in): (re)built when never written or the game language changed, written in a frame of its own
+	if o.export_catalogue then
+		local lang = gameLanguage(false) or "?"
+		if catalogueJob == nil and catalogueLang ~= lang then catalogueStart(lang) end
+		if catalogueJob ~= nil then
+			local okC, doneC = pcall(catalogueRun, active and ACTIVITY_BUDGET or SLOW_BUDGET)
+			if not okC then
+				log("catalogue failed:", tostring(doneC)); catalogueJob = nil; catalogueLang = lang
+			elseif doneC then
+				local job = catalogueJob
+				catalogueJob = nil
+				catalogueLang = job.lang
+				local okW, errW = pcall(app.saveUserdata, DIR, CATALOGUE_FILE,
+					{ schema = SCHEMA, mod = MOD_ID, lang = job.lang, real_time = os.time(), items = job.out })
+				if not okW then log("saveUserdata failed for " .. CATALOGUE_FILE .. ":", tostring(errW)) end
+				debug(string.format("catalogue: %d vehicles written (%d errors)", #job.out, job.errors))
+				return
+			end
+		end
+	end
 
 	if now - lastFast < o.interval_fast then return end
 	local tb = os.clock()

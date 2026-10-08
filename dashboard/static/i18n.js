@@ -33,6 +33,13 @@ window.I18N = {
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     // tabs
     tab_overview: "Operations", tab_vehicles: "Vehicles", tab_lines: "Lines", tab_map: "Map", tab_towns: "Towns", tab_industries: "Industries", tab_stations: "Stations & depots", tab_finance: "Finances",
+    // vehicle catalogue
+    tab_catalogue: "Catalogue", cat_hint: "every vehicle you can buy, by year of availability (mods included)", cat_show_past: "past years", cat_show_wagons: "wagons",
+    cat_need_mod: "The vehicle catalogue is off. Turn on \"Vehicle catalogue\" in the mod settings (savegame menu) and reload the savegame.", cat_k_new: "New this year", cat_k_next: "Next 5 years", cat_k_retiring: "Withdrawn by next year",
+    cat_k_available: "Available now", cat_this_year: "this year", cat_in_years: "in {n} year(s)", cat_years_ago: "{n} year(s) ago",
+    cat_new: "new this year", cat_until: "until {y}", cat_retired: "withdrawn since {y}",
+    cat_in_fleet: "in your fleet: {n}", cat_mu: "multiple unit", cat_wagon: "Wagon", cat_capacity: "{n} places",
+    cat_power: "{n} kW", cat_none: "No vehicle matches.",
     // overview
     fleet_in_service: "Fleet in service", samples: "{n} samples", by_carrier: "By carrier", alerts: "Alerts", none: "none",
     fill_speed: "Load factor & average speed", watch_idle: "Watch — idle / no line", worn_first: "Wear — service first",
@@ -148,6 +155,13 @@ window.I18N = {
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     snapshot_status: "snapshot #{id} · il y a {ago}", errors_n: "{n} erreur(s)", server_down: "serveur injoignable : {msg}",
     tab_overview: "Exploitation", tab_vehicles: "Véhicules", tab_lines: "Lignes", tab_map: "Carte", tab_towns: "Villes", tab_industries: "Industries", tab_stations: "Gares & dépôts", tab_finance: "Finances",
+    // vehicle catalogue
+    tab_catalogue: "Catalogue", cat_hint: "tous les véhicules achetables, par année de disponibilité (mods compris)", cat_show_past: "années passées", cat_show_wagons: "wagons",
+    cat_need_mod: "Le catalogue des véhicules est désactivé. Activez « Catalogue des véhicules » dans les paramètres du mod (menu de la partie) et rechargez la partie.", cat_k_new: "Nouveaux cette année", cat_k_next: "5 prochaines années", cat_k_retiring: "Retirés d'ici l'an prochain",
+    cat_k_available: "Disponibles", cat_this_year: "cette année", cat_in_years: "dans {n} an(s)", cat_years_ago: "il y a {n} an(s)",
+    cat_new: "nouveau cette année", cat_until: "jusqu'en {y}", cat_retired: "retiré depuis {y}",
+    cat_in_fleet: "dans votre flotte : {n}", cat_mu: "rame automotrice", cat_wagon: "Wagon", cat_capacity: "{n} places",
+    cat_power: "{n} kW", cat_none: "Aucun véhicule ne correspond.",
     fleet_in_service: "Flotte en service", samples: "{n} relevés", by_carrier: "Par transporteur", alerts: "Alertes", none: "aucune",
     fill_speed: "Remplissage & vitesse moyenne", watch_idle: "À surveiller — immobilisés / sans ligne", worn_first: "Usure — à réviser en premier",
     stuck_title: "Bloqués en route", stuck_sub: "vitesse nulle depuis > 20 s", lines_unhappy: "Lignes les plus mécontentes", lines_loaded: "Lignes les plus chargées", export_errors: "Erreurs d'export",
@@ -252,6 +266,13 @@ window.I18N = {
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     snapshot_status: "Snapshot #{id} · vor {ago}", errors_n: "{n} Fehler", server_down: "Server nicht erreichbar: {msg}",
     tab_overview: "Betrieb", tab_vehicles: "Fahrzeuge", tab_lines: "Linien", tab_map: "Karte", tab_towns: "Städte", tab_industries: "Industrien", tab_stations: "Stationen & Depots", tab_finance: "Finanzen",
+    // vehicle catalogue
+    tab_catalogue: "Katalog", cat_hint: "alle kaufbaren Fahrzeuge nach Verfügbarkeitsjahr (Mods inklusive)", cat_show_past: "vergangene Jahre", cat_show_wagons: "Wagen",
+    cat_need_mod: "Der Fahrzeugkatalog ist aus. „Fahrzeugkatalog“ in den Mod-Einstellungen (Spielstand-Menü) einschalten und den Spielstand neu laden.", cat_k_new: "Neu in diesem Jahr", cat_k_next: "Nächste 5 Jahre", cat_k_retiring: "Bis nächstes Jahr ausgemustert",
+    cat_k_available: "Verfügbar", cat_this_year: "dieses Jahr", cat_in_years: "in {n} Jahr(en)", cat_years_ago: "vor {n} Jahr(en)",
+    cat_new: "neu in diesem Jahr", cat_until: "bis {y}", cat_retired: "ausgemustert seit {y}",
+    cat_in_fleet: "in Ihrer Flotte: {n}", cat_mu: "Triebzug", cat_wagon: "Wagen", cat_capacity: "{n} Plätze",
+    cat_power: "{n} kW", cat_none: "Kein Fahrzeug passt.",
     fleet_in_service: "Flotte im Einsatz", samples: "{n} Messungen", by_carrier: "Nach Verkehrsträger", alerts: "Warnungen", none: "keine",
     fill_speed: "Auslastung & Durchschnittsgeschwindigkeit", watch_idle: "Beobachten — stehend / ohne Linie", worn_first: "Verschleiss — zuerst warten",
     stuck_title: "Unterwegs blockiert", stuck_sub: "Geschwindigkeit null seit > 20 s", lines_unhappy: "Unzufriedenste Linien", lines_loaded: "Am stärksten ausgelastete Linien", export_errors: "Exportfehler",
@@ -368,6 +389,13 @@ window.I18N = {
     cam_delete_title: "Apagar a visão", cam_rename_ok: "Renomear", cam_update_title: "Substituir a visão",
     confirm_title: "Confirmação", cam_needs_rev7: "As visões de câmera precisam da revisão 7 do mod (o jogo ainda não exporta a câmera). Atualize o mod no Mod Hub e recarregue o jogo salvo.",
     tab_overview: "Operações", tab_vehicles: "Veículos", tab_lines: "Linhas", tab_map: "Mapa", tab_towns: "Cidades", tab_industries: "Indústrias", tab_stations: "Estações e depósitos", tab_finance: "Finanças",
+    // vehicle catalogue
+    tab_catalogue: "Catálogo", cat_hint: "todos os veículos que dá para comprar, por ano de lançamento (mods incluídos)", cat_show_past: "anos anteriores", cat_show_wagons: "vagões",
+    cat_need_mod: "O catálogo de veículos está desativado. Ative \"Catálogo de veículos\" nas configurações do mod (menu do jogo salvo) e recarregue o jogo.", cat_k_new: "Novos este ano", cat_k_next: "Próximos 5 anos", cat_k_retiring: "Saem de linha até o ano que vem",
+    cat_k_available: "Disponíveis agora", cat_this_year: "este ano", cat_in_years: "daqui a {n} ano(s)", cat_years_ago: "há {n} ano(s)",
+    cat_new: "novo este ano", cat_until: "até {y}", cat_retired: "fora de linha desde {y}",
+    cat_in_fleet: "na sua frota: {n}", cat_mu: "trem-unidade", cat_wagon: "Vagão", cat_capacity: "{n} lugares",
+    cat_power: "{n} kW", cat_none: "Nenhum veículo encontrado.",
     // overview
     fleet_in_service: "Frota em serviço", samples: "{n} amostras", by_carrier: "Por modal", alerts: "Alertas", none: "nenhum",
     fill_speed: "Taxa de ocupação e velocidade média", watch_idle: "Atenção — ociosos / sem linha", worn_first: "Desgaste — revisar primeiro",

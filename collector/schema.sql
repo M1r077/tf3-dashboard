@@ -344,6 +344,29 @@ CREATE TABLE IF NOT EXISTS industry_cargo (
     PRIMARY KEY (snapshot_id, industry_id, cargo_id, direction)
 );
 
+-- ---------------------------------------------------------------- vehicle catalogue (opt-in mod setting)
+-- Every vehicle model the player can buy, replaced as a whole when the mod writes a new catalogue (once per session
+-- and on a language change). model_id is a stable hash of the model key (and multiple unit id).
+CREATE TABLE IF NOT EXISTS vehicle_model (
+    game_id       INTEGER NOT NULL REFERENCES game(game_id),
+    model_id      INTEGER NOT NULL,
+    model_key     TEXT NOT NULL,                  -- "train/re_44i" (icons/vehicles/<key>.png); leading part for a multiple unit
+    name          TEXT,                           -- localized
+    category      TEXT,                           -- bus, truck, tram, train, waggon, plane, helicopter, ship... (from the key)
+    carrier       TEXT,
+    year_from     INTEGER,
+    year_to       INTEGER,                        -- 0 = never withdrawn
+    speed_ms      REAL,
+    capacity      INTEGER,
+    cargo         TEXT,                           -- comma separated cargo types it can carry
+    price         REAL,
+    power_kw      REAL,
+    multiple_unit INTEGER,                        -- multiple unit id (sold as one train), NULL for a single model
+    lang          TEXT,
+    updated       TEXT,
+    PRIMARY KEY (game_id, model_id)
+);
+
 -- ---------------------------------------------------------------- depots
 CREATE TABLE IF NOT EXISTS depot (
     game_id    INTEGER NOT NULL REFERENCES game(game_id),

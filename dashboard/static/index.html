@@ -57,7 +57,7 @@
   <div class="setrow"><span class="lbl" data-i18n="set_clock"></span>
     <label><input type="checkbox" id="set-clock"> <span data-i18n="set_clock_hint"></span></label></div>
   <div class="setrow"><span class="lbl" data-i18n="set_default_tab"></span>
-    <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option></select></div>
+    <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option><option value="catalogue" data-i18n="tab_catalogue"></option></select></div>
   <div class="setrow"><span class="lbl" data-i18n="set_layout"></span>
     <span class="btns"><button class="btn" id="set-layout-edit"><i class="ico sm" data-ico="edit"></i><span data-i18n="layout_edit"></span></button><button class="btn" id="set-layout-reset"><i class="ico sm" data-ico="reset"></i><span data-i18n="layout_reset_all"></span></button></span></div>
   <div class="setrow"><span class="lbl"></span><button class="btn" id="set-reset" data-i18n="set_reset"></button></div>
@@ -71,6 +71,7 @@
   <button data-tab="map"><i class="ico" data-ico="locate"></i><span data-i18n="tab_map"></span></button>
   <button data-tab="towns"><i class="ico" data-ico="town"></i><span data-i18n="tab_towns"></span></button>
   <button data-tab="industries"><i class="ico" data-ico="industry"></i><span data-i18n="tab_industries"></span></button>
+  <button data-tab="catalogue"><i class="ico" data-ico="calendar"></i><span data-i18n="tab_catalogue"></span></button>
   <button data-tab="stations"><i class="ico" data-ico="station"></i><span data-i18n="tab_stations"></span></button>
   <button data-tab="finance" class="dim"><i class="ico" data-ico="money"></i><span data-i18n="tab_finance"></span></button>
   <div id="range-bar" class="rangebar" data-i18n-title="range_title"><i class="ico sm" data-ico="clock"></i>
@@ -202,6 +203,18 @@
       <div class="card tablecard" data-panel="ind-table" data-w="7"><table id="ind-table" class="data"></table></div>
       <div class="card sticky" id="ind-detail" data-panel="ind-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_industry"></p></div>
     </div>
+  </section>
+
+  <!-- ------------------------------------------------ vehicle catalogue -->
+  <section id="tab-catalogue" class="tab">
+    <div class="toolbar">
+      <input id="cat-filter" data-i18n-ph="filter">
+      <span id="cat-types" class="typebar"></span>
+      <label><input type="checkbox" id="cat-past"> <span data-i18n="cat_show_past"></span></label>
+      <label><input type="checkbox" id="cat-wagons"> <span data-i18n="cat_show_wagons"></span></label>
+      <span class="hint" data-i18n="cat_hint"></span>
+    </div>
+    <div class="panels" data-layout="catalogue"><div class="card" id="cat-list" data-panel="cat-list" data-w="12"></div></div>
   </section>
 
   <!-- ------------------------------------------------ stations -->

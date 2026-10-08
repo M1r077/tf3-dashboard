@@ -135,6 +135,9 @@ class Store:
         ("line", "custom_filters", "INTEGER"),
         ("line", "reservation_priority", "REAL"),
         ("line_stop", "load_mode", "INTEGER"),
+        ("company", "hq_x", "REAL"),
+        ("company", "hq_y", "REAL"),
+        ("company", "hq_id", "INTEGER"),
         ("line_stop", "min_wait", "REAL"),
         ("line_stop", "max_wait", "REAL"),
         ("line_stop", "max_add_wait", "REAL"),
@@ -257,13 +260,19 @@ class Store:
         if not isinstance(c, dict):
             return
         self.con.execute(
-            """INSERT OR REPLACE INTO company VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            """INSERT OR REPLACE INTO company (snapshot_id, total_score, rail_vehicles, trams, road_vehicles, aircrafts, ships,
+                   track_length_m, track_electric_m, bridge_length_m, tunnel_length_m, road_length_m, supplied_towns,
+                   connected_industries, number_of_lines, total_stations, rail_stations, tram_stations, road_stations,
+                   aircraft_stations, ship_stations, top_speed, top_length, oldest_vehicle, total_assets, debt,
+                   hq_x, hq_y, hq_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, c.get("totalScore"), c.get("railVehicles"), c.get("trams"), c.get("roadVehicles"), c.get("aircrafts"),
              c.get("ships"), c.get("trackTotalLength"), c.get("trackElectricLength"), c.get("bridgeTotalLength"),
              c.get("tunnelTotalLength"), c.get("roadTotalLength"), c.get("suppliedTowns"), c.get("connectedIndustries"),
              c.get("numberOfLines"), c.get("totalStations"), c.get("railStations"), c.get("tramStations"),
              c.get("roadStations"), c.get("aircraftStations"), c.get("shipStations"), c.get("topSpeed"),
-             c.get("topLength"), c.get("oldestTransportVehicle"), c.get("totalAssets"), c.get("debt")),
+             c.get("topLength"), c.get("oldestTransportVehicle"), c.get("totalAssets"), c.get("debt"),
+             c.get("headquarterX"), c.get("headquarterY"), c.get("headquarterId")),
         )
 
     def _cargo_types(self, gid: int, cts: Any):

@@ -78,7 +78,8 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Noise per district | `town.getTownNoisePerDistrict` | | EASY |
 | Pollution / noise emitters | `emission.getPollutionEmittersInSettlementArea`, `getNoiseEmittersNearSettlementLandUses` | | EASY |
 | Logbooks (native time series) | `logbook.getLogValuePerYear/MostRecent`, `getChartDiff` | the same curves as the game's statistics, per entity | MEDIUM |
-| Full finance table | `finance.computeFinanceTable(player, config)`, `getAccountChart` | Finances tab identical to the game | MEDIUM |
+| Full finance table | `finance.computeFinanceTable(player, config)`, `getAccountChart` | Finances tab identical to the game | **DONE** (rev 10: `company.finance_years` / `finance_months`, flattened per category) |
+| Loans | game script state `::/game_mechanics/finance/loan.gs` (`availableLoans`, `obtainedLoans`); events `Loan`/`Obtain` and `Loan`/`Repay` via `api.cmd.makeScriptingSendEventCmd` | Finances tab: take / repay a loan, cash forecast | **DONE** (rev 10: `company.loans`, commands `loan_obtain {type}` / `loan_repay {id}`; RISKY, confirmation in the dashboard) |
 | Entities within a radius | `octree.findEntitiesInCircle(center, r, componentType)` | "what happens around this point" | EASY |
 | Closest town to a position | `town.getClosestTown(pos)` | | DONE (approximated) |
 | Theoretical path | `pathfinding.findPathNodeToNode` | check whether two stations are connected | MEDIUM |
@@ -156,7 +157,7 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Manual departure on/off (never leaves on its own) | `makeVehicleSetManualDepartureCmd(v, bool)` | `vehicle_manual_departure` | EASY |
 | Change line (and go to stop n) | `makeVehicleSetLineCmd(v, line, stopIndex)` | `vehicle_set_line {vehicle, line, stop}` | EASY — check carrier compatibility with `line.isLineCompatibleWithCarrier` first |
 | Remove from line | `makeVehicleSetLineCmd(v, -1, 0)` (to verify in game) | | MEDIUM |
-| Sell (in depot) | `makeVehicleSellCmd({v,...})` | `vehicle_sell` | RISKY |
+| Sell | `makeVehicleSellCmd({v})` in a depot, else `makeVehicleSendToDepotCmd(v, true)` | `vehicle_sell {vehicle}` | **DONE** (rev 10, RISKY: confirmation in the dashboard) |
 | Buy | `makeVehicleBuyCmd(player, depot, TransportVehicleConfig)` | `vehicle_buy {depot, model(s)}` | MEDIUM/RISKY — a `TransportVehicleConfig` must be composed (parts, groups, muFileNames); cloning the config of an existing vehicle is the simple and safe case ("+1 identical on this line") |
 | Replace (new model) | `makeVehicleReplaceCmd(v, tvc)` | `vehicle_replace` | MEDIUM/RISKY |
 | Modifiers (max speed x, noise x, pollution x, comfort x) | `makeVehicleSetModifiersCmd(v, Modifiers)` | | NO (cheat) |

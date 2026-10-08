@@ -90,6 +90,14 @@ CREATE TABLE IF NOT EXISTS company (
     hq_id                INTEGER
 );
 
+-- mod rev 10+: the Finances window table ({"years": ..., "months": ...}) and the loans, latest copy only (one row per game)
+CREATE TABLE IF NOT EXISTS finance_latest (
+    game_id      INTEGER PRIMARY KEY REFERENCES game(game_id),
+    snapshot_id  INTEGER NOT NULL,
+    finance_json TEXT,
+    loans_json   TEXT
+);
+
 -- ---------------------------------------------------------------- reference data
 CREATE TABLE IF NOT EXISTS cargo_type (
     game_id   INTEGER NOT NULL REFERENCES game(game_id),

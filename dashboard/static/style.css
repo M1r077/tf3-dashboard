@@ -486,3 +486,22 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 
 .hqstar { color: #e8b04b; display: inline-flex; vertical-align: middle; }
 .hqstar .ico { margin: 0; color: inherit; }
+
+/* finance tab: KPI strip */
+.finkpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.finkpis .kpi .v { font-size: clamp(18px, 1.3vw, 24px); }
+.finkpis .kpi .v.pos, .finkpis .kpi .s.pos { color: var(--ok); }
+.finkpis .kpi .v.neg, .finkpis .kpi .s.neg { color: var(--bad); }
+.finnote { margin-top: 6px; font-size: 12px; }
+.finalerts { display: flex; flex-wrap: wrap; gap: 6px; }
+.finalerts .chip { margin: 0; }
+.loans { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.loans h3 { grid-column: 1 / -1; margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.loancard { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.loancard.cool { opacity: .55; }
+.loancard .amt { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.loancard .stats { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.loancard .btn { margin-top: 4px; align-self: flex-start; }
+table.fintable td.num, table.fintable th.num { white-space: nowrap; }
+table.fintable tr.sub td:first-child { padding-left: 18px; color: var(--muted); }
+table.fintable tr.tot td { font-weight: 600; border-top: 1px solid var(--border); }

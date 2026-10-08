@@ -32,6 +32,45 @@ LINES = [(400, "IR Léman", (0.85, 0.2, 0.2), [300, 301, 302, 303, 304], 0, "RAI
          (406, "Bus Aubonne–Rolle", (0.6, 0.3, 0.8), [310, 302], 0, "ROAD", 3)]
 DEPOTS = [(500, "Dépôt rail Nyon", "RAIL"), (501, "Dépôt routier Gland", "ROAD")]
 
+
+def fake_finance_table(cols: int, k: int, nveh: int, months: int) -> dict:
+    """Same shape as the mod's collectFinanceTable (mod rev 10): one value per column, oldest first."""
+    rnd = random.Random(1000 * months + k // 6)
+    def col(base, jitter=0.25):
+        return [int(base * months * (1 + (i / max(1, cols)) * 0.6) * (1 + rnd.uniform(-jitter, jitter))) for i in range(cols)]
+    inc = {"RAIL": col(52000 * nveh / 20), "ROAD": col(21000 * nveh / 20), "TRAM": col(0)}
+    run = {"RAIL": [-v // 3 for v in inc["RAIL"]], "ROAD": [-v // 2 for v in inc["ROAD"]], "TRAM": col(0)}
+    vm = {"RAIL": [-v // 14 for v in inc["RAIL"]], "ROAD": [-v // 12 for v in inc["ROAD"]], "TRAM": col(0)}
+    up = {"RAIL": [-v // 9 for v in inc["RAIL"]], "ROAD": [-v // 16 for v in inc["ROAD"]], "TRAM": col(0)}
+    acq = {"RAIL": [-v if i % 3 == 0 else 0 for i, v in enumerate(col(40000))], "ROAD": [0] * cols, "TRAM": [0] * cols}
+    add = lambda d: [sum(d[c][i] for c in d) for i in range(cols)]
+    income, running, vmaint, upkeep, acquisition = add(inc), add(run), add(vm), add(up), add(acq)
+    construction = [-v if i % 2 == 0 else -v // 4 for i, v in enumerate(col(30000))]
+    interest = [-int(v) for v in col(2500, 0.05)]
+    loan_new = [3000000 if i == cols - 3 else 0 for i in range(cols)]
+    loan_repay = [-int(v) for v in col(15000, 0.02)]
+    total = [income[i] + running[i] + vmaint[i] + upkeep[i] + acquisition[i] + construction[i] + interest[i] for i in range(cols)]
+    bal = []
+    acc = 9000000
+    for i in range(cols):
+        acc += total[i] + loan_new[i] + loan_repay[i]
+        bal.append(acc)
+    return {"header": ([f"{(i * 4) % 12 + 1}/{7 + (i * 4) // 12:02d} - {(i * 4) % 12 + 4}/{7 + (i * 4) // 12:02d}" for i in range(cols)] if months == 1 else [f"{1900 + 4 * i} - {1903 + 4 * i}" for i in range(cols)]), "income": income, "running": running, "vehicle_maint": vmaint, "infra_upkeep": upkeep,
+            "upkeep_other": [0] * cols, "construction": construction, "acquisition": acquisition, "subsidy": [0] * cols, "other": [0] * cols,
+            "by_carrier": {c: {"income": inc[c], "running": run[c], "vehicle_maint": vm[c], "upkeep": up[c], "acquisition": acq[c]} for c in inc},
+            "interest": interest, "loan_new": loan_new, "loan_repay": loan_repay, "total": total, "balance": bal, "loan": [1000000 + 3000000 * (i >= cols - 3) for i in range(cols)]}
+
+
+def fake_loans(k: int) -> dict:
+    mo, yr = 30000, 360000
+    return {"month_ms": mo, "year_ms": yr, "max": 4, "game_time": k * 1000,
+            "available": [{"type": "Small", "amount": 6000000, "duration": 2 * yr, "percentage": 0.04, "id": None},
+                          {"type": "Medium", "amount": 18000000, "duration": 5 * yr, "percentage": 0.06},
+                          {"type": "Large", "cooldown_until": 99999999},
+                          {"type": "ExtraLarge", "amount": 48000000, "duration": 15 * yr, "percentage": 0.11}],
+            "obtained": [{"type": "Small", "amount": 3000000, "duration": 4 * yr, "percentage": 0.05, "last_pay_day": 0, "times_paid": 12, "id": 0},
+                         {"type": "Medium", "amount": 1000000, "duration": 2 * yr, "percentage": 0.07, "last_pay_day": 0, "times_paid": 3, "id": 1}]}
+
 VEHICLES = []
 vid = 600
 for lid, name, _, stops, cargo, carrier, n in LINES:
@@ -141,6 +180,9 @@ for k in range(N):
                            "trackTotalLength": 42000 + k * 30, "trackElectricLength": 18000 + k * 20, "bridgeTotalLength": 1200, "tunnelTotalLength": 600, "roadTotalLength": 15000, "suppliedTowns": 6, "connectedIndustries": 6,
                            "numberOfLines": len(LINES), "totalStations": len(STATIONS), "railStations": 9, "tramStations": 0, "roadStations": 3, "aircraftStations": 0, "shipStations": 0, "topSpeed": 33.3, "topLength": 180,
                            "oldestTransportVehicle": 1900, "balance": int(balance), "totalAssets": int(balance + nveh * 150000), "debt": loan}
+        snap["company"]["finance_months"] = fake_finance_table(12, k, nveh, 1)
+        snap["company"]["finance_years"] = fake_finance_table(6, k, nveh, 12)
+        snap["company"]["loans"] = fake_loans(k)
         snap["cargo_types"] = [{"id": i, "name": n} for i, n in CARGO]
         snap["lines"] = []
         for lid, name, col, stops, cargo, carrier, n in LINES:

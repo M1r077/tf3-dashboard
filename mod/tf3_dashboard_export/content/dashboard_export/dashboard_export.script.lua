@@ -13,7 +13,7 @@
 -- Everything runs on the GUI thread (guiUpdate): the GUI state has read access to the whole
 -- engine state, "app" is available there, and nothing is stored in the savegame.
 -- Every section is wrapped in pcall: a failing section is reported in snapshot.errors and the
--- rest of the snapshot is still written. Read-only: no api.cmd is ever sent.
+-- rest of the snapshot is still written. Read-only unless the player opts in to commands (accept_commands).
 
 local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
@@ -21,6 +21,7 @@ local MOD_ID = "tf3_dashboard_export"
 -- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
 -- 7: files moved to towns_industries/tf3dash_* (rev 9, game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
 -- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (rev 8, companion >= 0.3.1)
+-- 7 (rev 10): company.finance_years / finance_months (the Finances window table) and company.loans; loan_obtain / loan_repay commands
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other). Up to rev 8 the
@@ -232,6 +233,118 @@ local function collectHeadquarterPos()
 	return pos
 end
 
+-- ---------------------------------------------------------------- finance table + loans (company section)
+-- computeFinanceTable is what the game's Finances window shows: one column per interval (header strings), rows per
+-- journal category. It is flattened to the categories the dashboard charts. Arrays are one value per column.
+local function plainArray(t)
+	local out = {}
+	if t == nil then return out end
+	pcall(function() for i = 1, #t do out[i] = num(t[i]) or 0 end end)
+	return out
+end
+
+local function addInto(dst, src)
+	for i, v in ipairs(src) do dst[i] = (dst[i] or 0) + v end
+end
+
+local function carrierName(c)
+	local C = api.type.JournalEntry.Carrier
+	if c == C.ROAD then return "ROAD" elseif c == C.RAIL then return "RAIL" elseif c == C.TRAM then return "TRAM"
+	elseif c == C.AIR then return "AIR" elseif c == C.WATER then return "WATER" end
+	return "OTHER"
+end
+
+local function collectFinanceTable(player, count, interval)
+	local cfg = api.type.ChartConfig.new()
+	cfg.count = count
+	if interval then cfg.interval = interval end
+	local ft = api.engine.util.finance.computeFinanceTable(player, cfg)
+	local T, M = api.type.JournalEntry.Type, api.type.JournalEntry.Maintenance
+	local out = { header = {}, income = {}, running = {}, vehicle_maint = {}, infra_upkeep = {}, upkeep_other = {}, construction = {},
+		acquisition = {}, subsidy = {}, other = {}, by_carrier = {} }
+	for i, h in ipairs(ft.header or {}) do out.header[i] = tostring(h) end
+	local function classify(key, values)
+		-- unfoldKey returns ONE table {type, maintenance, construction} (the game indexes it: key[1] == Type.INCOME)
+		local k = ft:unfoldKey(key)
+		local ty, mt = k[1], k[2]
+		if ty == T.INCOME then return "income"
+		elseif ty == T.MAINTENANCE then
+			if mt == M.VEHICLE then return "running"
+			elseif mt == M.VEHICLE_MAINTENANCE then return "vehicle_maint"
+			elseif mt == M.INFRASTRUCTURE then return "infra_upkeep" end
+			return "upkeep_other"
+		elseif ty == T.ACQUISITION then return "acquisition"
+		elseif ty == T.CONSTRUCTION then return "construction"
+		elseif ty == T.SUBSIDY then return "subsidy" end
+		return "other"
+	end
+	-- diagnostics: how many entries the iterators delivered and the first error raised inside a callback (the engine
+	-- iterators may swallow Lua errors, which would leave the categories empty without a trace)
+	local dbg = { transport = 0, investment = 0, other = 0, carriers = 0 }
+	out.debug = dbg
+	local function note(e) if dbg.err == nil then dbg.err = tostring(e) end end
+	local okC, errC = pcall(function()
+		ft:foreach_carrier(function(carrier)
+			dbg.carriers = dbg.carriers + 1
+			local cn = carrierName(carrier)
+			local bc = { income = {}, running = {}, vehicle_maint = {}, upkeep = {}, acquisition = {} }
+			out.by_carrier[cn] = bc
+			ft:foreach_transport(function(key, values)
+				dbg.transport = dbg.transport + 1
+				local ok, e = pcall(function()
+					local cat = classify(key, values)
+					local v = plainArray(values)
+					addInto(out[cat], v)
+					local slot = (cat == "infra_upkeep" or cat == "upkeep_other") and "upkeep" or cat
+					if bc[slot] then addInto(bc[slot], v) end
+				end)
+				if not ok then note(e) end
+			end, carrier)
+		end)
+	end)
+	if not okC then note(errC) end
+	local okI, errI = pcall(function()
+		ft:foreach_investment(function(key, values)
+			dbg.investment = dbg.investment + 1
+			local ok, e = pcall(function() addInto(out[classify(key, values)], plainArray(values)) end)
+			if not ok then note(e) end
+		end)
+	end)
+	if not okI then note(errI) end
+	local okO, errO = pcall(function()
+		ft:foreach_other(function(_, values) dbg.other = dbg.other + 1; addInto(out.other, plainArray(values)) end)
+	end)
+	if not okO then note(errO) end
+	out.interest, out.loan_new, out.loan_repay = plainArray(ft.interest), plainArray(ft.loanBorrowing), plainArray(ft.loanRepayment)
+	out.total, out.balance, out.loan = plainArray(ft.total), plainArray(ft.balance), plainArray(ft.loan)
+	return out
+end
+
+local LOAN_SCRIPT = "::/game_mechanics/finance/loan.gs"
+local MAX_LOANS = 4  -- loan_util.maximalObtainableLoans
+
+local function loanTable()
+	local ent = api.engine.system.gameScriptSystem.getEntityForGameScript(LOAN_SCRIPT)
+	local gs = ent and api.engine.getComponent(ent, api.type.ComponentType.GAME_SCRIPT)
+	return gs and gs.state
+end
+
+local function loanRec(l)
+	return { type = l.type and tostring(l.type) or nil, amount = num(l.amount), duration = num(l.duration), percentage = num(l.percentage),
+		last_pay_day = num(l.lastPayDay), times_paid = num(l.timesPaid), cooldown_until = num(l.cooldownUntil), id = num(l.id) }
+end
+
+local function collectLoans()
+	local lt = loanTable()
+	if not lt then return nil end
+	local out = { available = {}, obtained = {}, max = MAX_LOANS, month_ms = num(api.util.getDefaultMonthDuration()), year_ms = num(api.util.getDefaultYearDuration()) }
+	for _, l in ipairs(arr(lt.availableLoans)) do out.available[#out.available + 1] = loanRec(l) end
+	for _, l in ipairs(arr(lt.obtainedLoans)) do out.obtained[#out.obtained + 1] = loanRec(l) end
+	local gt = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
+	out.game_time = num(gt and gt.gameTime)
+	return out
+end
+
 local function collectCompany()
 	local cv = api.engine.util.headquarters.getCompaniesValue()
 	local keys = { "totalScore", "railVehicles", "trams", "roadVehicles", "aircrafts", "ships", "trackTotalLength", "trackElectricLength",
@@ -242,6 +355,15 @@ local function collectCompany()
 	for _, k in ipairs(keys) do out[k] = num(cv[k]) end
 	local hq = collectHeadquarterPos()
 	if hq then out.headquarterId, out.headquarterX, out.headquarterY = hq.id, hq.x, hq.y end
+	-- finance table (Finances window) by year and by month, and the loan state; each in its own pcall so that a game
+	-- build without them only loses these fields (rev 10)
+	local player = api.engine.util.getPlayer()
+	local okY, ty = pcall(collectFinanceTable, player, 6, nil)
+	if okY then out.finance_years = ty end
+	local okM, tm = pcall(collectFinanceTable, player, 12, num(api.util.getDefaultMonthDuration()))
+	if okM then out.finance_months = tm end
+	local okL, tl = pcall(collectLoans)
+	if okL then out.loans = tl end
 	return out
 end
 
@@ -1045,7 +1167,7 @@ end
 --   function data() return { id = <number>, cmd = "<name>", args = { ... } } end
 -- Each file is executed once (dedup on id), then removed. The result is reported in the next
 -- snapshot under snapshot.cmd_ack = { id, cmd, ok, error, real_time }.
--- Only a short whitelist of harmless, reversible actions is accepted (no buy/sell/destroy).
+-- Only a short whitelist of actions is accepted (no buy/sell/destroy; loans and selling a vehicle are the money actions, rev 10).
 -- (lastCmdId / lastAck are declared above buildSnapshot, which reports the ack.)
 
 local function sendCmd(c)
@@ -1086,6 +1208,61 @@ local function forEachLineVehicle(args, make)
 	end
 	if n == 0 then return false, "no command sent" end
 	return true, nil
+end
+
+-- vehicles to sell: { v = entity, at = os.clock() when to send }, see vehicle_sell
+local sellDeferred = {}
+local sellWhenInDepot = {}   -- [vehicle entity] = os.clock() deadline: sent to the depot, to be sold once it is in
+local SELL_WAIT = 900        -- seconds a vehicle may take to reach the depot before the sale is forgotten
+
+local function prepareForRemoval(v)
+	pcall(api.gui.closeAllWindows)
+	local okF, f = pcall(api.gui.camera.getFollowEntity)
+	if okF and type(f) == "table" and num(f[1]) == v then
+		-- release the follow camera: focus the spot the camera looks at now (same trick as set_camera)
+		pcall(function()
+			local c = api.gui.camera.getCameraData()
+			api.gui.camera.focusPosition(api.type.Vec3f.new(c.x or c[1], c.y or c[2], 0), c.z or c[3] or 300)
+		end)
+	end
+end
+
+local lastSellWatch = 0
+local function watchSales(now)
+	if now - lastSellWatch < 0.5 then return end
+	lastSellWatch = now
+	for v, deadline in pairs(sellWhenInDepot) do
+		local drop = now > deadline or not api.engine.entityExists(v)
+		if not drop then
+			local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+			if not tv then drop = true
+			elseif enumName("TransportVehicleState", VSTATES, tv.state) == "IN_DEPOT" then
+				drop = true
+				prepareForRemoval(v)
+				sellDeferred[#sellDeferred + 1] = { v = v, at = now + 1.0 }
+			end
+		end
+		if drop then sellWhenInDepot[v] = nil end
+	end
+end
+
+local function processDeferredSales(now)
+	for i = #sellDeferred, 1, -1 do
+		local job = sellDeferred[i]
+		if now >= job.at then
+			table.remove(sellDeferred, i)
+			local ok, err = pcall(function()
+				local v = job.v
+				if not api.engine.entityExists(v) then return end
+				local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+				-- still in the depot? (it may have been sent out again in the meantime)
+				if tv and enumName("TransportVehicleState", VSTATES, tv.state) == "IN_DEPOT" then
+					api.cmd.sendCommand(api.cmd.makeVehicleSellCmd({ v }), function() end)
+				end
+			end)
+			if not ok then debug("deferred sale failed:", tostring(err)) end
+		end
+	end
 end
 
 local COMMANDS = {
@@ -1175,6 +1352,29 @@ local COMMANDS = {
 	vehicle_start = function(args) return sendCmd(api.cmd.makeVehicleSetStoppedByUserCmd(vehicleEntity(args), false)) end,
 	vehicle_reverse = function(args) return sendCmd(api.cmd.makeVehicleReverseCmd(vehicleEntity(args))) end,
 	vehicle_depart = function(args) return sendCmd(api.cmd.makeVehicleTryToDepartCmd(vehicleEntity(args))) end,
+	-- Sell a vehicle (MONEY, irreversible; the dashboard asks first). Only ever sold while it is IN a depot, like the
+	-- game's own UI does: "sell on arrival" (makeVehicleSendToDepotCmd(v, true)) is never used by the game and crashed it
+	-- ("Assertion it != components.end()" when the vehicle entered the depot). A running vehicle is sent to the depot
+	-- normally and watched; the sale is sent once it is in there (see watchSales).
+	-- The same crash happens when a vehicle is removed while one of its windows is open or the camera follows it (its UI
+	-- keeps reading the components of an entity that no longer exists): windows are closed and the follow camera released
+	-- first, and the sale is sent a moment later (sellDeferred).
+	vehicle_sell = function(args)
+		local v = vehicleEntity(args)
+		local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+		local st = enumName("TransportVehicleState", VSTATES, tv.state)
+		if st == "IN_DEPOT" then
+			prepareForRemoval(v)
+			sellDeferred[#sellDeferred + 1] = { v = v, at = os.clock() + 1.0 }
+			return true
+		end
+		if st ~= "GOING_TO_DEPOT" then
+			local ok = sendCmd(api.cmd.makeVehicleSendToDepotCmd(v, false))
+			if not ok then return false, "could not send the vehicle to the depot" end
+		end
+		sellWhenInDepot[v] = os.clock() + SELL_WAIT
+		return true
+	end,
 	vehicle_to_depot = function(args) return sendCmd(api.cmd.makeVehicleSendToDepotCmd(vehicleEntity(args), false)) end,
 	-- ---- lines
 	-- Edit the departure configuration of one stop. Same mechanism as the game's cargo filter window:
@@ -1303,6 +1503,36 @@ local COMMANDS = {
 	line_stop_all = function(args) return forEachLineVehicle(args, function(v) return api.cmd.makeVehicleSetStoppedByUserCmd(v, true) end) end,
 	line_start_all = function(args) return forEachLineVehicle(args, function(v) return api.cmd.makeVehicleSetStoppedByUserCmd(v, false) end) end,
 	line_all_to_depot = function(args) return forEachLineVehicle(args, function(v) return api.cmd.makeVehicleSendToDepotCmd(v, false) end) end,
+	-- Loans (the game's Finances > Loans window). MONEY: obtaining credits the account at once and schedules the monthly
+	-- repayments; repaying pays the remaining principal now. The dashboard asks for a confirmation first; the loan
+	-- itself is always re-read from the game's own loan table here (only the type / id come from the file), exactly as
+	-- the window does, so an amount can never be made up.
+	loan_obtain = function(args)
+		local ty = args and args.type; if type(ty) ~= "string" then error("missing args.type") end
+		local lt = loanTable(); if not lt then error("loan table not available") end
+		if #arr(lt.obtainedLoans) >= MAX_LOANS then error("maximum number of loans reached") end
+		local loan
+		for _, l in ipairs(arr(lt.availableLoans)) do if tostring(l.type) == ty and l.amount ~= nil then loan = l end end
+		if not loan then error("this loan is not available (cooldown)") end
+		local raw = { type = loan.type, amount = loan.amount, duration = loan.duration, percentage = loan.percentage, birthDay = loan.birthDay }
+		return sendCmd(api.cmd.makeScriptingSendEventCmd("", "Loan", "Obtain", { { type = loan.type }, raw }))
+	end,
+	loan_repay = function(args)
+		local id = num(args and args.id); if id == nil then error("missing args.id") end
+		local lt = loanTable(); if not lt then error("loan table not available") end
+		local loan
+		for _, l in ipairs(arr(lt.obtainedLoans)) do if num(l.id) == id then loan = l end end
+		if not loan then error("no such loan") end
+		-- same figure as the game (loan_util.getFullLoanAndInterestPayBack): the remaining principal
+		local months = math.floor(num(loan.duration) / num(api.util.getDefaultMonthDuration()) + 0.5)
+		local monthly = math.floor(num(loan.amount) / months + 0.5)
+		local left = (months - num(loan.timesPaid)) * monthly + (num(loan.amount) - months * monthly)
+		local bal = num(api.engine.util.finance.getPlayersBalance(api.engine.util.getPlayer()))
+		if bal ~= nil and bal < left then error("not enough money to repay") end
+		local raw = { type = loan.type, amount = loan.amount, duration = loan.duration, percentage = loan.percentage,
+			lastPayDay = loan.lastPayDay, timesPaid = loan.timesPaid, id = loan.id }
+		return sendCmd(api.cmd.makeScriptingSendEventCmd("", "Loan", "Repay", { nil, raw }))
+	end,
 	-- Rename a line / vehicle / station (any named entity)
 	rename_entity = function(args)
 		local e = num(args and args.entity); if not e then error("missing args.entity") end
@@ -1390,6 +1620,8 @@ function script.guiUpdate(_userParams, _state, _guiState)
 			if not okP then debug("pollCommands failed:", tostring(errP)) end
 		end
 	end
+	if next(sellWhenInDepot) ~= nil then watchSales(now) end
+	if #sellDeferred > 0 then processDeferredSales(now) end
 	local active = now < activityUntil
 
 	-- slow cycle: start a job when due, then advance it a little on every frame; a finished cycle is then written

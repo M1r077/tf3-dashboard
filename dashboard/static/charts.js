@@ -130,7 +130,7 @@
           const lines = series.map((s, si) => {
             if (!u.series[si + 1].show) return null;
             const v = s.values[i]; if (v == null) return null;
-            return `<span style="color:${s.color}">â—</span> ${s.name}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
+            return `<span style="color:${s.color}">●</span> ${s.name}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
           }).filter(Boolean);
           if (!lines.length) { el.style.display = "none"; return; }
           const isAgg = opts.aggFrom != null && i < opts.aggFrom;
@@ -202,7 +202,7 @@
     const { w, h } = hostSize(canvas, host);
     const hid = hidden[key] || (hidden[key] = new Set());
     const span = timeAxis ? xs[n - 1] - xs[0] : 0;
-    const getLabel = (i) => timeAxis ? `${fmtTime(xs[i], span)}${labels && labels[i] ? " Â· " + labels[i] : ""}` : dateTick(labels, i) || "#" + i;
+    const getLabel = (i) => timeAxis ? `${fmtTime(xs[i], span)}${labels && labels[i] ? " · " + labels[i] : ""}` : dateTick(labels, i) || "#" + i;
 
     const yRange = (u, min, max, scaleKey) => {
       const forcedMin = scaleKey === "y" ? opts.yMin : null, forcedMax = scaleKey === "y" ? opts.yMax : null;
@@ -243,7 +243,7 @@
           paths: s.step ? uPlot.paths.stepped({ align: 1 }) : uPlot.paths.linear(),
           fill: (s.area || opts.stacked) ? (opts.stacked ? s.color + "55" : s.color + "26") : undefined,
           points: { show: false },
-          value: (u, v) => v == null ? "â€“" : fmtShort(opts.stacked ? s.values[u.cursor.idx] : v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit)),
+          value: (u, v) => v == null ? "–" : fmtShort(opts.stacked ? s.values[u.cursor.idx] : v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit)),
         })),
       ],
       bands: opts.stacked ? series.map((_, si) => si > 0 ? { series: [si + 1, si] } : null).filter(Boolean) : undefined,

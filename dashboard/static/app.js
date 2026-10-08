@@ -38,7 +38,7 @@
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
 
   // ------------------------------------------------------------ settings (browser-local)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, defaultTab: "overview", range: "1h" };
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1h" };
   const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "all"];
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
@@ -48,7 +48,7 @@
     $$("#settings .seg").forEach(seg => $$("button", seg).forEach(b => b.classList.toggle("active", String(settings[seg.dataset.set]) === b.dataset.v)));
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
-    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-default-tab").value = settings.defaultTab;
+    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
@@ -63,6 +63,7 @@
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
   $("#set-keys").addEventListener("change", e => { settings.keys = e.target.checked; applySettings(); });
+  $("#set-clock").addEventListener("change", e => { settings.clock = e.target.checked; applySettings(); refresh(true); });
   $("#set-default-tab").addEventListener("change", e => { settings.defaultTab = e.target.value; applySettings(); });
   $("#set-reset").addEventListener("click", () => { Object.assign(settings, DEFAULTS); localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); applySettings(); refresh(true); });
 
@@ -359,7 +360,9 @@
     const age = (Date.now() - new Date(written).getTime()) / 1000;
     dot.className = "dot " + (age < 15 ? "live" : age < 120 ? "stale" : "dead");
     txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(written) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
-    $("#k-date").textContent = date(s);
+    // optional game clock (snapshot.time_of_day_s, seconds since midnight in game time)
+    const clock = settings.clock && s.time_of_day_s != null ? ` ${String(Math.floor(s.time_of_day_s / 3600) % 24).padStart(2, "0")}:${String(Math.floor(s.time_of_day_s / 60) % 60).padStart(2, "0")}` : "";
+    $("#k-date").textContent = date(s) + clock;
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
     const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
@@ -652,12 +655,17 @@
     }
     if (keepStops) $("#line-stops-wrap").replaceWith(keepStops); else renderStops(l, $("#line-stops-wrap"));
     const hist = h.history || [], labels = hist.map(x => dateLabel(x));
+    // throughput = the game's "transported per year" figure of the line window, on the right axis next to vehicles
     const s1 = [{ name: t("kpi_vehicles"), values: hist.map(x => x.vehicles), color: "#4f8a8a", step: true }];
     if (carriesPax(l)) s1.push({ name: t("th_onboard"), values: hist.map(x => x.persons_on_line), axis: "right", color: "#58a6ff", area: true });
-    Charts.lineChart($("#chart-line-1"), s1, labels, { rightAxis: carriesPax(l), zeroBase: true, ...tsOpts(hist, "line") });
+    s1.push({ name: t("line_throughput"), values: hist.map(x => x.throughput), axis: "right", color: "#e8b04b", dash: [5, 4] });
+    Charts.lineChart($("#chart-line-1"), s1, labels, { rightAxis: true, zeroBase: true, ...tsOpts(hist, "line") });
+    // quality: the game's average rating (0..1, as in the line window) alongside the share of unhappy / late
     const s2 = [];
-    if (carriesPax(l)) s2.push({ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" });
-    if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" });
+    if (carriesPax(l)) s2.push({ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" },
+      { name: t("line_pax_rating"), values: hist.map(x => x.pax_avg_quality != null && x.pax_total ? x.pax_avg_quality * 100 : null), color: "#58a6ff", dash: [5, 4], unit: "%" });
+    if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" },
+      { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     bindActions(el);

@@ -46,6 +46,8 @@ local PARAM_VALUES = {
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
+-- Settings are the mod parameters chosen when the game was loaded (api.engine.config.getModParams, read-only during
+-- the game). The status window shows them, it does not change them.
 local cachedOptions
 local function options()
 	if cachedOptions then return cachedOptions end
@@ -55,21 +57,36 @@ local function options()
 	for key, values in pairs(PARAM_VALUES) do
 		local r = raw[key]
 		local v
-		if type(r) == "number" then
-			-- params declared with "numbers" in mod.json come back as the number itself (1, 2, 5, 10...),
-			-- the others as an index (1-based observed on Button params; tolerate 0-based).
-			-- Match the value first, then fall back to index. Both conventions give the right slider value.
-			for _, cand in ipairs(values) do
-				if cand == r then v = cand; break end
-			end
-			if v == nil then v = values[r] end
-			if v == nil then v = values[r + 1] end
-		end
+		-- Every param comes back as a 1-based index into its values, sliders included (seen in stdout.txt at load:
+		-- "interval_fast = 1, accept_commands = 2"). Up to rev 8 the code matched the value first, which happened
+		-- to work for the first slider position only.
+		if type(r) == "number" then v = values[math.floor(r)] end
 		if v == nil then v = values[PARAM_DEFAULT_INDEX[key]] end
 		o[key] = v
 	end
 	if ok and all then cachedOptions = o end
 	return o
+end
+
+-- what the status window shows: "starting" (first slow cycle running), "ok" (files written), "error" (saveUserdata
+-- refused: Controlled folder access, antivirus, read-only folder...). The React side is told only when it changes.
+local status = { state = "starting", last_ok = nil, last_error = nil, companion_seen = nil, folder = nil }
+local STATUS_EVENT = "TF3DashboardStatus"
+local STATUS_TICK = 2.0  -- the open status window re-reads on this event ("x s ago", companion seen); a timer on the
+local lastStatusTick = -1e9  -- React side cannot read gui script state (build 40420: "API is currently restricted")
+local function setStatus(state, err)
+	local now = os.time()
+	if state == "ok" then status.last_ok = now
+	elseif state == "error" then status.last_error = tostring(err) end
+	if status.state ~= state then
+		status.state = state
+		pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = state })
+	end
+end
+local function statusTick(now)
+	if now - lastStatusTick < STATUS_TICK then return end
+	lastStatusTick = now
+	pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = status.state })
 end
 
 local function log(...)
@@ -1010,8 +1027,10 @@ local function writeSnapshot(snap)
 	local ok, err = pcall(app.saveUserdata, DIR, FILE, snap)
 	if not ok then
 		log("saveUserdata failed:", tostring(err))
+		setStatus("error", err)
 		return false
 	end
+	setStatus("ok")
 	return true
 end
 
@@ -1032,7 +1051,7 @@ local function slowWriteNext()
 	local body = { schema = SCHEMA, mod = MOD_ID, slow_seq = slowPending.collected_seq, section = name, items = slowPending[name] or {} }
 	local t0 = os.clock()
 	local ok, err = pcall(app.saveUserdata, DIR, SLOW_FILE_PREFIX .. name, body)
-	if not ok then log("saveUserdata failed for " .. name .. ":", tostring(err))
+	if not ok then log("saveUserdata failed for " .. name .. ":", tostring(err)); setStatus("error", err)
 	elseif options().debug_log then
 		local dt = os.clock() - t0
 		if dt > 0.01 then log(string.format("slow file %s written in %.0fms", name, dt * 1000)) end
@@ -1374,12 +1393,15 @@ function script.update(_userParams, _state, _dt)
 end
 
 local lastPoll = -1e9
+
 function script.guiUpdate(_userParams, _state, _guiState)
 	local now = os.clock()
 	local o = options()
+	statusTick(now)
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()
+		if present[ACTIVITY_FILE] or present[CMD_FILE] then status.companion_seen = os.time() end
 		if present[ACTIVITY_FILE] then
 			local okA, hinted = pcall(pollActivity, now)
 			if not okA then debug("pollActivity failed:", tostring(hinted))
@@ -1464,6 +1486,38 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 		debug(string.format("seq %d written, %d error(s), %d vehicles", snap.seq, #snap.errors, snap.vehicles and #snap.vehicles or 0))
 	end
+end
+
+-- ---------------------------------------------------------------- status window (rev 10)
+-- The status window (status_ui.script.lua, a plugin of the game's mod button area) reads from this script with
+--   api.gui.fireGuiScriptEvent(UI_ID, "read")  -> guiHandleEvent returns { status, current = { key = 1-based index } }
+-- Read-only: settings are changed in the game's mod menu, like for any other mod. (A rev 9 prototype wrote them to
+-- the saved state through handleEvent; the window did not follow the engine-side state reliably, so it was dropped.)
+-- The event name has to be subscribed on the engine side for gui events to reach guiHandleEvent at all.
+local UI_ID = "TF3_DASHBOARD_EXPORT"
+local UI_EVENTS = { "read" }
+
+local function paramIndex(key, value)
+	for i, v in ipairs(PARAM_VALUES[key] or {}) do if v == value then return i end end
+	return PARAM_DEFAULT_INDEX[key]
+end
+
+function script.handleEvent(_userParams, state, _src, id, _name, _param)
+	-- lifecycle events come with an empty id: (re)subscribe to our names, nothing else to do
+	if id == "" then for _, ev in ipairs(UI_EVENTS) do pcall(function() state:subscribeToEvent(ev) end) end end
+end
+
+function script.guiHandleEvent(_userParams, _state, _guiState, _src, id, name, _param)
+	if id ~= UI_ID or name ~= "read" then return nil end
+	local o = options()
+	local current = {}
+	for key in pairs(PARAM_VALUES) do current[key] = paramIndex(key, o[key]) end
+	if status.folder == nil then pcall(function() status.folder = tostring(app.getUserDataFolder()) .. "/" .. DIR end) end
+	return {
+		status = { state = status.state, last_ok = status.last_ok, last_error = status.last_error,
+			companion_seen = status.companion_seen, folder = status.folder, now = os.time() },
+		current = current,
+	}
 end
 
 -- .script.lua resources expose their exports through data(), not a return value

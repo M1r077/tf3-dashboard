@@ -319,7 +319,12 @@
     const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
-    if (!sorted.length) table.innerHTML += `<tbody><tr><td colspan="${cols.length}" class="empty">${t("no_data")}</td></tr></tbody>`;
+    if (!sorted.length) {
+      // A real message in the middle of the card, not a one-line "no data". opts.total = rows before the filters
+      // (so the filters hide everything); opts.empty = { icon, text, hint } for "nothing exists yet".
+      const e = opts.total > 0 ? { icon: "hidden", text: t("empty_filtered"), hint: t("empty_filtered_hint") } : (opts.empty || { icon: "info", text: t("no_data") });
+      table.innerHTML += `<tbody><tr class="emptyrow"><td colspan="${cols.length}"><div class="emptystate">${ico(e.icon)}<div class="t">${esc(e.text)}</div>${e.hint ? `<div class="h">${esc(e.hint)}</div>` : ""}</div></td></tr></tbody>`;
+    }
     if (lastStick >= 0) requestAnimationFrame(() => {
       // left offsets depend on the rendered widths of the previous pinned columns
       let left = 0;
@@ -519,7 +524,7 @@
       { key: "town_name", label: t("th_near"), render: v => esc(v.town_name || "–") },
       { key: "act", label: "", render: v => entBtns(v.vehicle_id, { follow: true }) },
     ];
-    renderTable($("#veh-table"), cols, rows, { id: "vehicle_id", defaultSort: "name", onRow: (id, tr) => { state.selVeh = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderVehicleDetail(+id); }, rowClass: v => (v.vehicle_id === state.selVeh ? "sel" : "") });
+    renderTable($("#veh-table"), cols, rows, { total: veh.length, empty: { icon: "vehicles", text: t("empty_vehicles"), hint: t("empty_vehicles_hint") }, id: "vehicle_id", defaultSort: "name", onRow: (id, tr) => { state.selVeh = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderVehicleDetail(+id); }, rowClass: v => (v.vehicle_id === state.selVeh ? "sel" : "") });
     if (state.selVeh) renderVehicleDetail(state.selVeh);
   }
 
@@ -616,7 +621,7 @@
       { key: "cargos", label: t("th_carries"), wrap: true, render: l => l.capacities.map(c => cargoChip(c)).join("") },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
     ];
-    renderTable($("#lines-table"), cols, rows, { id: "line_id", defaultSort: "name", onRow: (id, tr) => { state.selLine = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderLineDetail(+id); }, rowClass: l => (l.line_id === state.selLine ? "sel" : "") });
+    renderTable($("#lines-table"), cols, rows, { total: lines.length, empty: { icon: "line", text: t("empty_lines"), hint: t("empty_lines_hint") }, id: "line_id", defaultSort: "name", onRow: (id, tr) => { state.selLine = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderLineDetail(+id); }, rowClass: l => (l.line_id === state.selLine ? "sel" : "") });
     if (state.selLine) renderLineDetail(state.selLine);
   }
 
@@ -871,7 +876,7 @@
       { key: "act", label: "", render: x => entBtns(x.town_id) },
     ];
     if (!state.selTown) { const u = +new URLSearchParams(location.search).get("town"); if (u && towns.some(x => x.town_id === u)) state.selTown = u; }  // deep link ?tab=towns&town=<id>
-    renderTable($("#towns-table"), cols, towns, { id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
+    renderTable($("#towns-table"), cols, towns, { empty: { icon: "town", text: t("empty_towns") }, id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
     if (state.selTown) renderTownDetail(state.selTown);
   }
 
@@ -919,7 +924,7 @@
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },
     ];
-    renderTable($("#ind-table"), cols, rows, { defaultSort: "name" });
+    renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, defaultSort: "name" });
   }
 
   // ------------------------------------------------------------ stations & depots
@@ -934,7 +939,7 @@
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
-    ], s.stations || [], { defaultSort: "used", defaultAsc: false });
+    ], s.stations || [], { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, defaultSort: "used", defaultAsc: false });
     const DEPOT_ICON = { RAIL: "depot_rail", ROAD: "depot_road", TRAM: "depot_tram", WATER: "depot_water", AIR: "depot_air" };
     renderTable($("#dep-table"), [
       { key: "name", label: t("th_depot"), render: x => `${ico(DEPOT_ICON[x.carrier] || "depot", "sm")}${esc(x.name)}` },
@@ -943,7 +948,7 @@
       { key: "incoming", label: t("th_incoming"), num: true },
       { key: "maintenance_pool", label: t("th_maint_pool"), num: true, render: x => x.maintenance_pool == null ? "–" : t("pool_fmt", { avg: num(x.pool_avg, 1), max: num(x.pool_max, 0), n: x.maintenance_pool }) },
       { key: "act", label: "", render: x => entBtns(x.depot_id) },
-    ], d.depots || [], { defaultSort: "name" });
+    ], d.depots || [], { empty: { icon: "depot", text: t("empty_depots") }, defaultSort: "name" });
   }
 
   // ------------------------------------------------------------ finance (secondary)

@@ -299,10 +299,12 @@ td .ico, .row .ico { color: var(--muted); }
 #settings h2 .close { margin-left: auto; cursor: pointer; color: var(--muted); }
 #settings h2 .close:hover { color: var(--text); }
 .setrow { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+/* rows with a segmented control: the label gives way (and wraps) so that long button labels (pt "espaçada") are not clipped */
+.setrow:has(> .seg) { grid-template-columns: minmax(90px, 130px) max-content; }
 .setrow:last-child { border-bottom: 0; }
 .setrow .lbl { color: var(--muted); }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 10px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); }
+.seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); white-space: nowrap; }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: #fff; }
 .seg button:hover:not(.active) { color: var(--text); }

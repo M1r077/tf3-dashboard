@@ -687,6 +687,9 @@ class Handler(BaseHTTPRequestHandler):
         # polling stay silent; commands sent to the game are logged in do_POST where the command name is known
         req = str(args[0]) if args else ""
         code = str(args[1]) if len(args) > 1 else ""
+        # browsers probe these on their own (Chrome/Edge DevTools, favicon): not an error of ours
+        if code == "404" and (" /.well-known/" in req or " /favicon.ico " in req):
+            return
         if code[:1] in ("4", "5"):
             console.say(f"{code} {req}", "warn" if code == "404" else "error")
 

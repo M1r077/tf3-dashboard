@@ -309,6 +309,17 @@
   $$("#tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const tabFromUrl = () => new URLSearchParams(location.search).get("tab") || location.hash.slice(1);
 
+  // ------------------------------------------------------------ DOM writes (0.4.3)
+  // The page refreshes every few seconds; most of the time nothing visible changed. Writing the same HTML again
+  // rebuilds the whole subtree (1000-row tables), loses the scroll position, the hover and an open <details>.
+  // setHTML writes only when the markup differs and says whether it did (then the caller re-binds its listeners).
+  function setHTML(el, html) {
+    if (!el) return false;
+    if (el._html === html && el.innerHTML !== "") return false;
+    el.innerHTML = html; el._html = html;
+    return true;
+  }
+
   // ------------------------------------------------------------ empty states
   const emptyState = (e) => `<div class="emptystate">${ico(e.icon || "info")}<div class="t">${esc(e.text)}</div>${e.hint ? `<div class="h">${esc(e.hint)}</div>` : ""}</div>`;
 
@@ -329,13 +340,16 @@
     const cls = (c, i) => `${c.num ? "num" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
     const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
-    table.innerHTML = thead + tbody;
     // empty: a real message in the middle of the card, not a tiny "no data" row. opts.total = rows before the
     // filters (then the filters hide everything), opts.empty = { icon, text, hint } for "nothing exists yet"
+    let empty = "";
     if (!sorted.length) {
       const e = opts.total > 0 ? { icon: "eye", text: t("empty_filtered"), hint: t("empty_filtered_hint") } : (opts.empty || { icon: "info", text: t("no_data") });
-      table.innerHTML += `<tbody><tr class="emptyrow"><td colspan="${cols.length}">${emptyState(e)}</td></tr></tbody>`;
+      empty = `<tbody><tr class="emptyrow"><td colspan="${cols.length}">${emptyState(e)}</td></tr></tbody>`;
     }
+    // the listeners below always use the latest data, even when the DOM is kept as it is
+    table._args = { cols, rows, opts };
+    if (!setHTML(table, thead + tbody + empty)) return;  // same table as on the previous refresh: keep the DOM
     if (lastStick >= 0) requestAnimationFrame(() => {
       // left offsets depend on the rendered widths of the previous pinned columns
       let left = 0;
@@ -347,10 +361,11 @@
       }
     });
     $$("th", table).forEach(th => th.addEventListener("click", () => {
-      const k = th.dataset.key; if (sort.col === k) sort.asc = !sort.asc; else { sort.col = k; sort.asc = !(cols.find(c => c.key === k)?.num); }
-      renderTable(table, cols, rows, opts);
+      const a = table._args;
+      const k = th.dataset.key; if (sort.col === k) sort.asc = !sort.asc; else { sort.col = k; sort.asc = !(a.cols.find(c => c.key === k)?.num); }
+      renderTable(table, a.cols, a.rows, a.opts);
     }));
-    if (opts.onRow) $$("tbody tr", table).forEach(tr => tr.addEventListener("click", () => opts.onRow(tr.dataset.id, tr)));
+    if (opts.onRow) $$("tbody tr", table).forEach(tr => tr.addEventListener("click", () => table._args.opts.onRow(tr.dataset.id, tr)));
     bindActions(table);
   }
 
@@ -484,8 +499,8 @@
   function renderTodo(items) {
     $("#todo-count").textContent = items.length || "";
     const el = $("#todo-list");
-    if (!items.length) { el.innerHTML = emptyState({ icon: "check", text: t("todo_none"), hint: t("todo_none_hint") }); return; }
-    el.innerHTML = items.map((it, i) => `<div class="ti" data-i="${i}"><div class="p p${it.prio}"></div>${ico(TODO_ICON[it.kind] || "info")}<div>${esc(todoText(it))}</div><span class="go">›</span></div>`).join("");
+    if (!items.length) { setHTML(el, emptyState({ icon: "check", text: t("todo_none"), hint: t("todo_none_hint") })); return; }
+    if (!setHTML(el, items.map((it, i) => `<div class="ti" data-i="${i}"><div class="p p${it.prio}"></div>${ico(TODO_ICON[it.kind] || "info")}<div>${esc(todoText(it))}</div><span class="go">›</span></div>`).join(""))) return;
     $$(".ti", el).forEach(r => r.addEventListener("click", () => openTodo(items[+r.dataset.i])));
   }
 
@@ -510,20 +525,20 @@
     ], labels, { percent: true, rightAxis: true, rightUnit: "km/h", ...tx });
 
     const bc = fleet.by_carrier || [];
-    $("#fleet-carrier").innerHTML = `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num">${t("th_idle")}</th></tr></thead><tbody>` +
+    setHTML($("#fleet-carrier"), `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num">${t("th_idle")}</th></tr></thead><tbody>` +
       bc.map(c => `<tr><td><span class="vehicon" style="color:${CARRIER_COLOR[c.carrier] || "#888"}">${ico(ICON_BY_CARRIER[c.carrier] || "veh_car")}</span>${CA(c.carrier)}</td><td class="num">${c.n}</td><td class="num">${c.en_route}</td><td class="num">${c.at_terminal}</td><td class="num">${c.in_depot}</td>
         <td>${c.capacity ? bar(c.load, c.capacity, fillCls(pct(c.load, c.capacity))) : "–"}</td><td>${c.maint != null ? condIcon(c.maint) + bar(c.maint, 1, maintCls(c.maint)) : "–"}${c.worn ? ` <span class="chip warn">${c.worn}</span>` : ""}</td>
-        <td class="num">${kmh(c.avg_speed)}</td><td class="num">${c.stuck ? `<span class="chip bad">${c.stuck}</span>` : "0"}</td></tr>`).join("") + "</tbody>";
+        <td class="num">${kmh(c.avg_speed)}</td><td class="num">${c.stuck ? `<span class="chip bad">${c.stuck}</span>` : "0"}</td></tr>`).join("") + "</tbody>");
 
     renderAlerts($("#alerts-list"), al.alerts || []);
     $("#alerts-count").textContent = (al.alerts || []).length ? `${al.alerts.length}` : t("none");
 
     const idle = fleet.idle || [];
     $("#idle-count").textContent = idle.length ? idle.length : "";
-    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${ST(v.state)}</span><br><span class="muted">${t("idle_days", { n: (v.days_in_depot || 0) + (v.days_at_terminal || 0) })}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
+    const openVeh = (sel) => $$(sel).forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
+    if (setHTML($("#idle-list"), idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${ST(v.state)}</span><br><span class="muted">${t("idle_days", { n: (v.days_in_depot || 0) + (v.days_at_terminal || 0) })}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`)) openVeh("#idle-list .row");
     const stuck = fleet.stuck || [];
-    $("#stuck-list").innerHTML = stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`;
-    $$("#idle-list .row, #stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
+    if (setHTML($("#stuck-list"), stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`)) openVeh("#stuck-list .row");
 
     Charts.hbars($("#chart-worn"), (fleet.worn || []).slice(0, 10).map(v => ({ label: v.name, value: 1 - (v.maintenance ?? 1), max: 1, color: maintCls(v.maintenance) === "bad" ? "#f85149" : maintCls(v.maintenance) === "warn" ? "#e8b04b" : "#3fb950", text: t("state_cond", { n: Math.round((v.maintenance ?? 1) * 100) }) })), {});
     const lines = state.cache.lines;
@@ -547,10 +562,10 @@
     return { sev: ALERT_SEV[a.kind] || "info", label: alertLabel(a.kind), extra, who };
   }
   function renderAlerts(el, alerts) {
-    if (!alerts.length) { el.innerHTML = `<div class="empty">${t("all_good")}</div>`; return; }
+    if (!alerts.length) { setHTML(el, `<div class="empty">${t("all_good")}</div>`); return; }
     const order = { bad: 0, warn: 1, info: 2 };
     alerts.sort((a, b) => (order[ALERT_SEV[a.kind]] ?? 3) - (order[ALERT_SEV[b.kind]] ?? 3) || b.seen - a.seen);
-    el.innerHTML = alerts.map(a => {
+    if (!setHTML(el, alerts.map(a => {
       const { sev, extra, who } = alertDesc(a);
       // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
       // industry and an extra button opens the Industries tab on it
@@ -559,7 +574,7 @@
         ? (a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
         : a.entity_id != null ? entBtns(a.entity_id, { line: a.kind === "chain_bottleneck" || a.kind === "chain_overcapacity" }) : "";
       return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.catalogue ? t("cat_new") : a.chain ? (a.since ? t("since", { ago: ago(a.since) }) : "") : `${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}`}</div>${focus}</div>`;
-    }).join("");
+    }).join(""))) return;
     bindActions(el);
     $$("button.gotocat", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); showTab("catalogue"); }));
     $$("button.goto[data-ind]", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); $("#ind-filter").value = b.dataset.ind; showTab("industries"); }));
@@ -571,7 +586,7 @@
     let d; try { d = await api("/api/renewal"); } catch (e) { return; }
     const groups = d.groups || [], el = $("#renewal-list");
     $("#renewal-count").textContent = groups.length ? t("renew_count", { n: groups.reduce((a, g) => a + g.count, 0) }) : "";
-    if (!groups.length) { el.innerHTML = emptyState({ icon: "check", text: t("renew_none_list"), hint: t("renew_hint") }); return; }
+    if (!groups.length) { setHTML(el, emptyState({ icon: "check", text: t("renew_none_list"), hint: t("renew_hint") })); return; }
     const pctTxt = (x) => Math.round(x * 100);
     const card = (g, i) => {
       const m = g.model, s = g.successor, ty = CAT_TYPE[m.category];
@@ -585,7 +600,7 @@
           g.lines.length ? t("renew_lines", { names: g.lines.slice(0, 3).map(l => l.name).join(", ") + (g.lines.length > 3 ? "…" : "") }) : ""].filter(Boolean).map(esc).join(" · ")}</div>
         <div class="actions"><button class="btn rshow" data-i="${i}">${ico("vehicles", "sm")}${t("renew_show")}</button>${s ? `<button class="btn rcat" data-name="${esc(s.name || "")}">${ico("calendar", "sm")}${t("tab_catalogue")}</button>` : ""}</div></div>`;
     };
-    el.innerHTML = groups.map(card).join("");
+    if (!setHTML(el, groups.map(card).join(""))) return;
     $$(".rshow", el).forEach(b => b.addEventListener("click", () => { const g = groups[+b.dataset.i]; $("#veh-filter").value = g.model.name || ""; $("#veh-worn").checked = false; $("#veh-problem").checked = false; renderVehicles(); $("#veh-table").scrollIntoView({ behavior: "smooth" }); }));
     $$(".rcat", el).forEach(b => b.addEventListener("click", () => { $("#cat-filter").value = b.dataset.name; $("#cat-past").checked = true; showTab("catalogue"); }));
   }
@@ -679,8 +694,8 @@
     if (!bar) return;
     const counts = {}; items.forEach(x => { const ty = typeOf(x); if (ty) counts[ty] = (counts[ty] || 0) + 1; });
     const types = LINE_TYPES.filter(ty => counts[ty]);
-    bar.innerHTML = types.map(ty => `<button class="tbtn ${active.has(ty) ? "active" : ""}" data-type="${ty}" title="${esc(t("line_type." + ty))}" style="--c:${LINE_TYPE_COLOR[ty]}">${ico(LINE_TYPE_ICON[ty], "sm")}<small>${counts[ty]}</small></button>`).join("")
-      + (active.size ? `<button class="tbtn clear" data-type="" title="${esc(t("all_types"))}">${ico("close", "sm")}</button>` : "");
+    if (!setHTML(bar, types.map(ty => `<button class="tbtn ${active.has(ty) ? "active" : ""}" data-type="${ty}" title="${esc(t("line_type." + ty))}" style="--c:${LINE_TYPE_COLOR[ty]}">${ico(LINE_TYPE_ICON[ty], "sm")}<small>${counts[ty]}</small></button>`).join("")
+      + (active.size ? `<button class="tbtn clear" data-type="" title="${esc(t("all_types"))}">${ico("close", "sm")}</button>` : ""))) return;
     $$(".tbtn", bar).forEach(b => b.addEventListener("click", () => {
       const ty = b.dataset.type;
       if (!ty) active.clear(); else if (active.has(ty)) active.delete(ty); else active.add(ty);
@@ -1132,12 +1147,12 @@
       if (deep === "all") chainState.mode = "all";
       else { const c = saved.find(x => String(x.id) === deep); if (c) { openChain(c); return; } }
     }
-    $("#chain-saved").innerHTML = saved.length ? saved.map(c => `<div class="csaved ${c.id === chainState.id ? "sel" : ""}" data-id="${c.id}">
+    const savedChanged = setHTML($("#chain-saved"), saved.length ? saved.map(c => `<div class="csaved ${c.id === chainState.id ? "sel" : ""}" data-id="${c.id}">
         <b>${esc(c.name)}</b> <span class="muted">${t("chain_n_lines", { n: (c.lines || []).length })}</span>
         ${c.alerts ? `<span class="chip ${c.alerts_bad ? "bad" : "warn"}">${ico("alert", "sm")}${c.alerts}</span>` : `<span class="chip ok">${ico("check", "sm")}</span>`}
         ${c.id === chainState.id && chainState.dirty ? `<span class="chip warn">${t("chain_unsaved")}</span>` : ""}
-        <button class="btn iconbtn cdel" title="${esc(t("chain_delete"))}">${ico("close", "sm")}</button></div>`).join("") : `<div class="muted small">${t("chains_none_saved")}</div>`;
-    $$("#chain-saved .csaved").forEach(row => row.addEventListener("click", async e => {
+        <button class="btn iconbtn cdel" title="${esc(t("chain_delete"))}">${ico("close", "sm")}</button></div>`).join("") : `<div class="muted small">${t("chains_none_saved")}</div>`);
+    if (savedChanged) $$("#chain-saved .csaved").forEach(row => row.addEventListener("click", async e => {
       const c = saved.find(x => x.id === +row.dataset.id); if (!c) return;
       if (e.target.closest(".cdel")) {
         if (!(await modal.confirm(t("confirm_chain_delete", { name: c.name }), { title: t("chain_delete"), ok: t("chain_delete"), danger: true }))) return;
@@ -1157,11 +1172,11 @@
     // the view
     const view = $("#chain-view");
     const params = chainState.mode === "all" ? { all: 1 } : { lines: chainState.lines.join(","), disabled: chainState.disabled.join(",") };
-    if (chainState.mode === "chain" && !chainState.lines.length) { view.innerHTML = (list.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`) + `<p class="muted">${t("chain_empty")}</p>`; return; }
+    if (chainState.mode === "chain" && !chainState.lines.length) { setHTML(view, (list.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`) + `<p class="muted">${t("chain_empty")}</p>`); return; }
     const v = await api("/api/chain_view", params);
     const tt = v.totals || {};
     const al = v.alerts || [];
-    view.innerHTML = `${v.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`}
+    const viewChanged = setHTML(view, `${v.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`}
       <h2>${ico(chainState.mode === "all" ? "line" : "cargo_supplied")}${esc(chainState.mode === "all" ? t("chain_mode_all") : (chainState.name || t("chain_mode_chain")))}${chainState.mode === "chain" && chainState.dirty ? ` <span class="chip warn">${t("chain_unsaved")}</span>` : ""}</h2>
       <div class="kpis ckpis">
         <div class="kpi"><div class="k">${t("chain_k_lines")}</div><div class="v">${tt.lines ?? 0}</div></div>
@@ -1171,8 +1186,9 @@
       </div>
       ${al.length ? `<details class="calerts" ${al.length <= 6 ? "open" : ""}><summary>${t("chain_alerts")} (${al.length})</summary><div id="chain-alerts-list" class="alerts"></div></details>` : ""}
       <div class="clines">${(v.lines || []).map(l => chainLineCard(l, chainState.mode)).join("") || `<p class="muted">${t("no_data")}</p>`}</div>
-      ${(v.nodes || []).length ? `<details class="cnodes" open><summary>${t("chain_industries")} (${v.nodes.length})</summary>${v.nodes.map(chainNodeCard).join("")}</details>` : ""}`;
-    if (al.length) renderAlerts($("#chain-alerts-list"), al.map(a => ({ ...a, chain: true })));
+      ${(v.nodes || []).length ? `<details class="cnodes" open><summary>${t("chain_industries")} (${v.nodes.length})</summary>${v.nodes.map(chainNodeCard).join("")}</details>` : ""}`);
+    if (al.length) renderAlerts($("#chain-alerts-list"), al.map(a => ({ ...a, chain: true })));  // its "since" moves on its own
+    if (!viewChanged) return;
     $$(".chead", view).forEach(h => {
       const id = +h.dataset.line;
       $(".chev", h).addEventListener("click", () => { const i = chainState.open.indexOf(id); if (i >= 0) chainState.open.splice(i, 1); else chainState.open.push(id); saveChainState(); renderChains(); });
@@ -1216,7 +1232,7 @@
   async function renderCatalogue() {
     const d = await api("/api/catalogue"); const all = d.models || [], year = d.year;
     const el = $("#cat-list");
-    if (!all.length) { $("#cat-types").innerHTML = ""; el.innerHTML = `<div class="cmdhint">${ico("warning", "sm")}<span>${t("cat_need_mod")}</span></div>`; return; }
+    if (!all.length) { $("#cat-types").innerHTML = ""; setHTML(el, `<div class="cmdhint">${ico("warning", "sm")}<span>${t("cat_need_mod")}</span></div>`); return; }
     const wagons = $("#cat-wagons").checked, past = $("#cat-past").checked, q = $("#cat-filter").value.toLowerCase();
     const base = all.filter(m => (wagons || m.category !== "waggon") && (past || year == null || m.year_from >= year));
     renderTypeBar($("#cat-types"), base, catType, state.catTypes, renderCatalogue);
@@ -1229,9 +1245,9 @@
     const byYear = new Map();
     shown.forEach(m => { if (!byYear.has(m.year_from)) byYear.set(m.year_from, []); byYear.get(m.year_from).push(m); });
     const rel = (y) => y === year ? t("cat_this_year") : y > year ? t("cat_in_years", { n: y - year }) : t("cat_years_ago", { n: year - y });
-    el.innerHTML = `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew, nNew ? "pos" : "")}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut, nOut ? "neg" : "")}${kpi(t("cat_k_available"), avail.length)}</div>`
+    setHTML(el, `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew, nNew ? "pos" : "")}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut, nOut ? "neg" : "")}${kpi(t("cat_k_available"), avail.length)}</div>`
       + ([...byYear.keys()].sort((a, b) => a - b).map(y => `<div class="catyear ${y === year ? "now" : ""}"><b>${y || "–"}</b><span class="muted">${year != null && y ? rel(y) : ""} · ${byYear.get(y).length}</span></div>
-          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`).join("") || `<p class="muted">${t("cat_none")}</p>`);
+          <div class="catgrid">${byYear.get(y).map(m => catCard(m, year)).join("")}</div>`).join("") || `<p class="muted">${t("cat_none")}</p>`));
   }
 
   // ------------------------------------------------------------ stations & depots
@@ -1570,7 +1586,9 @@
   }
   ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved", "#cat-filter", "#cat-past", "#cat-wagons"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
   let timer = null;
-  function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
+  // page hidden (browser minimised, other tab): nothing to draw, only the Windows notifications keep checking
+  function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => { if (document.hidden) Notify.check(); else refresh(); }, Math.max(1, settings.refresh) * 1000); }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   setLang(pickLang(), false);
   applySettings();
   if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); }

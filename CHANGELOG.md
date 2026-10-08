@@ -3,6 +3,19 @@
 Companion program versions (`VERSION` in `dashboard/server.py`) and mod revisions (`revision` in
 `mod/tf3_dashboard_export/mod.json`). Earlier versions: see the [Releases](https://github.com/M1r077/tf3-dashboard/releases) page.
 
+## Companion 0.4.3 — mod revision 8 (unchanged)
+
+### Performance
+
+- Lines: the latest capacities of each line are read with an indexed lookup instead of a scan of the whole history
+  (measured on a simulated big game, 157 lines and 1.2 million history rows: `/api/lines` 218 ms → 2.5 ms per call).
+- What only changes once per slow cycle of the mod (lines, towns, industries, stations, catalogue, town demand, supply
+  chain alerts, fleet renewal) is computed once per cycle and reused until the collector stores the next one, instead
+  of on every refresh of every open page.
+- The page rewrites a table, list or panel only when its content changed: no more rebuilding unchanged 1000-row
+  tables every few seconds, and the scroll position, the hovered row and open sections stay as they are.
+- Nothing is redrawn while the page is hidden (browser minimised, other tab); Windows notifications keep checking.
+
 ## Companion 0.4.2 — mod revision 8 (unchanged)
 
 ### New

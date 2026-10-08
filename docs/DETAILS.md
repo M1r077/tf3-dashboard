@@ -175,6 +175,10 @@ Three independent parts:
    - **Header** (0.4.1): one strip with icon + value per key figure (label and details in the tooltip, alerts figure
      highlighted and clickable), game speed / calendar controls, status; time range drop-down in the tab row, hidden on
      tabs without time charts (map, industries, supply chains, catalogue, stations).
+   - **Refresh cost** (0.4.3): the server caches what only changes per slow cycle (`slow_cached()`, keyed on the
+     latest stored cycle of lines / towns / industries / stations and the catalogue; a 30 s bucket is added for what
+     also follows the vehicles: fleet renewal, catalogue fleet counts); the page writes markup only when it changed
+     (`setHTML()`), so listeners are re-bound only then, and skips drawing while `document.hidden`.
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab, Windows notifications.
    - **Windows notifications** (Settings: off / serious / serious and warnings): the browser's Notification API, shown

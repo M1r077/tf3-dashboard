@@ -17,8 +17,9 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+from typing import Any
 
-VERSION = "0.4.2"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.4.3"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -166,6 +167,40 @@ def one(sql: str, args: tuple = ()) -> dict | None:
     return r[0] if r else None
 
 
+# ---------------------------------------------------------------- slow-cycle cache (0.4.3)
+# Lines, towns, industries, stations, the catalogue and what is derived from them (town demand, supply chain alerts,
+# fleet renewal) only change when the collector stores a new slow cycle of the mod (~30 s), but the page asks for them
+# every few seconds. They are computed once per cycle; the key is the latest stored cycle of each section, so a new
+# cycle (or another savegame) invalidates them at once. Cached values are shared: callers must not modify them.
+_slow_cache: dict[str, tuple] = {}
+
+
+def slow_key() -> tuple:
+    k = one("""SELECT (SELECT MAX(snapshot_id) FROM line_state) l, (SELECT MAX(snapshot_id) FROM town_state) t,
+                      (SELECT MAX(snapshot_id) FROM industry_state) i, (SELECT MAX(snapshot_id) FROM station_state) s,
+                      (SELECT game_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1) g""") or {}
+    try:
+        cat = (one("SELECT MAX(updated) u FROM vehicle_model") or {}).get("u")
+    except sqlite3.Error:
+        cat = None  # database not migrated by a collector >= 0.4 yet
+    return (str(DB_PATH), k.get("g"), k.get("l"), k.get("t"), k.get("i"), k.get("s"), cat)
+
+
+def slow_cached(name: str, fn, extra: Any = None):
+    """fn() once per slow cycle (and per `extra`, e.g. a time bucket for data that also follows the vehicles)."""
+    key = (slow_key(), extra)
+    hit = _slow_cache.get(name)
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    value = fn()
+    _slow_cache[name] = (key, value)
+    return value
+
+
+def _bucket(seconds: int = 30) -> int:
+    return int(time.time() // seconds)
+
+
 # ---------------------------------------------------------------- API
 def api_overview(q: dict) -> dict:
     # no database file yet (the collector creates it at the first snapshot) or no snapshot: the page shows the
@@ -266,19 +301,30 @@ def api_alerts(q: dict) -> dict:
 
 def api_lines(q: dict) -> dict:
     gid = _gid()
-    lines = rows("""SELECT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes, l.custom_filters, l.reservation_priority, ls.*
-                    FROM line l JOIN line_state ls ON ls.line_id=l.line_id
-                    WHERE l.game_id=? AND ls.snapshot_id=(SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id=l.line_id)
-                    ORDER BY l.name""", (gid,))
-    sid_by_line = {l["line_id"]: l["snapshot_id"] for l in lines}
-    caps = rows("""SELECT lc.line_id, lc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, lc.used, lc.capacity
-                   FROM line_capacity lc LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=lc.cargo_id
-                   WHERE lc.snapshot_id IN (SELECT MAX(snapshot_id) FROM line_capacity GROUP BY line_id)""", (gid,))
+    slow = slow_cached("lines", lambda: _lines_slow(gid))
     veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(vs.speed_ms) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
+    # new dicts: the cached lines are shared between requests
+    return {"lines": [{**l, "live": vmap.get(l["line_id"])} for l in slow["lines"]], "cargo_types": slow["cargo_types"]}
+
+
+def _lines_slow(gid: int) -> dict:
+    """What api_lines returns except the live vehicle counts: changes once per slow cycle."""
+    lines = rows("""SELECT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes, l.custom_filters, l.reservation_priority, ls.*
+                    FROM line l JOIN line_state ls ON ls.line_id=l.line_id
+                    WHERE l.game_id=? AND ls.snapshot_id=(SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id=l.line_id)
+                    ORDER BY l.name""", (gid,))
+    sid_by_line = {l["line_id"]: l["snapshot_id"] for l in lines}
+    # latest capacities of each line: a correlated MAX per line walks the (snapshot_id, ...) primary key backwards and
+    # stops at once; "IN (SELECT MAX ... GROUP BY line_id)" scanned the whole table (200 ms at 1.2 M rows, 0.3 ms now)
+    caps = rows("""SELECT lc.line_id, lc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, lc.used, lc.capacity
+                   FROM line l
+                   JOIN line_capacity lc ON lc.line_id=l.line_id AND lc.snapshot_id=(SELECT MAX(snapshot_id) FROM line_capacity x WHERE x.line_id=l.line_id)
+                   LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
+                   WHERE l.game_id=?""", (gid,))
     se = ", station_entity" if has_col("line_stop", "station_entity") else ""
     stops = rows(f"""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
                            force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load, terminals, alternatives{se}
@@ -299,7 +345,6 @@ def api_lines(q: dict) -> dict:
         if sid_by_line.get(c["line_id"]):
             cmap.setdefault(c["line_id"], []).append(c)
     for l in lines:
-        l["live"] = vmap.get(l["line_id"])
         l["stop_names"] = smap.get(l["line_id"], [])
         l["stop_list"] = stmap.get(l["line_id"], [])
         l["capacities"] = cmap.get(l["line_id"], [])
@@ -398,6 +443,10 @@ def api_vehicles(q: dict) -> dict:
 
 
 def api_towns(q: dict) -> dict:
+    return slow_cached("api_towns", lambda: _api_towns_slow(q))
+
+
+def _api_towns_slow(q: dict) -> dict:
     gid = _gid()
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.* FROM town t JOIN town_state ts ON ts.town_id=t.town_id
                     WHERE t.game_id=? AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
@@ -441,6 +490,10 @@ def api_town_history(q: dict) -> dict:
 
 
 def api_industries(q: dict) -> dict:
+    return slow_cached("api_industries", lambda: _api_industries_slow(q))
+
+
+def _api_industries_slow(q: dict) -> dict:
     gid = _gid()
     inds = rows("""SELECT i.industry_id, i.name, i.construction, i.max_level, i.x, i.y, st.* FROM industry i
                    JOIN industry_state st ON st.industry_id=i.industry_id
@@ -457,6 +510,10 @@ def api_industries(q: dict) -> dict:
 
 
 def api_stations(q: dict) -> dict:
+    return slow_cached("api_stations", lambda: _api_stations_slow(q))
+
+
+def _api_stations_slow(q: dict) -> dict:
     gid = _gid()
     st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, s.construction, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
@@ -536,6 +593,15 @@ def network() -> chains.Network:
 
 
 def chain_alerts() -> list[dict]:
+    p = DB_PATH.parent / "chains.json"
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        mtime = None
+    return slow_cached("chain_alerts", _chain_alerts_now, mtime)
+
+
+def _chain_alerts_now() -> list[dict]:
     """Alerts of the saved chains, merged (an entity in two chains is reported once, with both chain names)."""
     try:
         saved = chain_store().list(_gid())
@@ -595,6 +661,10 @@ def new_vehicle_alerts() -> list[dict]:
 
 
 def api_catalogue(q: dict) -> dict:
+    return slow_cached("catalogue", _catalogue_view, _bucket())
+
+
+def _catalogue_view() -> dict:
     gid = _gid()
     models = _catalogue_rows(gid)
     # how many vehicles of the fleet use each model (leading part)
@@ -608,6 +678,11 @@ def api_catalogue(q: dict) -> dict:
 
 # ---------------------------------------------------------------- advice (advisor.py, 0.4.2)
 def _renewal_groups(gid: int) -> list[dict]:
+    # vehicle conditions move slowly: refreshed every 30 s at most, and on every new slow cycle
+    return slow_cached("renewal", lambda: _renewal_groups_now(gid), _bucket())
+
+
+def _renewal_groups_now(gid: int) -> list[dict]:
     veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.maintenance, vs.line_id, l.name AS line_name
                   FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
                   LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id
@@ -620,8 +695,12 @@ def api_renewal(q: dict) -> dict:
     return {"year": _game_year(gid), "groups": _renewal_groups(gid)}
 
 
+def _town_demand() -> list[dict]:
+    return slow_cached("town_demand", lambda: advisor.town_demand(api_towns({})["towns"], api_industries({})["industries"]))
+
+
 def api_town_demand(q: dict) -> dict:
-    return {"demand": advisor.town_demand(api_towns({})["towns"], api_industries({})["industries"])}
+    return {"demand": _town_demand()}
 
 
 def api_todo(q: dict) -> dict:
@@ -630,7 +709,7 @@ def api_todo(q: dict) -> dict:
                       SUM(vs.line_id IS NULL OR vs.line_id <= 0 OR vs.days_in_depot > 2) idle
                FROM vehicle_state vs WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)""") or {}
     groups = _renewal_groups(gid)
-    demand = advisor.town_demand(api_towns({})["towns"], api_industries({})["industries"])
+    demand = _town_demand()
     items = advisor.todo(api_alerts({}).get("alerts", []), {k: f.get(k) or 0 for k in ("worn_bad", "idle")}, groups, demand)
     return {"items": items}
 

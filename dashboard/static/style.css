@@ -159,7 +159,15 @@ table.data th, table.data td { padding: var(--rowpad) 10px; text-align: left; bo
 table.data th { position: sticky; top: 0; background: var(--panel2); color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
 table.data th.sorted::after { content: " ▾"; color: var(--accent); }
 table.data th.sorted.asc::after { content: " ▴"; }
-table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* headers centred over their column, everything in the cells flush left (text, numbers, gauges) */
+table.data th { text-align: center; position: relative; }
+table.data th .thl { display: inline-block; }
+table.data td.num { text-align: left; font-variant-numeric: tabular-nums; }
+/* resizable columns: grip on the right edge of each header (drag; double-click resets the column) */
+table.data th .colgrip { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 1; }
+table.data th .colgrip:hover, table.data.resizing th .colgrip { background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+table.data.resizing { user-select: none; cursor: col-resize; }
+table.data td { overflow: hidden; text-overflow: ellipsis; }
 table.data tbody tr:hover { background: var(--panel2); }
 table.data tbody tr.sel { background: #22303c; outline: 1px solid var(--accent); }
 table.data tr.clickable { cursor: pointer; }
@@ -200,7 +208,7 @@ table.kv { width: 100%; border-collapse: collapse; }
 table.kv td .onboard { margin-right: 8px; }
 /* gauge cells (load, condition): icon | bar | number, flush left in a fixed-width cell so the bars line up */
 table.data td.gauge { text-align: left; white-space: nowrap; }
-table.data td.gauge .ico.cond { margin-right: 8px; }
+table.data td.gauge .qstack > span .ico, table.data td.gauge > .ico { width: 16px; height: 16px; margin: 0 6px 0 0; flex: none; }
 table.kv td .onboard, table.kv td .ico.cond { margin-right: 8px; }
 .onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
 .onboard .ob .ico { margin: 0; }

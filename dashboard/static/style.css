@@ -420,6 +420,9 @@ table.stops .stopedit .stopbtns { flex-basis: 100%; display: flex; gap: 6px; fle
 
 /* ---- lines: vehicle type icon + type filter bar */
 table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertical-align: middle; }
+/* long line names (Chinese routes, "A - B via C") get an ellipsis instead of pushing the right columns under the sticky action cell */
+table#lines-table td:first-child { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+table#lines-table td:first-child:hover { max-width: none; }
 .typebar { display: inline-flex; gap: 4px; align-items: center; }
 .typebar .tbtn { background: var(--panel2); border: 1px solid var(--border); color: var(--c, var(--text)); border-radius: 6px; padding: 3px 7px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; line-height: 1; opacity: .75; }
 .typebar .tbtn .ico { margin: 0; }

@@ -9,6 +9,9 @@ config.json
 # icons are extracted from YOUR game installation at first start (not redistributed)
 dashboard/static/icons/
 
+# saved supply chains of the demo database (the real ones live in db/ next to the database)
+test/chains.json
+
 # real snapshots captured from the game (private, large)
 test/live_real_*.lua
 

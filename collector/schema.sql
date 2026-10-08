@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS line_stop (
     max_load      TEXT,                           -- JSON list of {cargo_type, max} for cargo limited below 100 %
     terminals     TEXT,                           -- JSON list of the station group terminals {n, station, terminal, pax, cargo, class, class_name, class_color, length, speed_mod, compatible, overlength}
     alternatives  TEXT,                           -- JSON list of {station, terminal} the stop may use besides the main one (station/terminal above)
+    station_entity INTEGER,                       -- station entity of the stop (mod schema 6+), key into station.catchment
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 
@@ -212,6 +213,7 @@ CREATE TABLE IF NOT EXISTS station (
     x REAL, y REAL, z REAL,
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL,
+    catchment     TEXT,                           -- JSON list of {id, kind: industry|warehouse, cargo: [{cargo_type, shipped_year}]} (mod schema 6+, cargo stations)
     PRIMARY KEY (game_id, station_id)
 );
 

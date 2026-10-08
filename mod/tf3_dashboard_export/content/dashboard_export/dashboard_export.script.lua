@@ -19,7 +19,8 @@ local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
 -- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
-local SCHEMA = 5
+-- 6: stations.catchment (industries / warehouses in the cargo catchment), stop_list[].station_entity (supply chains, rev 8)
+local SCHEMA = 6
 local DIR = "dashboard_export"
 local FILE = "live"
 local SLOW_FILE_PREFIX = "slow_"
@@ -506,6 +507,12 @@ local function lineItem(l, ctx)
 					max_add_wait = num(s.maxAdditionalWaitingTime), -- seconds
 					waypoints = count(s.waypoints) }
 				pcall(function()
+					-- the station entity the stop uses (s.station is a 0-based index into the station group): its
+					-- catchment tells which industries / warehouses the stop serves (supply chains)
+					local grp = api.engine.getComponent(s.stationGroup, api.type.ComponentType.STATION_GROUP)
+					st.station_entity = num(grp.stations[s.station + 1])
+				end)
+				pcall(function()
 					local c = s.stopConfig
 					st.force_unload = c.forceUnload and true or false
 					st.destroy_for_config_change = c.destroyForConfigChange and true or false
@@ -541,6 +548,49 @@ local function lineItem(l, ctx)
 	end
 end
 
+-- Industries and warehouses in the cargo catchment of a station (what the dashboard needs to build supply chains:
+-- a line carries cargo c from an industry at one stop to an industry or warehouse that takes c at another stop).
+-- Town buildings are left out (too many, and towns are exported separately). A warehouse lists the cargo types its
+-- stock list accepts, with what it ships per year; the accepted set is cached per warehouse for the cycle.
+local function warehouseCargo(w, wh, ctx)
+	ctx.whCargo = ctx.whCargo or {}
+	local accepted = ctx.whCargo[w]
+	if accepted == nil then
+		accepted = {}
+		pcall(function()
+			local sl = api.engine.getComponent(wh.stockList, api.type.ComponentType.STOCK_LIST)
+			for id in pairs(api.res.cargoTypeRep.getAll()) do
+				for _, entry in ipairs(arr(sl.stocks)) do
+					if api.res.cargoTypeRep.hasCargoType(entry.cargoTypes, id) then accepted[#accepted + 1] = num(id); break end
+				end
+			end
+		end)
+		ctx.whCargo[w] = accepted
+	end
+	local out = {}
+	for _, ct in ipairs(accepted) do
+		local r = { cargo_type = ct }
+		pcall(function() r.shipped_year = num(api.engine.util.stock.getCargoTypeShippedPerYear(wh.stockList, ct)) end)
+		out[#out + 1] = r
+	end
+	return out
+end
+
+local function stationCatchment(s, ctx)
+	local out = {}
+	pcall(function()
+		for _, e in ipairs(arr(api.engine.system.catchmentAreaSystem.getStationCatchables(s, true))) do
+			if api.engine.getComponent(e, api.type.ComponentType.INDUSTRY) then
+				out[#out + 1] = { id = num(e), kind = "industry" }
+			else
+				local wh = api.engine.getComponent(e, api.type.ComponentType.WAREHOUSE)
+				if wh then out[#out + 1] = { id = num(e), kind = "warehouse", cargo = warehouseCargo(e, wh, ctx) } end
+			end
+		end
+	end)
+	return out
+end
+
 local function stationsBegin(player)
 	local sys = api.engine.system
 	local ctx = { player = player, st2town = {}, st2con = {} }
@@ -563,6 +613,7 @@ local function stationItem(s, ctx)
 			end)
 			pcall(function() rec.station_group = num(sys.stationGroupSystem.getStationGroup(s)) end)
 			pcall(function() rec.lines = count(sys.lineSystem.getLineStopsForStation(s)) end)
+			if rec.cargo then rec.catchment = stationCatchment(s, ctx) end
 			pcall(function()
 				local con = st2con[s]
 				if con == nil then con = sys.streetConnectorSystem.getConstructionEntityForStation(s) end

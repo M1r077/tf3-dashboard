@@ -30,6 +30,9 @@ LINES = [(400, "IR Léman", (0.85, 0.2, 0.2), [300, 301, 302, 303, 304], 0, "RAI
          (402, "Bois → Scierie", (0.5, 0.35, 0.1), [306, 305], 1, "ROAD", 5), (403, "Planches → Usine", (0.9, 0.7, 0.2), [305, 308], 2, "RAIL", 3),
          (404, "Charbon/fer → Aciérie", (0.3, 0.3, 0.3), [307], 3, "RAIL", 4), (405, "Biens → Morges", (0.2, 0.7, 0.4), [308, 309], 6, "ROAD", 6),
          (406, "Bus Aubonne–Rolle", (0.6, 0.3, 0.8), [310, 302], 0, "ROAD", 3)]
+# cargo catchment of the cargo stations (mod schema 6): industries / a warehouse around them, for the supply chains tab
+CATCHMENT = {305: [{"id": 200, "kind": "industry"}], 306: [{"id": 201, "kind": "industry"}], 307: [{"id": 203, "kind": "industry"}],
+             308: [{"id": 205, "kind": "industry"}], 309: [{"id": 900, "kind": "warehouse", "cargo": [{"cargo_type": 6, "shipped_year": 0}]}]}
 DEPOTS = [(500, "Dépôt rail Nyon", "RAIL"), (501, "Dépôt routier Gland", "ROAD")]
 
 VEHICLES = []
@@ -151,9 +154,10 @@ for k in range(N):
                                   "max_frequency": 600 / max(1, len(lv)), "throughput": 200 * len(lv), "persons_on_line": sum(vv["load"] for vv in lv) if cargo == 0 else 0,
                                   "quality": {"pax_bad": int(tot * max(0, bad_rate)) if cargo == 0 else 0, "pax_total": tot if cargo == 0 else 0, "pax_avg": 0.8, "cargo_bad": int(tot * max(0, bad_rate)) if cargo else 0, "cargo_total": tot if cargo else 0, "cargo_avg": 0.7},
                                   "capacity": [{"cargo_type": cargo, "cargo": CARGO[cargo][1], "used": sum(vv["load"] for vv in lv), "capacity": sum(vv["capacity"] for vv in lv)}] + ([{"cargo_type": 4, "cargo": "IRON_ORE", "used": 90, "capacity": 240}] if lid == 404 else []),
-                                  "stop_list": [{"station_group": s, "station": 0, "terminal": 0, "name": next(x[1] for x in STATIONS if x[0] == s), "load_mode": (1 if (k == 0 and cargo) else 0), "min_wait": 0, "max_wait": -1, "max_add_wait": (60 if cargo == 0 else 0), "waypoints": k, "force_unload": False, "destroy_for_config_change": False, "destroy_for_refresh": False, "no_load": ([cargo] if (k == len(stops) - 1 and cargo) else []), "max_load": [], "terminals": fake_terminals(s, cargo, carrier), "alternatives": ([{"station": 0, "terminal": 1}, {"station": 0, "terminal": 2}] if s in (308, 309, 300) else [])} for k, s in enumerate(stops)], "custom_filters": bool(cargo), "transport_modes": [7, 8] if carrier == "RAIL" else [3, 4]})
+                                  "stop_list": [{"station_group": s, "station": 0, "station_entity": s, "terminal": 0, "name": next(x[1] for x in STATIONS if x[0] == s), "load_mode": (1 if (k == 0 and cargo) else 0), "min_wait": 0, "max_wait": -1, "max_add_wait": (60 if cargo == 0 else 0), "waypoints": k, "force_unload": False, "destroy_for_config_change": False, "destroy_for_refresh": False, "no_load": ([cargo] if (k == len(stops) - 1 and cargo) else []), "max_load": [], "terminals": fake_terminals(s, cargo, carrier), "alternatives": ([{"station": 0, "terminal": 1}, {"station": 0, "terminal": 2}] if s in (308, 309, 300) else [])} for k, s in enumerate(stops)], "custom_filters": bool(cargo), "transport_modes": [7, 8] if carrier == "RAIL" else [3, 4]})
         snap["stations"] = [{"id": sid, "name": nm, "town": tw, "cargo": cg, "used": int(random.uniform(5, 160) * growth), "overflow": random.choice([0, 0, 0, 12]), "pool_capacity": 200, "terminal_capacity": 160,
-                             "station_group": sid, "lines": sum(1 for l in LINES if sid in l[3]), "pos": {"x": x, "y": y, "z": 400}, "construction": "station/rail/era_a/passenger.con"} for sid, nm, tw, cg, x, y in STATIONS]
+                             "station_group": sid, "lines": sum(1 for l in LINES if sid in l[3]), "pos": {"x": x, "y": y, "z": 400}, "construction": "station/rail/era_a/passenger.con",
+                             **({"catchment": CATCHMENT.get(sid, [])} if cg else {})} for sid, nm, tw, cg, x, y in STATIONS]
         snap["towns"] = []
         for tid, nm, x, y in TOWNS:
             base = 300 + (tid - 100) * 180
@@ -178,7 +182,7 @@ for k in range(N):
                                        "stock_list": iid * 10 + 1, "pos": {"x": x, "y": y, "z": 400}, "construction": f"industry/{con}.con", "production_rating": 0.9 if served else 0.2,
                                        "producing": served or k % 7 == 0, "boost_rule": iid == 203, "boost_persons": False, "thrown_away": 0 if served else 30,
                                        "inputs": [{"cargo_type": c, "cargo": CARGO[c][1], "consumed_year": prod, "max_consumption_year": 400, "delivered_year": prod + 5} for c in ins],
-                                       "outputs": [{"cargo_type": c, "cargo": CARGO[c][1], "produced_year": prod, "max_production_year": 400, "shipped_year": prod if served else 0} for c in outs]})
+                                       "outputs": [{"cargo_type": c, "cargo": CARGO[c][1], "produced_year": prod, "max_production_year": 400, "shipped_year": (prod // 2 if iid == 200 else prod) if served else 0} for c in outs]})
         snap["depots"] = [{"id": did, "name": nm, "carrier": car, "vehicles": sum(1 for vv in vehicles if vv["state"] == "IN_DEPOT" and vv["carrier"] == car), "incoming": 0, "maintenance_pool": 12, "pool_max": 9, "pool_avg": 6.5} for did, nm, car in DEPOTS]
     store.ingest(snap)
 

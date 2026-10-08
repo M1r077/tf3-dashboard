@@ -25,6 +25,9 @@ sys.path.insert(0, str(HERE.parent / "collector"))
 import console  # noqa: E402
 import tf3paths  # noqa: E402
 
+sys.path.insert(0, str(HERE))
+import chains  # noqa: E402
+
 DEFAULT_DB = tf3paths.DEFAULT_DB
 STATIC = HERE / "static"
 
@@ -136,6 +139,16 @@ def db() -> sqlite3.Connection:
     return con
 
 
+_cols_cache: dict[str, set] = {}
+
+
+def has_col(table: str, col: str) -> bool:
+    """Columns added by a newer collector are missing until it has migrated the database once."""
+    if col not in _cols_cache.get(table, set()):
+        _cols_cache[table] = {r["name"] for r in db().execute(f"PRAGMA table_info({table})")}
+    return col in _cols_cache[table]
+
+
 def rows(sql: str, args: tuple = ()) -> list[dict]:
     out = []
     for r in db().execute(sql, args):
@@ -176,6 +189,10 @@ def api_overview(q: dict) -> dict:
                  SUM(vs.maintenance < 0.5) worn
                  FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=? WHERE vs.snapshot_id=?""", (gid, sid)) or {}
     alerts = rows("SELECT kind, COUNT(*) n FROM alert WHERE snapshot_id=? AND kind<>'town_problem' GROUP BY kind", (sid,))
+    counts: dict[str, int] = {}
+    for a in chain_alerts():
+        counts[a["kind"]] = counts.get(a["kind"], 0) + 1
+    alerts += [{"kind": k, "n": n} for k, n in counts.items()]
     errors = rows("SELECT section, error FROM snapshot_error WHERE snapshot_id=?", (sid,))
     game = one("SELECT * FROM game WHERE game_id=?", (gid,))
     ack = None
@@ -243,7 +260,7 @@ def api_alerts(q: dict) -> dict:
         h = hmap.get((a["kind"], a["entity_id"]))
         a["seen"] = h["n"] if h else 1
         a["since"] = h["since"] if h else None
-    return {"alerts": al}
+    return {"alerts": al + chain_alerts()}
 
 
 def api_lines(q: dict) -> dict:
@@ -261,8 +278,9 @@ def api_lines(q: dict) -> dict:
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
-    stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load, terminals, alternatives
+    se = ", station_entity" if has_col("line_stop", "station_entity") else ""
+    stops = rows(f"""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
+                           force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load, terminals, alternatives{se}
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
         for k in ("no_load", "max_load", "terminals", "alternatives"):
@@ -470,6 +488,7 @@ def api_map(q: dict) -> dict:
     ind = rows("SELECT industry_id, name, x, y FROM industry WHERE game_id=? AND x IS NOT NULL", (gid,))
     # alerts with position
     al = rows("SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot) AND x IS NOT NULL")
+    al += [{"kind": a["kind"], "entity_id": a["entity_id"], "x": a["x"], "y": a["y"]} for a in chain_alerts() if a.get("x") is not None]
     # line paths: stops -> station group -> station position (first station of the group with coordinates)
     paths = rows("""SELECT ls.line_id, ls.stop_index, l.name, l.color_r, l.color_g, l.color_b,
                            COALESCE(s1.x, s2.x) AS x, COALESCE(s1.y, s2.y) AS y
@@ -485,6 +504,108 @@ def api_map(q: dict) -> dict:
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
     return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "alerts": al, "lines": list(lines.values())}
+
+
+# ---------------------------------------------------------------- supply chains (chains.py)
+_net_cache: dict = {"key": None, "net": None}
+_net_lock = threading.Lock()
+_alert_first_seen: dict[tuple, str] = {}
+
+
+def chain_store() -> chains.ChainStore:
+    # next to the database (the server opens the database read-only)
+    return chains.ChainStore(DB_PATH.parent / "chains.json")
+
+
+def network() -> chains.Network:
+    """Nodes and legs of every line, rebuilt only when the collector stored a new slow cycle."""
+    gid = _gid()
+    k = one("SELECT (SELECT MAX(snapshot_id) FROM line_state) a, (SELECT MAX(snapshot_id) FROM industry_state) b, (SELECT MAX(last_seen) FROM station) c")
+    key = (gid, k["a"], k["b"], k["c"]) if k else (gid,)
+    with _net_lock:
+        if _net_cache["key"] == key and _net_cache["net"] is not None:
+            return _net_cache["net"]
+    ld = api_lines({})
+    catch = ", catchment" if has_col("station", "catchment") else ""
+    st = rows(f"SELECT station_id, name, station_group, x, y{catch} FROM station WHERE game_id=?", (gid,))
+    net = chains.Network(ld["lines"], st, api_industries({})["industries"], ld["cargo_types"])
+    with _net_lock:
+        _net_cache.update(key=key, net=net)
+    return net
+
+
+def chain_alerts() -> list[dict]:
+    """Alerts of the saved chains, merged (an entity in two chains is reported once, with both chain names)."""
+    try:
+        saved = chain_store().list(_gid())
+        if not saved:
+            return []
+        net = network()
+    except (sqlite3.Error, OSError):
+        return []
+    merged: dict[tuple, dict] = {}
+    for c in saved:
+        for a in chains.alerts(net.view(c.get("lines") or [], c.get("disabled") or [])):
+            k = (a["kind"], a["entity_id"], a["type_code"], a["related_id"])
+            if k in merged:
+                if c["name"] not in merged[k]["chains"]:
+                    merged[k]["chains"].append(c["name"])
+            else:
+                merged[k] = {**a, "chains": [c["name"]], "chain": True}
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    for k in list(_alert_first_seen):
+        if k not in merged:
+            del _alert_first_seen[k]
+    out = []
+    for k, a in merged.items():
+        a["since"] = _alert_first_seen.setdefault(k, now)
+        a["seen"] = 2 if a["since"] != now else 1
+        out.append(a)
+    return out
+
+
+def _ids(q: dict, name: str) -> list[int]:
+    out = []
+    for part in ",".join(q.get(name, [])).split(","):
+        part = part.strip()
+        if part.lstrip("-").isdigit():
+            out.append(int(part))
+    return out
+
+
+def api_chains(q: dict) -> dict:
+    gid = _gid()
+    saved = chain_store().list(gid)
+    net = network()
+    for c in saved:
+        al = chains.alerts(net.view(c.get("lines") or [], c.get("disabled") or []))
+        c["alerts"] = len(al)
+        c["alerts_bad"] = sum(1 for a in al if a["kind"] in ("chain_bottleneck", "chain_industry"))
+    return {"chains": saved, "has_catchment": net.has_catchment,
+            "lines": [{"line_id": l["line_id"], "name": l.get("name"), "legs": len(net.legs_by_line.get(l["line_id"], []))} for l in net.lines.values()]}
+
+
+def api_chain_view(q: dict) -> dict:
+    net = network()
+    disabled = [x for x in ",".join(q.get("disabled", [])).split(",") if x]
+    if q.get("id"):
+        c = next((x for x in chain_store().list(_gid()) if str(x.get("id")) == q["id"][0]), None)
+        if not c:
+            return {"error": "unknown chain"}
+        line_ids, disabled = c.get("lines") or [], c.get("disabled") or []
+    elif q.get("all"):
+        line_ids = sorted((lid for lid, legs in net.legs_by_line.items() if legs), key=lambda lid: str(net.lines[lid].get("name") or ""))
+    else:
+        line_ids = _ids(q, "lines")
+    v = net.view(line_ids, disabled)
+    v["alerts"] = chains.alerts(v)
+    v["disabled"] = disabled
+    return v
+
+
+def api_chain_connected(q: dict) -> dict:
+    seed = _ids(q, "lines")
+    return {"lines": network().connected(seed), "seed": seed}
 
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
@@ -671,6 +792,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
     "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/chains": api_chains, "/api/chain_view": api_chain_view, "/api/chain_connected": api_chain_connected,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -717,12 +839,28 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/chains"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             self._send(403, json.dumps({"error": "local only"}).encode(), "application/json")
+            return
+        if u.path == "/api/chains":
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n) or b"{}")
+                store, gid = chain_store(), _gid()
+                if body.get("action") == "delete":
+                    res = {"deleted": store.delete(gid, int(body.get("id")))}
+                else:
+                    res = {"chain": store.save(gid, body.get("name"), body.get("lines") or [], body.get("disabled") or [],
+                                               int(body["id"]) if body.get("id") is not None else None)}
+                self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
+            except (ValueError, TypeError, KeyError) as e:
+                self._send(400, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
+            except (OSError, sqlite3.Error) as e:
+                self._send(500, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
             return
         if u.path == "/api/activity":
             try:

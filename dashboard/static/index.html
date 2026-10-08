@@ -55,7 +55,7 @@
   <div class="setrow"><span class="lbl" data-i18n="set_keys"></span>
     <label><input type="checkbox" id="set-keys"> <span data-i18n="set_keys_hint"></span></label></div>
   <div class="setrow"><span class="lbl" data-i18n="set_default_tab"></span>
-    <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option></select></div>
+    <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option><option value="chains" data-i18n="tab_chains"></option></select></div>
   <div class="setrow"><span class="lbl" data-i18n="set_layout"></span>
     <span class="btns"><button class="btn" id="set-layout-edit"><i class="ico sm" data-ico="edit"></i><span data-i18n="layout_edit"></span></button><button class="btn" id="set-layout-reset"><i class="ico sm" data-ico="reset"></i><span data-i18n="layout_reset_all"></span></button></span></div>
   <div class="setrow"><span class="lbl"></span><button class="btn" id="set-reset" data-i18n="set_reset"></button></div>
@@ -69,6 +69,7 @@
   <button data-tab="map"><i class="ico" data-ico="locate"></i><span data-i18n="tab_map"></span></button>
   <button data-tab="towns"><i class="ico" data-ico="town"></i><span data-i18n="tab_towns"></span></button>
   <button data-tab="industries"><i class="ico" data-ico="industry"></i><span data-i18n="tab_industries"></span></button>
+  <button data-tab="chains"><i class="ico" data-ico="cargo_supplied"></i><span data-i18n="tab_chains"></span></button>
   <button data-tab="stations"><i class="ico" data-ico="station"></i><span data-i18n="tab_stations"></span></button>
   <button data-tab="finance" class="dim"><i class="ico" data-ico="money"></i><span data-i18n="tab_finance"></span></button>
   <div id="range-bar" class="rangebar" data-i18n-title="range_title"><i class="ico sm" data-ico="clock"></i>
@@ -196,6 +197,28 @@
       <label><input type="checkbox" id="ind-unserved"> <span data-i18n="unserved"></span></label>
     </div>
     <div class="panels" data-layout="industries"><div class="card tablecard" data-panel="ind-table" data-w="12"><table id="ind-table" class="data"></table></div></div>
+  </section>
+
+  <!-- ------------------------------------------------ supply chains -->
+  <section id="tab-chains" class="tab">
+    <div class="toolbar">
+      <span class="seg" id="chain-mode"><button data-mode="chain" data-i18n="chain_mode_chain"></button><button data-mode="all" data-i18n="chain_mode_all"></button></span>
+      <span class="hint" data-i18n="chain_hint"></span>
+    </div>
+    <div class="panels" data-layout="chains">
+      <div class="card" data-panel="chain-side" data-w="4">
+        <h2><i class="ico" data-ico="star"></i><span data-i18n="chains_saved"></span></h2>
+        <div id="chain-saved"></div>
+        <h2 style="margin-top:14px"><i class="ico" data-ico="edit"></i><span data-i18n="chain_build"></span></h2>
+        <div class="chain-form">
+          <select id="chain-add"></select>
+          <div class="actions"><button class="btn" id="chain-connected"><i class="ico sm" data-ico="plus"></i><span data-i18n="chain_add_connected"></span></button><button class="btn" id="chain-clear"><i class="ico sm" data-ico="close"></i><span data-i18n="chain_clear"></span></button></div>
+          <div class="actions"><input id="chain-name" data-i18n-ph="chain_name_ph" maxlength="80"><button class="btn" id="chain-save"><i class="ico sm" data-ico="check"></i><span data-i18n="chain_save"></span></button></div>
+          <div id="chain-msg" class="muted small"></div>
+        </div>
+      </div>
+      <div class="card" id="chain-view" data-panel="chain-view" data-w="8"><p class="muted" data-i18n="chain_empty"></p></div>
+    </div>
   </section>
 
   <!-- ------------------------------------------------ stations -->

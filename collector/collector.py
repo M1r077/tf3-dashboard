@@ -147,6 +147,8 @@ class Store:
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
         ("snapshot", "camera", "TEXT"),
+        ("line_stop", "station_entity", "INTEGER"),
+        ("station", "catchment", "TEXT"),
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -358,15 +360,16 @@ class Store:
                     self.con.execute(
                         """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name, slow_seq,
                            load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load,
-                           terminals, alternatives)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           terminals, alternatives, station_entity)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"), slow_seq,
                          g(s, "load_mode"), g(s, "min_wait"), g(s, "max_wait"), g(s, "max_add_wait"), g(s, "waypoints"),
                          _bool(g(s, "force_unload")), _bool(g(s, "destroy_for_config_change")), _bool(g(s, "destroy_for_refresh")),
                          json.dumps([x for x in no_load if isinstance(x, (int, float))]) if no_load else None,
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
                          json.dumps(terminals) if terminals else None,
-                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None))
+                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None,
+                         g(s, "station_entity")))
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))
@@ -377,14 +380,31 @@ class Store:
                 continue
             x, y, z = xyz(s.get("pos"))
             self.con.execute(
-                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, construction, x, y, z, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, construction, x, y, z, first_seen, last_seen, catchment)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
-                   is_cargo=excluded.is_cargo, construction=excluded.construction, x=excluded.x, y=excluded.y, z=excluded.z, last_seen=excluded.last_seen""",
-                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), s.get("construction"), x, y, z, now, now),
+                   is_cargo=excluded.is_cargo, construction=excluded.construction, x=excluded.x, y=excluded.y, z=excluded.z, last_seen=excluded.last_seen,
+                   catchment=excluded.catchment""",
+                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), s.get("construction"), x, y, z, now, now,
+                 self._catchment(s.get("catchment"))),
             )
             self.con.execute("INSERT OR REPLACE INTO station_state VALUES (?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))
+
+    @staticmethod
+    def _catchment(c: Any) -> str | None:
+        """Industries / warehouses around a cargo station (mod schema 6+) -> JSON, None when not exported."""
+        if c is None:
+            return None
+        out = []
+        for e in as_list(c):
+            if isinstance(e, dict) and e.get("id") is not None and e.get("kind") in ("industry", "warehouse"):
+                item: dict[str, Any] = {"id": e["id"], "kind": e["kind"]}
+                if e["kind"] == "warehouse":
+                    item["cargo"] = [{"cargo_type": g(x, "cargo_type"), "shipped_year": g(x, "shipped_year")}
+                                     for x in as_list(e.get("cargo")) if isinstance(x, dict) and g(x, "cargo_type") is not None]
+                out.append(item)
+        return json.dumps(out)
 
     def _towns(self, sid: int, gid: int, now: str, ts: Any):
         def pair(p: Any) -> tuple[Any, Any]:

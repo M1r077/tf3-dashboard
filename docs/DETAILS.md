@@ -78,6 +78,11 @@ Three independent parts:
      TrainSteam/Electric/Diesel, Tram, Aircraft, Helicopter, Ship), the localized model name (`model`), the neutral model
      key (`model_key`, e.g. `train/re_44i`) and the full consist (`parts`, e.g. `train/re_44i,waggon/ew_ii,-waggon/ew_ii`;
      `-` = reversed element) so the dashboard can show the real icons
+   - **supply chains (mod rev 8, schema 6)**: each cargo station exports `catchment`, the industries and warehouses in
+     its cargo catchment (`catchmentAreaSystem.getStationCatchables(station, true)`; a warehouse = entity with a
+     `WAREHOUSE` component, exported with the cargo types its stock list accepts and what it ships per year). Each line
+     stop exports `station_entity`, the station it uses (`STATION_GROUP.stations[stop.station + 1]`). Town buildings
+     are left out.
    - cargo types are exported with their localized name AND a neutral key (`key`, name of the `.cargo` file); language
      and cargo names are re-read every slow cycle, so **changing the game language is picked up without restart** (the
      dashboard follows the game language while the selector is on "auto")
@@ -187,6 +192,22 @@ Three independent parts:
    - **Industries**: level, status (producing, closing, boost, manual, discarding), production rating, inputs/outputs
      per year with max and shipped/delivered; filter "unserved / closing"
    - **Stations & depots**: waiting, occupancy, overflow, lines; parked vehicles, approaching, maintenance pool
+   - **Supply chains** (`dashboard\chains.py`): a leg = one cargo carried by one line from a source (industry
+     producing it, or warehouse holding it) around one stop to the nodes that take it (industry input, warehouse) around
+     the other stops; the stop must be allowed to load the cargo (`no_load`) and the line must have capacity for it. A
+     warehouse the line unloads into is not also a source of that cargo for that line. Flow of a leg = what the source
+     produces (or ships) per year, split evenly between the enabled legs leaving it with that cargo (all lines); "moved"
+     = the same share of what the source actually ships per year. A line is short of vehicles when it moves less than
+     80 % of its flow or runs above 90 % load. The game's line capacity (used / capacity) is only used as a load factor:
+     its time unit is undocumented, so it is never compared with the per-year flows.
+     Industries: % of capacity = produced / max production, "limited by" = the input with the lowest consumed / max.
+     Chains are saved per game in `chains.json` next to the database (the server opens the database read-only);
+     the working selection lives in the browser (localStorage `tf3.chain`). "All lines" shows every line with a leg.
+     Chain alerts (computed for the saved chains, merged when an entity is in several chains, shown in the Alerts
+     list, the header count and the map for industries): `chain_bottleneck` (0 load >= 90 %, 1 produced but not picked
+     up, 2 more than 30 % of the cargo late), `chain_overcapacity` (load < 20 % with 2+ vehicles), `chain_industry`
+     (0 halted, 1 closing, 2 discarding, 3 producing below 50 %), `chain_input_short` (input below 70 % of the maximum).
+     Deep link: `?tab=chains&chain=<id>` or `&chain=all`. Needs mod rev 8+ (the tab says so otherwise).
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
@@ -200,7 +221,8 @@ Three independent parts:
   `industry_state`, `industry_cargo`, `depot_state`
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
-- versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);
+- `station.catchment` (JSON) and `line_stop.station_entity`: supply chains, mod schema 6+
+- versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed; 5 = camera; 6 = catchment);
   `PRAGMA user_version` on the database side (1 = fix applied to already stored `line_capacity`). The collector fixes
   on the fly the exports of a mod still on schema 1 (+1 offset: a bus "carried vehicles").
 

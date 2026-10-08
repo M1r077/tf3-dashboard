@@ -81,6 +81,11 @@ and no route is changed. The channel is a local file (`cmd.lua`) read by the mod
 - **Map** — lines, vehicles, stations, industries, towns, alerts; click = camera on the object. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
   per savegame in `db\camera_views.json`.
+- **Supply chains** — lines linked by the industries and warehouses their stops serve: cargo legs (source › sink,
+  per year), whether each line picks up what its sources produce, industries with % of capacity and the input that
+  limits them. Build chains (add a line, "add connected lines", switch off legs a line does not really carry), save
+  them, and get chain alerts (bottleneck, too many vehicles, industry problem, missing input) in the Alerts list.
+  Needs mod revision 8+.
 - **Towns**, **Industries**, **Stations & depots**, **Finances**.
 - Languages: English, French, German, Brazilian Portuguese — follows the game language automatically.
 

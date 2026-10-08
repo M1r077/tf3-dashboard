@@ -122,7 +122,8 @@
   const cargoKey = (c) => { const k = c && typeof c === "object" ? c.cargo_key : null; if (k) return String(k).toLowerCase(); const name = c && typeof c === "object" ? c.cargo : c; return String(name || "").toLowerCase().replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/[\s-]+/g, "_").replace("canned_food", "tinned_food").replace("tinplate", "sheet_metal"); };
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
-  const ALERT_ICON = { line_problem: "line_problem", line_issue: "line_unload", vehicle_problem: "no_path", blocked_train: "stop", no_path_vehicle: "no_path", town_problem: "town", closing_industry: "industry_closed", thrown_away_cargo: "stock_full" };
+  const ALERT_ICON = { line_problem: "line_problem", line_issue: "line_unload", vehicle_problem: "no_path", blocked_train: "stop", no_path_vehicle: "no_path", town_problem: "town", closing_industry: "industry_closed", thrown_away_cargo: "stock_full",
+    chain_bottleneck: "line_problem", chain_overcapacity: "vehicles", chain_industry: "industry_down", chain_input_short: "cargo_received" };
 
   // ------------------------------------------------------------ formatting
   const loc = () => i18n.dict._locale || "en";
@@ -147,7 +148,8 @@
   const CARRIER_COLOR = { ROAD: "#e8b04b", RAIL: "#4f8a8a", TRAM: "#bc8cff", AIR: "#58a6ff", WATER: "#3fb950", OTHER: "#8b98a8" };
   const ST = (s) => t("state." + s) === "state." + s ? (s || "?") : t("state." + s);
   const CA = (c) => t("carrier." + c) === "carrier." + c ? (c || "?") : t("carrier." + c);
-  const ALERT_SEV = { line_problem: "bad", line_issue: "warn", vehicle_problem: "bad", blocked_train: "bad", no_path_vehicle: "bad", town_problem: "warn", closing_industry: "warn", thrown_away_cargo: "info" };
+  const ALERT_SEV = { line_problem: "bad", line_issue: "warn", vehicle_problem: "bad", blocked_train: "bad", no_path_vehicle: "bad", town_problem: "warn", closing_industry: "warn", thrown_away_cargo: "info",
+    chain_bottleneck: "bad", chain_industry: "bad", chain_input_short: "warn", chain_overcapacity: "info" };
   const ALERT_CODE = { line_problem: "line_problem", line_issue: "line_issue", vehicle_problem: "veh_problem", town_problem: "town_problem" };
   const alertLabel = (kind) => { const v = t("alert." + kind); return v === "alert." + kind ? kind : v; };
 
@@ -484,14 +486,17 @@
       const sev = ALERT_SEV[a.kind] || "info";
       const codeTable = ALERT_CODE[a.kind] ? t(ALERT_CODE[a.kind]) : null;
       const code = codeTable && a.type_code != null ? (codeTable[a.type_code] ?? ("code " + a.type_code)) : "";
-      const extra = [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
+      // chain alerts (chains.py) carry their own wording: amount is a percentage or a quantity per year depending on the code
+      const extra = a.chain
+        ? [t(`chain_code.${a.kind}.${a.type_code}`, { n: int(a.amount), cargo: cargoName(a.cargo) }), (a.chains || []).length ? t("chain_in", { names: a.chains.join(", ") }) : ""].filter(Boolean).join(" · ")
+        : [code, a.stop_index != null ? t("stop_n", { n: a.stop_index }) : "", a.amount != null ? t("units_n", { n: a.amount }) : "", a.related_id != null && a.kind === "blocked_train" ? t("by_id", { id: a.related_id }) : ""].filter(Boolean).join(" · ");
       const who = a.entity_name || (a.entity_id != null ? "#" + a.entity_id : "");
       // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
       // industry and an extra button opens the Industries tab on it
       const focus = a.kind === "thrown_away_cargo"
         ? (a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
-        : a.entity_id != null ? entBtns(a.entity_id) : "";
-      return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}</div>${focus}</div>`;
+        : a.entity_id != null ? entBtns(a.entity_id, { line: a.kind === "chain_bottleneck" || a.kind === "chain_overcapacity" }) : "";
+      return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.chain ? (a.since ? t("since", { ago: ago(a.since) }) : "") : `${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}`}</div>${focus}</div>`;
     }).join("");
     bindActions(el);
     $$("button.goto[data-ind]", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); $("#ind-filter").value = b.dataset.ind; showTab("industries"); }));
@@ -922,6 +927,165 @@
     renderTable($("#ind-table"), cols, rows, { defaultSort: "name" });
   }
 
+  // ------------------------------------------------------------ supply chains
+  // A chain = a named set of lines (+ cargo legs switched off). The server (chains.py) finds which industries /
+  // warehouses each stop serves, the cargo legs between them and their flows; this tab shows them like the game's
+  // line window and lets the player build, save and delete chains. The working selection is kept in the browser.
+  const chainState = (() => {
+    const d = { mode: "chain", id: null, name: "", lines: [], disabled: [], dirty: false, open: [] };
+    try { return Object.assign(d, JSON.parse(localStorage.getItem("tf3.chain") || "{}")); } catch (e) { return d; }
+  })();
+  const saveChainState = () => { try { localStorage.setItem("tf3.chain", JSON.stringify(chainState)); } catch (e) { /* private window */ } };
+  const chainMsg = (txt, cls = "") => { const el = $("#chain-msg"); el.textContent = txt || ""; el.className = "small " + (cls || "muted"); };
+  async function postChain(body) {
+    const r = await fetch("/api/chains", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json(); if (!j.ok) throw new Error(j.error || r.status); return j;
+  }
+  function chainEdit(fn) { fn(); chainState.dirty = chainState.id != null; saveChainState(); refresh(); }
+  $$("#chain-mode button").forEach(b => b.addEventListener("click", () => { chainState.mode = b.dataset.mode; saveChainState(); refresh(); }));
+  $("#chain-add").addEventListener("change", e => {
+    const id = +e.target.value; e.target.value = "";
+    if (id && !chainState.lines.includes(id)) chainEdit(() => { chainState.lines.push(id); chainState.mode = "chain"; });
+  });
+  $("#chain-connected").addEventListener("click", async () => {
+    if (!chainState.lines.length) { chainMsg(t("chain_pick_first"), "warn"); return; }
+    const d = await api("/api/chain_connected", { lines: chainState.lines.join(",") });
+    const added = (d.lines || []).filter(id => !chainState.lines.includes(id));
+    chainEdit(() => { chainState.lines.push(...added); chainState.mode = "chain"; });
+    chainMsg(t("chain_connected_added", { n: added.length }), added.length ? "ok" : "muted");
+  });
+  $("#chain-clear").addEventListener("click", () => { Object.assign(chainState, { id: null, name: "", lines: [], disabled: [], dirty: false, open: [] }); $("#chain-name").value = ""; saveChainState(); chainMsg(""); refresh(); });
+  $("#chain-save").addEventListener("click", async () => {
+    const name = $("#chain-name").value.trim();
+    if (!name) { chainMsg(t("chain_name_required"), "warn"); $("#chain-name").focus(); return; }
+    if (!chainState.lines.length) { chainMsg(t("chain_pick_first"), "warn"); return; }
+    try {
+      // same id + same name = update; another name = save as a new chain (or replace the one with that name)
+      const j = await postChain({ name, lines: chainState.lines, disabled: chainState.disabled, id: chainState.name === name ? chainState.id : null });
+      Object.assign(chainState, { id: j.chain.id, name: j.chain.name, dirty: false }); saveChainState();
+      chainMsg(t("chain_saved_ok"), "ok"); refresh();
+    } catch (e) { chainMsg(t("act_failed", { msg: e.message }), "bad"); }
+  });
+  function openChain(c) {
+    Object.assign(chainState, { mode: "chain", id: c.id, name: c.name, lines: (c.lines || []).slice(), disabled: (c.disabled || []).slice(), dirty: false, open: [] });
+    $("#chain-name").value = c.name; saveChainState(); chainMsg(""); refresh();
+  }
+  const nodeName = (n) => n.kind === "warehouse" ? t("chain_warehouse", { station: n.station_name || "?" }) : (n.name || "#" + n.id);
+  const perYear = (n) => int(n);
+  const chainStatus = (l) => {
+    if (l.status === "none") return `<span class="cst bad">${ico("warning", "sm")}${t("chain_st_none")}</span>`;
+    if (l.status === "short") return `<span class="cst bad">${ico("warning", "sm")}${t("chain_st_short", { n: l.vehicles })}</span>`;
+    if (l.status === "ok") return `<span class="cst ok">${ico("check", "sm")}${t("chain_st_ok", { n: l.vehicles })}</span>`;
+    return `<span class="cst">${t("chain_st_unknown", { n: l.vehicles })}</span>`;
+  };
+  function chainLineCard(l, mode) {
+    const open = chainState.open.includes(l.line_id);
+    const carried = l.capacities.filter(c => c.need > 0 || c.capacity > 0);
+    const p = l.need ? pct(l.moved, l.need) : 0;
+    const flowBar = l.need > 0 ? `<div class="cflow">${bar(l.moved, l.need, p >= 80 ? "ok" : p >= 50 ? "warn" : "bad", t("chain_moved", { a: perYear(l.moved), b: perYear(l.need) }))}</div>` : "";
+    const head = `<div class="chead" data-line="${l.line_id}">
+        <button class="chev" title="${esc(t("detail"))}">${open ? "▾" : "▸"}</button>
+        <span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${carried.map(c => cargoIcon(c)).join("")}
+        <b class="cname">${esc(l.name)}</b>
+        ${mode === "chain" ? `<button class="btn iconbtn cremove" title="${esc(t("chain_remove"))}">${ico("close", "sm")}</button>` : (chainState.lines.includes(l.line_id) ? "" : `<button class="btn iconbtn cadd" title="${esc(t("chain_add_sel"))}">${ico("plus", "sm")}</button>`)}
+        <span class="cright">${flowBar}</span>
+      </div>
+      <div class="csub">${chainStatus(l)}${l.load ? ` · <span class="muted">${t("chain_load", { n: Math.round(l.load * 100) })}</span>` : ""}
+        ${carried.filter(c => c.need > 0).map(c => `<span class="cneed">${cargoIcon(c)}${perYear(c.need)}/${t("per_year_short")}</span>`).join("")}</div>`;
+    if (!open) return `<div class="cline">${head}</div>`;
+    const stops = `<div class="cbox"><div class="ctitle">${t("chain_stops")}</div>${l.stops.map(s => `<div class="cstop"><span class="cnum" style="background:${rgb(l.color_r, l.color_g, l.color_b)}">${s.stop_index}</span><span>${esc(s.name || "?")}</span>
+        ${s.loads.length ? `<span class="muted">${t("chain_loads")}</span> ${s.loads.map(c => cargoChip(c)).join("")}` : ""}
+        ${s.unloads.length ? `<span class="muted">${t("chain_unloads")}</span> ${s.unloads.map(c => cargoChip(c)).join("")}` : ""}
+        ${s.nodes.length ? `<small class="muted">· ${s.nodes.map(n => esc(nodeName(n))).join(", ")}</small>` : ""}</div>`).join("")}</div>`;
+    const legs = l.legs.length ? `<div class="cbox"><div class="ctitle">${t("chain_cargo_legs")}</div><div class="muted small">${t("chain_legs_hint")}</div>${l.legs.map(g => `<div class="cleg ${g.enabled ? "" : "off"}">
+        <button class="btn legtoggle ${g.enabled ? "on" : ""}" data-leg="${esc(g.key)}" ${mode === "all" ? "disabled" : ""}>${t(g.enabled ? "chain_leg_on" : "chain_leg_off")}</button>
+        ${cargoIcon(g.cargo)} ${esc(nodeName(g.source_name))} <span class="muted">›</span> ${g.sink_names.length ? g.sink_names.map(n => esc(nodeName(n))).join(", ") : `<span class="muted">${t("chain_to_stop", { n: g.sink_stop })}</span>`}
+        <span class="mono muted">${g.enabled ? t("chain_moved", { a: perYear(g.moved), b: perYear(g.flow) }) : ""}</span></div>`).join("")}</div>` : `<div class="cbox muted">${t("chain_no_legs")}</div>`;
+    const caps = l.capacities.length ? `<div class="cbox"><div class="ctitle">${t("kpi_fill")}</div><table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${c.capacity ? bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`) : `<span class="chip bad">${t("chain_no_capacity")}</span>`}</td></tr>`).join("")}</table></div>` : "";
+    return `<div class="cline open">${head}<div class="cbody">${stops}${legs}${caps}<div class="actions">${entBtns(l.line_id, { line: true })}<button class="btn gotoline" data-line="${l.line_id}">${ico("line", "sm")}${t("tab_lines")}</button></div></div></div>`;
+  }
+  function chainNodeCard(n) {
+    if (n.kind === "warehouse") {
+      return `<div class="cnode"><div class="cnode-h">${ico("stock_full", "sm")}<b>${esc(nodeName(n))}</b></div>${(n.cargo || []).map(c => `<div class="small">${t("chain_wh_ships", { cargo: esc(cargoName(c.cargo)), a: perYear(c.shipped) })}</div>`).join("") || `<div class="muted small">–</div>`}</div>`;
+    }
+    const u = n.utilization || 0;
+    const flags = [n.producing === 0 ? `<span class="chip bad">${t("halted")}</span>` : "", n.closure_time ? `<span class="chip bad">${t("closing")}</span>` : "", n.boost ? `<span class="chip info">${t("boost")}</span>` : "", n.thrown_away ? `<span class="chip warn">${t("thrown", { n: n.thrown_away })}</span>` : ""].join("");
+    return `<div class="cnode"><div class="cnode-h">${ico("industry", "sm")}<b>${esc(nodeName(n))}</b> ${flags}<span class="cright">${entBtns(n.id)}</span></div>
+      ${n.outputs.length ? `<div class="cflow wide">${bar(u, 1, u >= 0.8 ? "ok" : u >= PROD_WARN ? "warn" : "bad", t("chain_capacity_pct", { n: Math.round(u * 100) }))}</div>` : ""}
+      ${n.limited_by ? `<div class="small warnt">${t("chain_limited", { cargo: esc(cargoName(n.limited_by.cargo)) })}</div>` : ""}
+      ${n.inputs.map(c => `<div class="small">${cargoIcon(c)}${t("chain_receives", { cargo: esc(cargoName(c.cargo)), a: perYear(c.rate), b: perYear(c.max) })}</div>`).join("")}
+      ${n.outputs.map(c => `<div class="small">${cargoIcon(c)}${t("chain_produces", { cargo: esc(cargoName(c.cargo)), a: perYear(c.rate), b: perYear(c.max) })}</div>`).join("")}</div>`;
+  }
+  const PROD_WARN = 0.5;
+  let chainDeepDone = false;
+  async function renderChains() {
+    const list = await api("/api/chains");
+    $$("#chain-mode button").forEach(b => b.classList.toggle("active", b.dataset.mode === chainState.mode));
+    // saved chains
+    const saved = list.chains || [];
+    // deep link ?tab=chains&chain=<id>|all (applied once)
+    const deep = new URLSearchParams(location.search).get("chain");
+    if (deep && !chainDeepDone) {
+      chainDeepDone = true;
+      if (deep === "all") chainState.mode = "all";
+      else { const c = saved.find(x => String(x.id) === deep); if (c) { openChain(c); return; } }
+    }
+    $("#chain-saved").innerHTML = saved.length ? saved.map(c => `<div class="csaved ${c.id === chainState.id ? "sel" : ""}" data-id="${c.id}">
+        <b>${esc(c.name)}</b> <span class="muted">${t("chain_n_lines", { n: (c.lines || []).length })}</span>
+        ${c.alerts ? `<span class="chip ${c.alerts_bad ? "bad" : "warn"}">${ico("alert", "sm")}${c.alerts}</span>` : `<span class="chip ok">${ico("check", "sm")}</span>`}
+        ${c.id === chainState.id && chainState.dirty ? `<span class="chip warn">${t("chain_unsaved")}</span>` : ""}
+        <button class="btn iconbtn cdel" title="${esc(t("chain_delete"))}">${ico("close", "sm")}</button></div>`).join("") : `<div class="muted small">${t("chains_none_saved")}</div>`;
+    $$("#chain-saved .csaved").forEach(row => row.addEventListener("click", async e => {
+      const c = saved.find(x => x.id === +row.dataset.id); if (!c) return;
+      if (e.target.closest(".cdel")) {
+        if (!(await modal.confirm(t("confirm_chain_delete", { name: c.name }), { title: t("chain_delete"), ok: t("chain_delete"), danger: true }))) return;
+        postChain({ action: "delete", id: c.id }).then(() => { if (chainState.id === c.id) Object.assign(chainState, { id: null, dirty: false }); saveChainState(); refresh(); }).catch(err => chainMsg(t("act_failed", { msg: err.message }), "bad"));
+        return;
+      }
+      openChain(c);
+    }));
+    // line picker: lines with cargo legs first; rebuilt only when the list changes and the picker is not in use
+    const sel = $("#chain-add"), all = (list.lines || []).slice().sort((a, b) => (b.legs > 0) - (a.legs > 0) || String(a.name).localeCompare(String(b.name), loc()));
+    const sig = i18n.lang + "|" + all.map(l => l.line_id + ":" + l.legs).join(",");
+    if (sel.dataset.sig !== sig && document.activeElement !== sel) {
+      sel.innerHTML = `<option value="">${esc(t("chain_add_line"))}</option>` + all.map(l => `<option value="${l.line_id}">${esc(l.name)}${l.legs ? "" : " · " + esc(t("chain_no_cargo"))}</option>`).join("");
+      sel.dataset.sig = sig;
+    }
+    if (document.activeElement !== $("#chain-name") && !$("#chain-name").value && chainState.name) $("#chain-name").value = chainState.name;
+    // the view
+    const view = $("#chain-view");
+    const params = chainState.mode === "all" ? { all: 1 } : { lines: chainState.lines.join(","), disabled: chainState.disabled.join(",") };
+    if (chainState.mode === "chain" && !chainState.lines.length) { view.innerHTML = (list.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`) + `<p class="muted">${t("chain_empty")}</p>`; return; }
+    const v = await api("/api/chain_view", params);
+    const tt = v.totals || {};
+    const al = v.alerts || [];
+    view.innerHTML = `${v.has_catchment ? "" : `<div class="cmdhint">${ico("warning", "sm")}<span>${t("chain_need_mod")}</span></div>`}
+      <h2>${ico(chainState.mode === "all" ? "line" : "cargo_supplied")}${esc(chainState.mode === "all" ? t("chain_mode_all") : (chainState.name || t("chain_mode_chain")))}${chainState.mode === "chain" && chainState.dirty ? ` <span class="chip warn">${t("chain_unsaved")}</span>` : ""}</h2>
+      <div class="kpis ckpis">
+        <div class="kpi"><div class="k">${t("chain_k_lines")}</div><div class="v">${tt.lines ?? 0}</div></div>
+        <div class="kpi"><div class="k">${t("chain_k_cargo")}</div><div class="v">${int(tt.cargo_year)}</div></div>
+        <div class="kpi"><div class="k">${t("chain_k_short")}</div><div class="v ${tt.short ? "neg" : ""}">${t("chain_of", { a: tt.short ?? 0, b: tt.lines ?? 0 })}</div></div>
+        <div class="kpi"><div class="k">${t("kpi_alerts")}</div><div class="v ${al.length ? "neg" : "pos"}">${al.length}</div></div>
+      </div>
+      ${al.length ? `<details class="calerts" ${al.length <= 6 ? "open" : ""}><summary>${t("chain_alerts")} (${al.length})</summary><div id="chain-alerts-list" class="alerts"></div></details>` : ""}
+      <div class="clines">${(v.lines || []).map(l => chainLineCard(l, chainState.mode)).join("") || `<p class="muted">${t("no_data")}</p>`}</div>
+      ${(v.nodes || []).length ? `<details class="cnodes" open><summary>${t("chain_industries")} (${v.nodes.length})</summary>${v.nodes.map(chainNodeCard).join("")}</details>` : ""}`;
+    if (al.length) renderAlerts($("#chain-alerts-list"), al.map(a => ({ ...a, chain: true })));
+    $$(".chead", view).forEach(h => {
+      const id = +h.dataset.line;
+      $(".chev", h).addEventListener("click", () => { const i = chainState.open.indexOf(id); if (i >= 0) chainState.open.splice(i, 1); else chainState.open.push(id); saveChainState(); renderChains(); });
+      const rm = $(".cremove", h); if (rm) rm.addEventListener("click", () => chainEdit(() => { chainState.lines = chainState.lines.filter(x => x !== id); }));
+      const add = $(".cadd", h); if (add) add.addEventListener("click", () => { if (!chainState.lines.includes(id)) { chainState.lines.push(id); chainState.dirty = chainState.id != null; saveChainState(); chainMsg(t("chain_added", { name: $(".cname", h).textContent }), "ok"); renderChains(); } });
+    });
+    $$(".legtoggle", view).forEach(b => b.addEventListener("click", () => {
+      const k = b.dataset.leg;
+      if (chainState.mode === "all") return;  // switching legs off belongs to a chain
+      chainEdit(() => { chainState.disabled = chainState.disabled.includes(k) ? chainState.disabled.filter(x => x !== k) : chainState.disabled.concat([k]); });
+    }));
+    $$(".gotoline", view).forEach(b => b.addEventListener("click", () => { state.selLine = +b.dataset.line; showTab("lines"); }));
+    bindActions(view);
+  }
+
   // ------------------------------------------------------------ stations & depots
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
@@ -1161,7 +1325,7 @@
   }
 
   // ------------------------------------------------------------ refresh loop
-  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance };
+  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, chains: renderChains, stations: renderStations, map: renderMap, finance: renderFinance };
   let busy = false, again = false;
   async function refresh() {
     if (busy) { again = true; return; } busy = true;

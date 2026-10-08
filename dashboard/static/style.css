@@ -29,9 +29,11 @@ small { color: var(--muted); font-weight: normal; }
 .vital { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; }
 /* key figures: own full-width row under brand + controls, equal tiles that reflow (1 row on a wide screen,
    2-3 on a portrait monitor or a phone); labels, details and full numbers always visible, value scales with the width */
-#vital { order: 3; flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+#vital { order: 3; flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+@media (max-width: 1300px) { #vital { grid-template-columns: repeat(4, 1fr); } }  /* 4 + 3, not 6 + 1 */
+@media (max-width: 600px) { #vital { grid-template-columns: repeat(2, 1fr); } }
 #vital .kpi { min-width: 0; padding: 8px 14px; }
-#vital .kpi .v { font-size: clamp(20px, 1.5vw, 28px); line-height: 1.25; white-space: nowrap; }
+#vital .kpi .v { font-size: clamp(20px, 1.5vw, 28px); line-height: 1.25; }  /* a long unit ("passageiros") wraps under the number, never inside it */
 .kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; min-width: 120px; }
 .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -54,7 +56,8 @@ small { color: var(--muted); font-weight: normal; }
 /* the tab strip scrolls sideways on a narrow window instead of wrapping onto a second row */
 #tabs { display: flex; gap: 4px; padding: 6px 16px 0; background: var(--panel); border-bottom: 1px solid var(--border); align-items: flex-end; overflow-x: auto; scrollbar-width: none; }
 #tabs::-webkit-scrollbar { display: none; }
-.rangebar { margin-left: auto; margin-bottom: 5px; display: inline-flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px 2px 8px; }
+/* the time range stays visible at the right end while the tab strip scrolls */
+.rangebar { flex: none; position: sticky; right: 0; margin-left: auto; margin-bottom: 5px; display: inline-flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px 2px 8px; }
 .rangebar .ico { color: var(--muted); margin-right: 4px; }
 .rangebar button { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 5px; padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .rangebar button:hover { color: var(--text); }

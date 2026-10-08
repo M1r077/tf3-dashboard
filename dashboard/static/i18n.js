@@ -93,6 +93,15 @@ window.I18N = {
     set_refresh: "Refresh", set_history: "History shown", set_finance: "Finances", set_finance_hint: "show the Finances tab and balance", set_keys: "Shortcuts", set_keys_hint: "Space = pause, 1/2/3 = speed, H = horn",
     set_refresh: "Refresh", set_history: "History shown", set_finance: "Finances", set_finance_hint: "show the Finances tab and balance", set_keys: "Shortcuts", set_keys_hint: "Space = pause, 1/2/3 = speed",
     set_clock: "Game clock", set_clock_hint: "show the time of day next to the date", line_throughput: "Transported / yr", line_pax_rating: "Pax rating", line_cargo_rating: "Cargo rating",
+    // savegames & backups (settings panel)
+    saves_title: "Savegames & backups", saves_current: "current", saves_game_date: "Game date", saves_seen: "seen {a} → {b}", saves_counts: "{s} snapshots · {l} lines · {v} vehicles · {c} camera views",
+    saves_reloads: "Reloaded {n}× from an older save, last time {from} → {to} ({at}). The history is kept.",
+    saves_backup_now: "Back up now", saves_backup_done: "Backup written: {f}", saves_backups: "Backups", saves_no_backup: "No backup yet.",
+    saves_restore: "Restore", saves_restore_views: "Restore the camera views", saves_restore_all: "Restore everything",
+    saves_restore_views_confirm: "Add the camera views of {f} to the current ones (only for savegames that have none)?",
+    saves_restore_all_confirm: "Replace the whole history with {f}? The current database is kept as a copy. The change is applied by the collector at its next start: close and restart run_dashboard.cmd afterwards.",
+    saves_restored: "Restored ({n} camera views merged)", saves_restore_pending: "A restored database is waiting: restart run_dashboard.cmd to apply it.",
+    saves_note: "One history per savegame (the game reuses the same key at every load of that save). Backups are zip files in the folder above: database + camera views; copy them anywhere.",
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -198,6 +207,14 @@ window.I18N = {
     set_refresh: "Rafraîchissement", set_history: "Historique affiché", set_finance: "Finances", set_finance_hint: "afficher l'onglet Finances et la trésorerie", set_keys: "Raccourcis", set_keys_hint: "Espace = pause, 1/2/3 = vitesse, H = klaxon",
     set_refresh: "Rafraîchissement", set_history: "Historique affiché", set_finance: "Finances", set_finance_hint: "afficher l'onglet Finances et la trésorerie", set_keys: "Raccourcis", set_keys_hint: "Espace = pause, 1/2/3 = vitesse",
     set_clock: "Horloge du jeu", set_clock_hint: "afficher l'heure à côté de la date", line_throughput: "Transporté / an", line_pax_rating: "Note passagers", line_cargo_rating: "Note fret",
+    saves_title: "Sauvegardes et copies", saves_current: "en cours", saves_game_date: "Date du jeu", saves_seen: "vue {a} → {b}", saves_counts: "{s} instantanés · {l} lignes · {v} véhicules · {c} vues caméra",
+    saves_reloads: "Rechargée {n}× depuis une sauvegarde plus ancienne, la dernière fois {from} → {to} ({at}). L'historique est conservé.",
+    saves_backup_now: "Faire une copie maintenant", saves_backup_done: "Copie écrite : {f}", saves_backups: "Copies", saves_no_backup: "Aucune copie pour l'instant.",
+    saves_restore: "Restaurer", saves_restore_views: "Restaurer les vues caméra", saves_restore_all: "Tout restaurer",
+    saves_restore_views_confirm: "Ajouter les vues caméra de {f} aux vues actuelles (seulement pour les parties qui n'en ont pas) ?",
+    saves_restore_all_confirm: "Remplacer tout l'historique par {f} ? La base actuelle est conservée en copie. Le changement est appliqué par le collecteur à son prochain démarrage : fermez puis relancez run_dashboard.cmd ensuite.",
+    saves_restored: "Restauré ({n} vues caméra ajoutées)", saves_restore_pending: "Une base restaurée attend : relancez run_dashboard.cmd pour l'appliquer.",
+    saves_note: "Un historique par sauvegarde (le jeu réutilise la même clé à chaque chargement de cette partie). Les copies sont des zip dans le dossier ci-dessus : base + vues caméra ; copiez-les où vous voulez.",
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -302,6 +319,14 @@ window.I18N = {
     set_refresh: "Aktualisierung", set_history: "Angezeigter Verlauf", set_finance: "Finanzen", set_finance_hint: "Finanzen-Tab und Kontostand anzeigen", set_keys: "Tastenkürzel", set_keys_hint: "Leertaste = Pause, 1/2/3 = Tempo, H = Hupe",
     set_refresh: "Aktualisierung", set_history: "Angezeigter Verlauf", set_finance: "Finanzen", set_finance_hint: "Finanzen-Tab und Kontostand anzeigen", set_keys: "Tastenkürzel", set_keys_hint: "Leertaste = Pause, 1/2/3 = Tempo",
     set_clock: "Spieluhr", set_clock_hint: "Uhrzeit neben dem Datum anzeigen", line_throughput: "Befördert / Jahr", line_pax_rating: "Bewertung Passagiere", line_cargo_rating: "Bewertung Fracht",
+    saves_title: "Spielstände & Sicherungen", saves_current: "aktuell", saves_game_date: "Spieldatum", saves_seen: "gesehen {a} → {b}", saves_counts: "{s} Schnappschüsse · {l} Linien · {v} Fahrzeuge · {c} Kameraansichten",
+    saves_reloads: "{n}× von einem älteren Spielstand geladen, zuletzt {from} → {to} ({at}). Der Verlauf bleibt erhalten.",
+    saves_backup_now: "Jetzt sichern", saves_backup_done: "Sicherung geschrieben: {f}", saves_backups: "Sicherungen", saves_no_backup: "Noch keine Sicherung.",
+    saves_restore: "Wiederherstellen", saves_restore_views: "Kameraansichten wiederherstellen", saves_restore_all: "Alles wiederherstellen",
+    saves_restore_views_confirm: "Die Kameraansichten aus {f} zu den aktuellen hinzufügen (nur für Spielstände ohne eigene)?",
+    saves_restore_all_confirm: "Den ganzen Verlauf durch {f} ersetzen? Die aktuelle Datenbank bleibt als Kopie erhalten. Die Änderung übernimmt der Collector beim nächsten Start: danach run_dashboard.cmd schliessen und neu starten.",
+    saves_restored: "Wiederhergestellt ({n} Kameraansichten übernommen)", saves_restore_pending: "Eine wiederhergestellte Datenbank wartet: run_dashboard.cmd neu starten, um sie zu übernehmen.",
+    saves_note: "Ein Verlauf pro Spielstand (das Spiel verwendet bei jedem Laden dieses Spielstands denselben Schlüssel). Sicherungen sind Zip-Dateien im obigen Ordner: Datenbank + Kameraansichten; beliebig kopierbar.",
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -422,6 +447,14 @@ window.I18N = {
     set_refresh: "Atualização", set_history: "Histórico exibido", set_finance: "Finanças", set_finance_hint: "mostrar a aba Finanças e o saldo", set_keys: "Atalhos", set_keys_hint: "Espaço = pausa, 1/2/3 = velocidade, H = buzina",
     set_refresh: "Atualização", set_history: "Histórico exibido", set_finance: "Finanças", set_finance_hint: "mostrar a aba Finanças e o saldo", set_keys: "Atalhos", set_keys_hint: "Espaço = pausa, 1/2/3 = velocidade",
     set_clock: "Relógio do jogo", set_clock_hint: "mostrar a hora ao lado da data", line_throughput: "Transportado / ano", line_pax_rating: "Avaliação passageiros", line_cargo_rating: "Avaliação carga",
+    saves_title: "Jogos salvos e backups", saves_current: "atual", saves_game_date: "Data do jogo", saves_seen: "visto {a} → {b}", saves_counts: "{s} snapshots · {l} linhas · {v} veículos · {c} visões de câmera",
+    saves_reloads: "Recarregado {n}× de um jogo salvo mais antigo, a última vez {from} → {to} ({at}). O histórico é mantido.",
+    saves_backup_now: "Fazer backup agora", saves_backup_done: "Backup gravado: {f}", saves_backups: "Backups", saves_no_backup: "Nenhum backup ainda.",
+    saves_restore: "Restaurar", saves_restore_views: "Restaurar as visões de câmera", saves_restore_all: "Restaurar tudo",
+    saves_restore_views_confirm: "Adicionar as visões de câmera de {f} às atuais (somente para jogos salvos que não têm nenhuma)?",
+    saves_restore_all_confirm: "Substituir todo o histórico por {f}? O banco de dados atual é mantido como cópia. A mudança é aplicada pelo coletor na próxima inicialização: feche e reinicie o run_dashboard.cmd depois.",
+    saves_restored: "Restaurado ({n} visões de câmera adicionadas)", saves_restore_pending: "Um banco de dados restaurado está aguardando: reinicie o run_dashboard.cmd para aplicá-lo.",
+    saves_note: "Um histórico por jogo salvo (o jogo reutiliza a mesma chave a cada carregamento desse jogo). Backups são arquivos zip na pasta acima: banco de dados + visões de câmera; copie-os para onde quiser.",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
     range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos (tempo real)",
@@ -499,6 +532,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   // finance
   balance: "结余", company: "公司", costs_by_carrier: "按运输方式的运营成本", per_year: "/ 年", debt: "债务", annual_result: "年度结果", lines: "线路", passengers: "乘客", no_data: "无数据", top_speed: "最高速度",
   // settings
+  saves_title: "存档与备份", saves_current: "当前", saves_game_date: "游戏日期", saves_backup_now: "立即备份", saves_backups: "备份", saves_restore: "恢复", saves_restore_views: "恢复镜头视角", saves_restore_all: "全部恢复",
   settings: "设置", set_lang: "语言", set_icons: "图标大小", set_font: "文字大小", set_density: "表格密度", set_refresh: "刷新", set_default_tab: "起始页", set_reset: "恢复默认", set_layout: "面板",
   // enums
   state: { EN_ROUTE: "在途", AT_TERMINAL: "在站", IN_DEPOT: "在车库", GOING_TO_DEPOT: "返回车库" },

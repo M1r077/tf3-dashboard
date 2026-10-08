@@ -55,7 +55,7 @@
     if (settings.finance === false && state.tab === "finance") showTab("overview");
     restartTimer();
   }
-  $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); });
+  $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); if (o) renderSaves(); });
   $("#settings-close").addEventListener("click", () => { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); });
   document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
   $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); }));
@@ -410,6 +410,12 @@
     // optional game clock (snapshot.time_of_day_s, seconds since midnight in game time)
     const clock = settings.clock && s.time_of_day_s != null ? ` ${String(Math.floor(s.time_of_day_s / 3600) % 24).padStart(2, "0")}:${String(Math.floor(s.time_of_day_s / 60) % 60).padStart(2, "0")}` : "";
     $("#k-date").textContent = date(s) + clock;
+    // the save was reloaded from an older date less than a day (real time) ago: say so under the date, with the
+    // savegame label, so the player knows which history he is looking at
+    const rel = o.game && Array.isArray(o.game.reloads) ? o.game.reloads : [], lastRel = rel[rel.length - 1];
+    const recent = lastRel && (Date.now() - new Date(lastRel.at).getTime()) < 86400e3;
+    $("#k-date").title = o.game ? `${o.game.label || o.game.key}${rel.length ? "\n" + t("saves_reloads", { n: rel.length, from: gameDay(lastRel.from_day), to: gameDay(lastRel.to_day), at: realDate(lastRel.at) }) : ""}` : "";
+    $("#k-date").classList.toggle("rewound", !!recent);
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
     const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
@@ -1164,7 +1170,7 @@
   // ------------------------------------------------------------ camera views (Map tab panel)
   // Saved on the server next to the database (db/camera_views.json), per savegame. The current camera comes with
   // the overview (snapshot.camera, mod rev 7+); recalling a view sends set_camera to the game.
-  const camViews = { list: [], loaded: false, cur: null };
+  const camViews = { list: [], loaded: false, cur: null, game: null };  // game = key of the savegame the list belongs to
   const fmtCam = (c) => c ? `x ${Math.round(c.x)} · y ${Math.round(c.y)} · ${Math.round(c.dist)} m · ${Math.round(c.angle * 180 / Math.PI)}° / ${Math.round(c.pitch * 180 / Math.PI)}°` : "";
   // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
   const angDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
@@ -1177,7 +1183,7 @@
     if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return false; }
     camViews.list = j.views || []; renderCamViews(); if (map.data) drawMap($("#map")); return true;
   }
-  async function loadViews() { try { const j = await api("/api/views"); camViews.list = j.views || []; } catch (e) { camViews.list = []; } camViews.loaded = true; }
+  async function loadViews() { try { const j = await api("/api/views"); camViews.list = j.views || []; camViews.game = j.game || null; } catch (e) { camViews.list = []; } camViews.loaded = true; }
   function renderCamViews() {
     const box = $("#cam-views"); if (!box) return;
     const cur = camViews.cur, off = cmdOff();
@@ -1213,12 +1219,60 @@
     });
   }
 
+  // ------------------------------------------------------------ savegames & backups (settings panel)
+  // The companion keeps one history per savegame (key = player entity, the game reuses it at every load of that
+  // save). A backup = zip of the database + camera views in db/backups/; restoring the views is immediate, restoring
+  // the database is applied by the collector at its next start.
+  const gameDay = (n) => n ? `${Math.floor(n / 10000)}-${String(Math.floor(n / 100) % 100).padStart(2, "0")}-${String(n % 100).padStart(2, "0")}` : "–";
+  const realDate = (s) => s ? new Date(s).toLocaleString(loc(), { dateStyle: "short", timeStyle: "short" }) : "–";
+  const kb = (n) => n == null ? "" : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+  async function renderSaves() {
+    const box = $("#saves"); if (!box) return;
+    let d; try { d = await api("/api/games"); } catch (e) { box.innerHTML = `<p class="muted">${esc(String(e))}</p>`; return; }
+    const games = d.games || [], backups = d.backups || [];
+    const gameRow = (gm) => {
+      const cur = gm.key === d.current, rel = gm.reloads || [];
+      return `<div class="save ${cur ? "cur" : ""}">
+        <div class="save-h"><b>${esc(gm.label || gm.key)}</b>${cur ? ` <span class="tag ok">${t("saves_current")}</span>` : ""}${gm.label ? `<small class="mono">${esc(gm.key)}</small>` : ""}</div>
+        <div class="save-d">${t("saves_game_date")}: <b>${gameDay(gm.last_game_day)}</b> · ${t("saves_seen", { a: realDate(gm.first_seen), b: realDate(gm.last_seen) })}</div>
+        <div class="save-d">${t("saves_counts", { s: int(gm.snapshots), l: int(gm.lines), v: int(gm.vehicles), c: gm.views })}</div>
+        ${rel.length ? `<div class="save-d warn">${ico("alert", "sm")}${t("saves_reloads", { n: rel.length, from: gameDay(rel[rel.length - 1].from_day), to: gameDay(rel[rel.length - 1].to_day), at: realDate(rel[rel.length - 1].at) })}</div>` : ""}
+      </div>`;
+    };
+    const bkRow = (b) => `<div class="save bk ${b.bad ? "bad" : ""}">
+        <div class="save-h"><b>${esc(b.label || b.file)}</b><small class="mono">${esc(b.file)} · ${kb(b.size)}</small></div>
+        <div class="save-d">${realDate(b.created || b.time)}${b.games ? " · " + b.games.map(g => `${esc(g.label || g.key)} (${gameDay(g.last_game_day)})`).join(", ") : ""}</div>
+        ${b.bad ? "" : `<div class="save-a"><button class="btn" data-restore="views" data-file="${esc(b.file)}">${ico("camera", "sm")}${t("saves_restore_views")}</button><button class="btn" data-restore="all" data-file="${esc(b.file)}">${ico("load_game", "sm")}${t("saves_restore_all")}</button></div>`}
+      </div>`;
+    box.innerHTML = `${games.length ? games.map(gameRow).join("") : `<p class="muted">${t("no_data")}</p>`}
+      <div class="save-a"><button class="btn primary" id="bk-now">${ico("save", "sm")}${t("saves_backup_now")}</button><span class="muted small">${esc(d.dir || "")}</span></div>
+      ${d.restore_pending ? `<div class="save-d warn">${ico("alert", "sm")}${t("saves_restore_pending")}</div>` : ""}
+      ${backups.length ? `<h3>${t("saves_backups")}</h3>${backups.map(bkRow).join("")}` : `<p class="muted small">${t("saves_no_backup")}</p>`}
+      <p class="setnote">${t("saves_note")}</p>`;
+    $("#bk-now", box).addEventListener("click", async () => {
+      const r = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); const j = await r.json();
+      $("#cmd-status").textContent = j.ok ? t("saves_backup_done", { f: j.file }) : t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus " + (j.ok ? "ok" : "bad");
+      renderSaves();
+    });
+    $$("[data-restore]", box).forEach(b => b.addEventListener("click", async () => {
+      const what = b.dataset.restore, file = b.dataset.file;
+      const msg = what === "all" ? t("saves_restore_all_confirm", { f: file }) : t("saves_restore_views_confirm", { f: file });
+      if (!await modal.confirm(msg, { title: t("confirm_title"), ok: t("saves_restore"), danger: what === "all" })) return;
+      const r = await fetch("/api/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file, what }) }); const j = await r.json();
+      $("#cmd-status").textContent = j.ok ? t("saves_restored", { n: j.views_merged }) + (j.db_staged ? " · " + t("saves_restore_pending") : "") : t("act_failed", { msg: j.error || r.status });
+      $("#cmd-status").className = "cmdstatus " + (j.ok ? "ok" : "bad");
+      camViews.loaded = false; renderSaves();
+    }));
+  }
+
   // ------------------------------------------------------------ map
   const map = { data: null, scale: 1, ox: 0, oy: 0, drag: null, init: false, fitted: false, lineFilter: null, icons: {} };
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
   async function renderMap(o) {
     camViews.cur = (o && o.camera) || null;
-    if (!camViews.loaded) await loadViews();
+    // views belong to a savegame: reload the list when the game changed (another save loaded while the page stayed open)
+    const gameKey = o && o.game && o.game.key;
+    if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
     const canvas = $("#map");
@@ -1367,7 +1421,7 @@
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);
   applySettings();
-  if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); }
+  if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); renderSaves(); }
   if (new URLSearchParams(location.search).get("layout_edit")) Layout.enterEdit();
   const initial = tabFromUrl() || settings.defaultTab;
   if (initial && RENDER[initial]) showTab(initial, false); else refresh();

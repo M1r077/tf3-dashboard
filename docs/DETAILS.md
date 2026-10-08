@@ -138,6 +138,19 @@ Three independent parts:
    - slow sections are only stored when they were re-collected (`slow_seq` changed)
    - retention: per-snapshot detail (vehicles, alerts, finance) is kept for 2 h, then rolled up per minute; slow history
      (lines, towns, stations, industries) is purged after 14 days (`--detail-hours`, `--slow-days`)
+   - **savegames**: one `game` row per save, key = `player:<entity>` (the game reuses the same player entity at every
+     load of that save, so the history continues across sessions; two different saves get two rows and the dashboard
+     shows the one with the latest snapshot). `game.label` = first town (alphabetical) + date first seen; `last_game_day`
+     = the game date of the last snapshot; when a snapshot arrives with a game date older than that by more than a
+     day, the player reloaded an older save: logged in `game.reloads` (JSON, last 20), the history is kept, the date
+     tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`, `--forget-game ID`.
+   - **backups** (settings panel, "Savegames & backups"; `POST /api/backup`): `db\backups\tf3-dashboard-<label>-<stamp>.zip`
+     = consistent copy of the database (SQLite backup API, taken while the collector writes) + `camera_views.json` +
+     `manifest.json`. Restore (`POST /api/restore {file, what}`): `views` merges the camera views at once (only for saves
+     that have none); `all` also writes `db\restore_pending.db`, which `tf3paths.apply_pending_restore` swaps in at the
+     next start of the collector or the server (whichever first; the previous database is kept as
+     `tf3_dashboard.before-restore-<stamp>.db`). While both run, the live file cannot be replaced on Windows: the swap
+     waits for a full restart of `run_dashboard.cmd`.
 
 3. **Dashboard `dashboard\server.py`** (stdlib, read-only on the database): JSON API (`/api/overview`, `finance`,
    `alerts`, `lines`, `line_history?id=`, `vehicles`, `fleet`, `vehicle_history?id=`, `towns`, `town_history?id=`,

@@ -428,6 +428,21 @@ table.stops .stopedit .stopbtns { flex-basis: 100%; display: flex; gap: 6px; fle
 
 /* ---- lines: vehicle type icon + type filter bar */
 table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertical-align: middle; }
+/* savegames & backups (settings panel) */
+#settings h2.sub { margin: 18px 0 6px; font-size: 13px; }
+#saves h3 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+#saves .save { padding: 8px 10px; margin: 4px 0; background: var(--panel2); border-radius: 6px; border-left: 3px solid var(--border); font-size: 12px; }
+#saves .save.cur { border-left-color: var(--ok); }
+#saves .save.bk { border-left-color: var(--accent); }
+#saves .save.bad { opacity: .5; }
+#saves .save-h { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+#saves .save-h small { color: var(--muted); margin-left: auto; }
+#saves .save-d { color: var(--muted); margin-top: 2px; }
+#saves .save-d.warn { color: var(--warn); }
+#saves .save-a { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+#saves .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--ok); color: #082; color: #fff; }
+#saves .small, .muted.small { font-size: 11px; }
+#k-date.rewound { color: var(--warn); }
 /* stacked gauges in a cell (quality pax + cargo, one gauge per cargo type): one compact row each, shorter bars */
 .qstack { display: inline-flex; flex-direction: column; gap: 2px; vertical-align: middle; }
 .qstack > span { display: inline-flex; align-items: center; white-space: nowrap; line-height: calc(var(--isz) * 0.75); }

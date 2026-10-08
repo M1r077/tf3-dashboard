@@ -62,6 +62,20 @@ small { color: var(--muted); font-weight: normal; }
 .rangebar button { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 5px; padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .rangebar button:hover { color: var(--text); }
 .rangebar button.active { background: var(--accent); color: #fff; }
+/* narrow screens: the sticky range bar would cover the scrolling tabs, so tabs wrap and the range bar gets its own full-width row */
+@media (max-width: 1100px) {
+  #tabs { flex-wrap: wrap; overflow-x: visible; }
+  .rangebar { position: static; flex: 1 1 100%; margin: 4px 0 6px; flex-wrap: wrap; justify-content: center; padding: 2px 6px; }
+}
+@media (max-width: 700px) {
+  main { padding: 10px; }
+  #tabs { padding: 6px 10px 0; }
+  #tabs button { padding: 7px 10px; }
+  .maplegend { left: 8px; right: 8px; top: 8px; max-width: none; font-size: 11px; }
+  .mapcard { height: calc(100vh - 150px); min-height: 360px; }
+  .hint { margin-left: 0; flex: 1 1 100%; }
+  #settings { left: 8px; right: 8px; width: auto; top: 56px; }
+}
 #tabs button { flex: none; white-space: nowrap; background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; border-radius: 6px 6px 0 0; font: inherit; }
 #tabs button:hover { color: var(--text); }
 #tabs button.active { background: var(--bg); color: var(--text); border-color: var(--border); }
@@ -73,6 +87,8 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: start; margin-bottom: 14px; }
 .panels > .card { grid-column: span 12; min-width: 0; position: relative; display: flex; flex-direction: column; }
 .panels > .card > h2 { flex: none; }
+/* cards of one row share its height (charts and lists); tables, detail panes, the map and user-sized cards keep their own */
+.panels > .card:not(.sized):not(.tablecard):not(.sticky):not(.mapcard) { align-self: stretch; }
 .panels > .card.hidden-panel { display: none; }
 /* a card with a user-set height: its scrollable body fills the rest */
 .panels > .card.sized { overflow: hidden; }
@@ -80,7 +96,13 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }
-.panels > .card.tablecard.sized > table { flex: none; overflow: visible; }
+.panels > .card.tablecard.sized > table, .panels > .card.sized:has(> table) > table { flex: none; overflow: visible; }
+/* plain cards holding a bare table (by-carrier, company): the card scrolls both ways, like .tablecard (overflow on a table element is ignored) */
+.panels > .card.sized:has(> table) { display: flex; overflow: auto; }
+/* unsized card with a bare table: scroll sideways instead of clipping when the card gets narrow */
+.panels > .card:has(> table) { overflow-x: auto; }
+/* a user-set height wins over the viewport-based cap of unsized cards */
+.panels > .card.tablecard.sized, .panels > .card.sticky.sized { max-height: none; }
 .hidden-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
 .hidden-bar .chip.restore { cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px; }
 .hidden-bar .chip.restore:hover { border-color: var(--accent); color: var(--text); }
@@ -210,6 +232,8 @@ body.layout-edit .panels > .card.resizing { outline: 2px solid var(--accent); us
 body.layout-edit .panels > .card > *:not(.panel-tools):not(.rz):not(.rz-ghost) { pointer-events: none; }
 body.layout-edit .panels > .card > h2 { display: none; }
 body.layout-edit .panels > .card > .panel-tools + .toolbar { pointer-events: none; }
+/* edit mode: the card must not scroll, or the tools bar and resize handles (absolute, inside the card) scroll away with the table */
+body.layout-edit .panels > .card.tablecard, body.layout-edit .panels > .card.sticky, body.layout-edit .panels > .card.sized:has(> table) { overflow: hidden; }
 .panel-tools { display: flex; align-items: center; gap: 6px; margin: -6px -8px 8px; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--muted); flex: none; }
 .tablecard .panel-tools { margin: 8px 8px 0; }
 .panel-tools .grip { cursor: grab; display: inline-flex; color: var(--accent); }

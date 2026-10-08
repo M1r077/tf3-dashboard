@@ -306,6 +306,7 @@
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
     $$(".tab").forEach(tb => tb.classList.toggle("active", tb.id === "tab-" + name));
     state.tab = name;
+    if (name === "catalogue") state.catScroll = true;  // the catalogue opens on the current year
     if (push) { const u = new URL(location.href); u.searchParams.set("tab", name); history.replaceState(null, "", u); }
     refresh(true);
   }
@@ -1058,6 +1059,7 @@
       : `<div class="catyear empty ${y === year ? "now" : ""}"><b>${y}</b><span class="muted">${year != null ? rel(y) : ""} · –</span></div>`;
     el.innerHTML = `<div class="kpis ckpis">${kpi(t("cat_k_new"), nNew)}${kpi(t("cat_k_next"), nNext)}${kpi(t("cat_k_retiring"), nOut)}${kpi(t("cat_k_available"), avail.length)}</div>`
       + (ys.length ? years.map(yearRow).join("") + (byYear.has(0) ? yearRow(0) : "") : `<p class="muted">${t("cat_none")}</p>`);
+    if (state.catScroll) { state.catScroll = false; const now = el.querySelector(".catyear.now"); if (now) now.scrollIntoView({ block: "start" }); }
   }
 
   // ------------------------------------------------------------ stations & depots

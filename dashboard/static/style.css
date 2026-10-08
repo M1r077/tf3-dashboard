@@ -163,6 +163,9 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 table.data tbody tr:hover { background: var(--panel2); }
 table.data tbody tr.sel { background: #22303c; outline: 1px solid var(--accent); }
 table.data tr.clickable { cursor: pointer; }
+/* links between sheets (vehicle -> its line...) */
+a.goto { color: var(--accent); cursor: pointer; text-decoration: none; border-bottom: 1px dotted var(--accent); }
+a.goto:hover { border-bottom-style: solid; }
 /* action column: always visible even when the table is wider than its card (card scrolls horizontally) */
 table.data th.act, table.data td.act { position: sticky; right: 0; background: var(--panel); text-align: right; padding-left: 6px; padding-right: 8px; box-shadow: -8px 0 8px -8px rgba(0,0,0,.6); }
 table.data th.act { background: var(--panel2); z-index: 2; }
@@ -181,16 +184,24 @@ table.data td.wrap { white-space: normal; }
 #ind-table .indcargo .bar { width: 60px; }
 #ind-table .indcargo small { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 #ind-table .indcargo small .ico { margin: 0; }
+/* key/value sheets: narrow label column, values left-aligned right after it (no value pushed to the far right) */
 table.kv td { padding: 3px 8px; border-bottom: 1px solid var(--border); }
-table.kv td:first-child { color: var(--muted); }
-table.kv td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+table.kv td:first-child { color: var(--muted); width: 1%; white-space: nowrap; }
+table.kv td:last-child { text-align: left; font-variant-numeric: tabular-nums; }
 table.kv { width: 100%; border-collapse: collapse; }
 
 .bar { display: inline-block; height: 10px; background: var(--border); border-radius: 3px; width: 90px; position: relative; vertical-align: middle; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
 .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); } .bar.ok > i { background: var(--ok); }
 /* cargo on board: icon + count per type, after the load bar */
-.onboard { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.bar + .mono { margin-left: 8px; }
+.onboard { display: inline-flex; gap: 6px; vertical-align: middle; }
+.onboard.dim { opacity: .35; }  /* empty vehicle: what it could carry, dimmed */
+table.kv td .onboard { margin-right: 8px; }
+/* gauge cells (load, condition): icon | bar | number, flush left in a fixed-width cell so the bars line up */
+table.data td.gauge { text-align: left; white-space: nowrap; }
+table.data td.gauge .ico.cond { margin-right: 8px; }
+table.kv td .onboard, table.kv td .ico.cond { margin-right: 8px; }
 .onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
 .onboard .ob .ico { margin: 0; }
 .onboard .ob small { font-family: var(--mono); font-size: 11px; color: var(--text); }
@@ -348,6 +359,8 @@ td .ico, .row .ico { color: var(--muted); }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: #fff; }
 .seg button:hover:not(.active) { color: var(--text); }
+.seg .lm-btn { padding: 3px 8px; display: inline-flex; align-items: center; }
+.seg .lm-btn .ico { margin: 0; }
 .setrow input[type=range] { width: 100%; }
 .setrow select { background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 4px 6px; }
 .setrow .val { font-family: var(--mono); color: var(--muted); font-size: 12px; margin-left: 6px; }
@@ -398,12 +411,12 @@ table.stops .waitgrid { display: grid; grid-template-columns: auto 70px; gap: 2p
 table.stops .waitgrid label { font-size: 11px; color: var(--muted); white-space: nowrap; }
 table.stops td .ico { color: var(--info); }
 table.stops th.act, table.stops td.act { position: static; box-shadow: none; }
-table.stops .stopedit { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: start; }
-table.stops .stopedit .waitgrid select { max-width: 150px; min-width: 0; }
-table.stops .stopedit .waitgrid { min-width: 0; }
-table.stops .stopedit > div:first-child { min-width: 0; }
-table.stops .stopedit .stopbtns { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; }
-table.stops .waitgrid select { min-width: 160px; }
+/* stop editor: blocks flow from the left (name+cargo | waits | terminals), nothing pushed to the far edge */
+table.stops .stopedit { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: flex-start; text-align: left; }
+table.stops .stopedit > div:first-child { flex: 0 1 260px; min-width: 0; }
+table.stops .stopedit .waitgrid { flex: 0 0 auto; }
+table.stops .waitgrid .lm-seg { justify-self: start; width: max-content; }
+table.stops .stopedit .stopbtns { flex-basis: 100%; display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ---- lines: vehicle type icon + type filter bar */
 table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertical-align: middle; }
@@ -456,12 +469,13 @@ table.stops .tg-n { display: inline-flex; align-items: center; justify-content: 
 table.stops .termbadges { display: inline-flex; gap: 3px; align-items: center; }
 table.stops .termbadges .tg-n .ico { margin: 0 0 0 1px; color: #f0c84a; }
 table.stops .termbadges .tg-n.alt { color: var(--muted); border-color: var(--muted); }
+table.stops .termbadges .tg-n.off { color: var(--muted); border-color: var(--border); opacity: .45; font-weight: 400; }
 table.stops .termbadges .tg-n.warn { border-color: var(--warn); color: var(--warn); }
 table.stops td.center, table.stops th.center { text-align: center; }
 table.stops tbody tr:not(.editing) .cargo-pick { flex-wrap: nowrap; }
 table.stops .cargo-pick .chip { padding: 0 5px; line-height: 1.5; }
 table.stops .cargo-pick .chip .ico { margin: 0; }
-table.stops .termgrid { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto auto auto auto; gap: 3px 10px; align-items: center; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; }
+table.stops .termgrid { flex: 1 1 320px; display: grid; grid-template-columns: auto 1fr auto auto auto auto; gap: 3px 10px; align-items: center; padding: 6px 8px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; }
 table.stops .termgrid .tg-title { grid-column: 1 / -1; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 4px; }
 table.stops .termgrid .tg-row { display: contents; }
 table.stops .termgrid .tg-row > * { opacity: .5; }

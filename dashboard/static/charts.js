@@ -302,7 +302,8 @@
     ctx.font = "11px " + FONT(); ctx.fillStyle = css("--muted"); ctx.fillText(opts.sub || "", cx, cy + 13);
   }
 
-  /** horizontal bars: items [{label, value, max, color, text}] ; each bar shows value/max */
+  /** horizontal bars: items [{label, value, max, color, text}] ; each bar shows value/max.
+   *  opts.onClick(item, index): makes the rows clickable (one listener per canvas, rows found from the y position) */
   function hbars(canvas, items, opts = {}) {
     let rowH = opts.rowH || 26;
     const sized = canvas.closest && canvas.closest(".card.sized");
@@ -310,6 +311,16 @@
     const { ctx, w, h } = setup(canvas);
     if (!items.length) { empty(ctx, w, h); return; }
     if (sized) rowH = Math.max(18, Math.min(40, Math.floor((h - 8) / items.length)));
+    canvas._hbars = { items, rowH, onClick: opts.onClick };
+    canvas.style.cursor = opts.onClick ? "pointer" : "";
+    if (opts.onClick && !canvas._hbarsBound) {
+      canvas._hbarsBound = true;
+      canvas.addEventListener("click", e => {
+        const s = canvas._hbars; if (!s || !s.onClick) return;
+        const i = Math.floor((e.offsetY - 4) / s.rowH);
+        if (i >= 0 && i < s.items.length) s.onClick(s.items[i], i);
+      });
+    }
     const labelW = opts.labelW || Math.min(220, Math.max(...items.map(i => ctx.measureText(i.label).width)) + 12);
     const valueW = 90, x0 = labelW, bw = w - labelW - valueW - 8;
     items.forEach((it, i) => {

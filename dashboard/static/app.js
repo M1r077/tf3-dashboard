@@ -297,7 +297,15 @@
       if (n === "horn" && b.dataset.line) { args.line = +b.dataset.line; delete args.vehicle; }
       sendCmd(n, args, b);
     }));
+    // navigation links between sheets: <a class="goto" data-line="id"> (or data-veh, data-st) opens the entity in its tab
+    $$(".goto[data-line], .goto[data-veh], .goto[data-st]", root).forEach(a => a.addEventListener("click", e => {
+      e.stopPropagation(); e.preventDefault();
+      if (a.dataset.line) { state.selLine = +a.dataset.line; showTab("lines"); }
+      else if (a.dataset.st) { state.selSt = +a.dataset.st; showTab("stations"); }
+      else { state.selVeh = +a.dataset.veh; showTab("vehicles"); }
+    }));
   }
+  const lineLink = (id, name) => id ? `<a class="goto" data-line="${id}" title="${esc(t("goto_line"))}">${esc(name || "#" + id)}</a>` : "–";
 
   // ------------------------------------------------------------ tabs
   const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
@@ -326,7 +334,7 @@
     });
     // c.sticky: column pinned to the left while the table scrolls horizontally (the last pinned one gets a shadow)
     const lastStick = cols.map(c => !!c.sticky).lastIndexOf(true);
-    const cls = (c, i) => `${c.num ? "num" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
+    const cls = (c, i) => `${c.num ? "num" : ""} ${c.gauge ? "gauge" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
     const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
@@ -501,12 +509,15 @@
     $("#stuck-list").innerHTML = stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`;
     $$("#idle-list .row, #stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
 
-    Charts.hbars($("#chart-worn"), (fleet.worn || []).slice(0, 10).map(v => ({ label: v.name, value: 1 - (v.maintenance ?? 1), max: 1, color: maintCls(v.maintenance) === "bad" ? "#f85149" : maintCls(v.maintenance) === "warn" ? "#e8b04b" : "#3fb950", text: t("state_cond", { n: Math.round((v.maintenance ?? 1) * 100) }) })), {});
+    // the bars of the three rankings open the vehicle / the line
+    const toVeh = { onClick: it => { state.selVeh = it.id; showTab("vehicles"); } };
+    const toLine = { onClick: it => { state.selLine = it.id; showTab("lines"); } };
+    Charts.hbars($("#chart-worn"), (fleet.worn || []).slice(0, 10).map(v => ({ id: v.vehicle_id, label: v.name, value: 1 - (v.maintenance ?? 1), max: 1, color: maintCls(v.maintenance) === "bad" ? "#f85149" : maintCls(v.maintenance) === "warn" ? "#e8b04b" : "#3fb950", text: t("state_cond", { n: Math.round((v.maintenance ?? 1) * 100) }) })), toVeh);
     const lines = state.cache.lines;
     const bad = lines.map(l => { const tot = (l.pax_total || 0) + (l.cargo_total || 0), b = (l.pax_bad || 0) + (l.cargo_bad || 0); return { l, tot, b, p: tot ? 100 * b / tot : 0 }; }).filter(x => x.tot >= 5).sort((a, b) => b.p - a.p).slice(0, 10);
-    Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), {});
+    Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
     const load = lines.map(l => { const c = l.capacities.reduce((a, x) => ({ u: a.u + (x.used || 0), c: a.c + (x.capacity || 0) }), { u: 0, c: 0 }); return { l, p: c.c ? 100 * c.u / c.c : 0, u: c.u, c: c.c }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
-    Charts.hbars($("#chart-lines-load"), load.map(x => ({ label: x.l.name, value: x.p, max: 100, color: x.p >= 80 ? "#3fb950" : x.p < 25 ? "#e8b04b" : "#4f8a8a", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), {});
+    Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p >= 80 ? "#3fb950" : x.p < 25 ? "#e8b04b" : "#4f8a8a", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);
   }
 
   function renderAlerts(el, alerts) {
@@ -535,19 +546,21 @@
     const d = await api("/api/vehicles"); const veh = d.vehicles || []; state.cache.vehicles = veh;
     if (!state.selVeh) { const u = +new URLSearchParams(location.search).get("veh"); if (u && veh.some(v => v.vehicle_id === u)) state.selVeh = u; }  // deep link ?tab=vehicles&veh=<id>
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
-    const q = $("#veh-filter").value.toLowerCase(), st = $("#veh-state").value, worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
-    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!st || v.state === st) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || (v.days_in_depot + v.days_at_terminal) > 2));
+    renderStateBar($("#veh-states"), veh);
+    const q = $("#veh-filter").value.toLowerCase(), worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
+    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || (v.days_in_depot + v.days_at_terminal) > 2));
     $("#veh-count").textContent = `${rows.length} / ${veh.length}`;
     const cols = [
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },
       { key: "carrier", label: t("th_type"), render: v => `<span class="vehicon" style="color:${CARRIER_COLOR[v.carrier] || "#888"}">${modelImg(v)}${ENGINE_ICON[v.icon_type] ? ico(ENGINE_ICON[v.icon_type], "sm", t("icon_type." + v.icon_type)) : ""}</span>`, sortValue: v => (v.carrier || "") + (v.icon_type || "") },
-      { key: "line_name", label: t("th_line"), render: v => esc(v.line_name || (v.line_id ? "#" + v.line_id : "–")) },
+      { key: "line_name", label: t("th_line"), render: v => lineLink(v.line_id, v.line_name) },
       { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
       { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
-      // what the vehicle can carry (mod rev 8+), then the load with what is on board right now
-      { key: "carries", label: t("th_carries"), wrap: true, render: v => Array.isArray(v.capacities) && v.capacities.length ? v.capacities.map(c => cargoChip(c)).join("") : "", sortValue: v => Array.isArray(v.capacities) && v.capacities.length ? cargoName(v.capacities[0].cargo) : null },
-      { key: "load", label: t("th_load"), num: true, render: v => (v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load)) + onBoard(v), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
-      { key: "maintenance", label: t("th_cond_short"), num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
+      // "carries" = what is on board right now (icon + count per cargo), "load" = the gauge; the capacities of the
+      // vehicle are in the sheet (same icons in the same column so the eye follows)
+      { key: "carries", label: t("th_carries"), gauge: true, render: v => onBoard(v, "sm") || (Array.isArray(v.capacities) && v.capacities.length ? `<span class="onboard dim">${v.capacities.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}</span>`).join("")}</span>` : ""), sortValue: v => Array.isArray(v.cargo) && v.cargo.length ? cargoName(v.cargo[0].cargo) : null },
+      { key: "load", label: t("th_load"), gauge: true, num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
+      { key: "maintenance", label: t("th_cond_short"), gauge: true, num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
       { key: "idle", label: t("th_idle_short"), num: true, render: v => { const d = (v.days_in_depot || 0) + (v.days_at_terminal || 0); return d ? `<span class="${d > 3 ? "neg" : ""}">${d} j</span>` : "–"; }, sortValue: v => (v.days_in_depot || 0) + (v.days_at_terminal || 0) },
       { key: "running_cost", label: t("th_cost_year"), num: true, render: v => money(v.running_cost) },
       { key: "value", label: t("th_value"), num: true, render: v => money(v.value) },
@@ -569,10 +582,10 @@
       <div class="consist-row">${consist(v, "lg")}</div>
       ${vehActions({ vehicle_id: v.vehicle_id, user_stopped: cur.user_stopped })}
       <table class="kv">
-        <tr><td>${t("th_line")}</td><td>${esc(v.line_name || "–")}</td></tr>
+        <tr><td>${t("th_line")}</td><td>${lineLink(cur.line_id || last.line_id, v.line_name)}</td></tr>
         <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${ST(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
         ${Array.isArray(v.capacities) && v.capacities.length ? `<tr><td>${t("th_carries")}</td><td>${v.capacities.map(c => `${cargoChip(c)} <span class="mono">${c.n}</span>`).join(" ")}</td></tr>` : ""}
-        <tr><td>${t("th_load")}</td><td>${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}${onBoard(v, "")}</td></tr>
+        <tr><td>${t("th_load")}</td><td>${onBoard(v, "")}${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}</td></tr>
         <tr><td>${t("condition")}</td><td>${last.maintenance != null ? condIcon(last.maintenance) + bar(last.maintenance, 1, maintCls(last.maintenance)) : "–"}</td></tr>
         <tr><td>${t("th_speed")}</td><td>${kmh(last.speed_ms)}</td></tr>
       </table>
@@ -631,6 +644,21 @@
     }));
   }
   const renderLineTypeBar = (lines) => renderTypeBar($("#lines-types"), lines, lineType, state.lineTypes, renderLines);
+  // vehicle state filter: the game's icons as toggles (no dropdown: a <select> closes at every refresh), empty = all
+  state.vehStates = new Set();
+  const STATE_ICON = { EN_ROUTE: "speed", AT_TERMINAL: "terminal", IN_DEPOT: "depot", GOING_TO_DEPOT: "to_depot" };
+  function renderStateBar(bar, veh) {
+    if (!bar) return;
+    const counts = {}; veh.forEach(v => { counts[v.state] = (counts[v.state] || 0) + 1; });
+    const active = state.vehStates;
+    bar.innerHTML = Object.keys(STATE_ICON).filter(s => counts[s]).map(s => `<button class="tbtn ${active.has(s) ? "active" : ""}" data-type="${s}" title="${esc(ST(s))}" style="--c:${STATE_COLOR[s]}">${ico(STATE_ICON[s], "sm")}<small>${counts[s]}</small></button>`).join("")
+      + (active.size ? `<button class="tbtn clear" data-type="" title="${esc(t("all_states"))}">${ico("close", "sm")}</button>` : "");
+    $$(".tbtn", bar).forEach(b => b.addEventListener("click", () => {
+      const s = b.dataset.type;
+      if (!s) active.clear(); else if (active.has(s)) active.delete(s); else active.add(s);
+      renderVehicles();
+    }));
+  }
   const vehType = (v) => v.icon_type ? (String(v.icon_type).startsWith("Train") ? "Train" : v.icon_type) : ({ ROAD: "Bus", RAIL: "Train", TRAM: "Tram", AIR: "Aircraft", WATER: "Ship" }[v.carrier] || null);
   async function renderLines() {
     const d = await api("/api/lines"); const lines = d.lines || []; state.cache.lines = lines;
@@ -645,7 +673,9 @@
       { key: "stops", label: t("th_stops"), num: true },
       { key: "vehicles", label: t("th_veh"), num: true, render: l => `${l.vehicles ?? "–"}${l.live ? ` <small>(${l.live.en_route} ${t("en_route")})</small>` : ""}` },
       { key: "max_frequency", label: t("th_headway"), num: true, render: l => headway(l.max_frequency), sortValue: l => l.max_frequency },
-      { key: "load", label: t("th_load"), num: true, render: l => { const c = loadOf(l); return c.c ? bar(c.u, c.c, fillCls(pct(c.u, c.c))) : "–"; }, sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
+      // average speed of the vehicles en route right now (live snapshot), the game shows no such figure for a line
+      { key: "speed", label: t("th_avg_speed"), num: true, render: l => kmh(l.live && l.live.speed), sortValue: l => l.live ? l.live.speed : null },
+      { key: "load", label: t("th_load"), gauge: true, num: true, render: l => { const c = loadOf(l); return c.c ? bar(c.u, c.c, fillCls(pct(c.u, c.c))) : "–"; }, sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
       { key: "pax", label: t("th_pax_unhappy"), render: l => carriesPax(l) ? barQuality(l.pax_bad, l.pax_total) : NA, sortValue: l => carriesPax(l) && l.pax_total ? l.pax_bad / l.pax_total : null },
       { key: "cargo", label: t("th_cargo_late"), render: l => carriesCargo(l) ? barQuality(l.cargo_bad, l.cargo_total) : NA, sortValue: l => carriesCargo(l) && l.cargo_total ? l.cargo_bad / l.cargo_total : null },
@@ -679,8 +709,9 @@
         { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
         { key: "stop_index", label: t("th_next_stop"), render: v => v.stop_index == null ? "–" : `<small>${v.stop_index + 1}.</small> ${esc(v.stop_name || "?")}`, sortValue: v => v.stop_index },
         { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
-      { key: "load", label: t("th_load"), num: true, render: v => (v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load)) + onBoard(v), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
-        { key: "maintenance", label: t("th_cond_short"), num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
+        { key: "carries", label: t("th_carries"), gauge: true, render: v => onBoard(v, "sm"), sortValue: v => Array.isArray(v.cargo) && v.cargo.length ? cargoName(v.cargo[0].cargo) : null },
+        { key: "load", label: t("th_load"), gauge: true, num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
+        { key: "maintenance", label: t("th_cond_short"), gauge: true, num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
         { key: "act", label: "", render: v => entBtns(v.vehicle_id, { follow: true }) },
       ];
       const tbl = document.createElement("table"); tbl.className = "data"; tbl.id = "line-veh-table"; $("#line-veh-wrap").appendChild(tbl);
@@ -795,30 +826,31 @@
       return `<button class="cargo-pick" data-stop="${st.stop_index}" title="${esc(t("pick_cargo"))}" ${off ? "disabled" : ""}>${chips}${off ? "" : ico("plus", "sm")}</button>`;
     };
     const waits = (st) => `<span title="${esc(t("th_min_wait"))}">${waitLabel(st.min_wait)}</span> / <span title="${esc(t("th_max_wait"))}">${waitLabel(st.max_wait)}</span>${st.max_add_wait ? ` <small class="muted" title="${esc(t("th_add_wait"))}">+${waitLabel(st.max_add_wait)}</small>` : ""}`;
-    // one compact line per stop: # | name | cargo | terminals (badges: ★ preferred, others = alternatives) | mode | waits | edit
+    // one compact line per stop: # | name | cargo | terminals | mode | waits | edit
+    // every terminal of the station is shown, like the game: ★ preferred, alternatives, the others dimmed (unused)
     const termBadges = (st) => {
       const terms = st.terminals || []; if (!terms.length) return '<span class="muted">–</span>';
       const { main, alts } = termUsage(st);
-      return `<span class="termbadges">${terms.filter(x => termKey(x) === main || alts.has(termKey(x))).map(x => {
-        const isMain = termKey(x) === main, bad = x.compatible === false, short = !!x.overlength;
-        const tip = `${t("term_summary", { main: x.n })} · ${isMain ? t("term_main") : t("term_alt")}${bad ? " · " + t("term_incompatible") : ""}${short ? " · " + t("term_too_short") : ""}`;
-        return `<span class="tg-n ${isMain ? "main" : "alt"} ${bad || short ? "warn" : ""}" title="${esc(tip)}">${x.n}${isMain ? ico("star", "sm") : ""}</span>`; }).join("")}</span>`;
+      return `<span class="termbadges">${terms.map(x => {
+        const isMain = termKey(x) === main, isAlt = alts.has(termKey(x)), bad = x.compatible === false, short = !!x.overlength;
+        const tip = `${t("term_summary", { main: x.n })} · ${isMain ? t("term_main") : isAlt ? t("term_alt") : t("term_unused")}${bad ? " · " + t("term_incompatible") : ""}${short ? " · " + t("term_too_short") : ""}`;
+        return `<span class="tg-n ${isMain ? "main" : isAlt ? "alt" : "off"} ${(isMain || isAlt) && (bad || short) ? "warn" : ""}" title="${esc(tip)}">${x.n}${isMain ? ico("star", "sm") : ""}</span>`; }).join("")}</span>`;
     };
     const viewRow = (st) => `<tr data-stop="${st.stop_index}">
         <td class="num muted">${st.stop_index}</td>
-        <td class="wrap">${esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
+        <td class="wrap">${st.station_group ? `<a class="goto" data-st="${st.station_group}" title="${esc(t("goto_station"))}">${esc(st.name || "?")}</a>` : esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
         <td class="nowrap">${cargoCell(st)}${st.force_unload ? ` <span class="chip bad" title="${esc(t("force_unload"))}">${ico("line_unload", "sm")}</span>` : ""}</td>
         <td class="nowrap">${termBadges(st)}</td>
         <td class="center">${st.load_mode == null ? "–" : ico(LOAD_MODE_ICON[st.load_mode] || "load_available", "sm", t("load_mode_" + st.load_mode))}</td>
         <td class="num nowrap">${waits(st)}</td>
-        <td class="act"><button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
+        <td class="act">${st.station_group ? entBtns(st.station_group) : ""}<button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
     const editRow = (st) => {
       const w = (k, v, min) => `<input type="number" class="stop-in" data-k="${k}" min="${min}" max="600" step="5" value="${v == null ? "" : Math.round(v)}" style="width:62px">`;
       return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="7"><div class="stopedit">
         <div><small>${st.stop_index}.</small> <b>${esc(st.name || "?")}</b>
           <div class="stopcargo">${cargoCell(st, Infinity)}</div>
           <label class="muted" style="font-size:12px"><input type="checkbox" class="stop-in" data-k="force_unload" ${st.force_unload ? "checked" : ""}> ${t("force_unload")}</label></div>
-        <div class="waitgrid"><label>${t("th_load_mode")}</label><select class="stop-in" data-k="load_mode">${[0, 1, 2].map(m => `<option value="${m}" ${st.load_mode === m ? "selected" : ""}>${t("load_mode_" + m)}</option>`).join("")}</select>
+        <div class="waitgrid"><label>${t("th_load_mode")}</label><span class="seg lm-seg"><input type="hidden" class="stop-in" data-k="load_mode" value="${st.load_mode ?? ""}">${[0, 1, 2].map(m => `<button type="button" class="lm-btn ${st.load_mode === m ? "active" : ""}" data-m="${m}" title="${esc(t("load_mode_" + m))}">${ico(LOAD_MODE_ICON[m], "sm")}</button>`).join("")}</span>
           <label>${t("th_min_wait")}</label>${w("min_wait", st.min_wait, 0)}<label>${t("th_max_wait")}</label>${w("max_wait", st.max_wait, -1)}<label>${t("th_add_wait")}</label>${w("max_add_wait", st.max_add_wait, 0)}<span></span><small class="muted">-1 = ${t("wait_unlimited")}</small></div>
         ${termGrid(st)}
         <div class="stopbtns"><button class="btn stop-apply" data-stop="${st.stop_index}">${ico("check", "sm")}${t("apply")}</button><button class="btn stop-apply-all" data-stop="${st.stop_index}" title="${esc(t("apply_all_stops"))}">${ico("line_stations", "sm")}${t("apply_all_stops")}</button><button class="btn stop-cancel">${t("cancel")}</button></div>
@@ -826,6 +858,11 @@
     };
     root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
       <tbody>${stops.map(st => (editing === st.stop_index ? editRow(st) : viewRow(st))).join("")}</tbody></table>`;
+    bindActions(root);  // camera button and station link of each stop
+    $$(".lm-btn", root).forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation(); const seg = b.closest(".lm-seg");
+      $$(".lm-btn", seg).forEach(x => x.classList.toggle("active", x === b)); $(".stop-in", seg).value = b.dataset.m;
+    }));
     $$(".stop-edit", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = { line: l.line_id, stop: +b.dataset.stop }; renderStops(l, root); }));
     $$(".stop-cancel", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = null; renderStops(l, root); }));
     bindTermGrid(root);
@@ -1050,8 +1087,7 @@
       <h2>${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
       <h2 style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
-    bindActions($("#st-detail"));
-    $$(".row.goto[data-line]", $("#st-detail")).forEach(r => r.addEventListener("click", () => { state.selLine = +r.dataset.line; showTab("lines"); }));
+    bindActions($("#st-detail"));  // also binds the .goto[data-line] rows
     Charts.lineChart($("#chart-st-1"), [
       { name: t("th_waiting"), values: hist.map(x => x.used), color: "#4f8a8a", area: true },
       { name: t("th_capacity"), values: hist.map(x => (x.terminal_capacity || 0) + (x.pool_capacity || 0) || null), color: "#8b98a8", dash: [4, 4] },
@@ -1300,7 +1336,7 @@
     busy = false;
     if (again) { again = false; refresh(); }
   }
-  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-state", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
+  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
   let timer = null;
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);

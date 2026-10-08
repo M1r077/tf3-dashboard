@@ -283,7 +283,8 @@ def api_lines(q: dict) -> dict:
                         AND lc.snapshot_id=(SELECT MAX(snapshot_id) FROM line_capacity x WHERE x.line_id=l.line_id)
                    LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
                    WHERE l.game_id=?""", (gid,))
-    veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(vs.speed_ms) speed, SUM(vs.state='EN_ROUTE') en_route,
+    # speed = average of the vehicles currently en route (a vehicle waiting at a terminal would drag the line to 0)
+    veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))

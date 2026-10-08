@@ -300,7 +300,7 @@
   }
 
   // ------------------------------------------------------------ tabs
-  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, cache: {} };
+  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
   function showTab(name, push = true) {
     const b = $(`#tabs button[data-tab="${name}"]`); if (!b) return;
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
@@ -935,7 +935,8 @@
 
   // ------------------------------------------------------------ industries
   async function renderIndustries() {
-    const d = await api("/api/industries"); const inds = d.industries || [];
+    const d = await api("/api/industries"); const inds = d.industries || []; state.cache.industries = inds;
+    if (!state.selInd) { const u = +new URLSearchParams(location.search).get("ind"); if (u && inds.some(i => i.industry_id === u)) state.selInd = u; }  // deep link ?tab=industries&ind=<id>
     const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
     const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !i.producing || i.closure_time > 0 || i.cargo.some(c => c.direction === "out" && !c.shipped_year)));
     // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
@@ -954,12 +955,58 @@
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },
     ];
+    renderTable($("#ind-table"), cols, rows, { id: "industry_id", defaultSort: "name", onRow: (id, tr) => { state.selInd = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderIndustryDetail(+id); }, rowClass: i => (i.industry_id === state.selInd ? "sel" : "") });
+    if (state.selInd) renderIndustryDetail(state.selInd);
+  }
+
+  // Detail card: yearly figures of each cargo over time (produced vs max, shipped; consumed vs max, delivered),
+  // plus level and production rating. Game figures only, same as the industry window.
+  const CARGO_COLORS = ["#4f8a8a", "#e8b04b", "#58a6ff", "#bc8cff", "#3fb950", "#d62560", "#f0883e", "#8b98a8"];
+  async function renderIndustryDetail(id) {
+    const ind = (state.cache.industries || []).find(x => x.industry_id === id); if (!ind) return;
+    const h = await api("/api/industry_history", { id, limit: settings.history, range: settings.range });
+    const hist = h.history || [], labels = hist.map(x => dateLabel(x));
+    // per-cargo series aligned on the history snapshots
+    const idx = new Map(hist.map((x, i) => [x.snapshot_id, i]));
+    const byKey = new Map();
+    for (const c of (h.cargo || [])) {
+      const k = c.direction + ":" + c.cargo_id;
+      if (!byKey.has(k)) byKey.set(k, { c, a: hist.map(() => null), m: hist.map(() => null), s: hist.map(() => null) });
+      const e = byKey.get(k), i = idx.get(c.snapshot_id); if (i == null) continue;
+      if (c.direction === "out") { e.a[i] = c.produced_year; e.m[i] = c.max_prod_year; e.s[i] = c.shipped_year; }
+      else { e.a[i] = c.consumed_year; e.m[i] = c.max_cons_year; e.s[i] = c.delivered_year; }
+    }
+    const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
+    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", ind.boost_rule || ind.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
+    const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
+    $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
+      <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}</p>
+      ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
+      ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
+      <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
+    bindActions($("#ind-detail"));
+    const tx = tsOpts(hist, "ind");
+    // one colour per cargo: solid = produced/consumed, dashed = shipped/delivered, faint = yearly maximum
+    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo); return [
+      { name: `${n} · ${aName}`, values: e.a, color: col },
+      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4] },
+      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4] },
+    ]; });
+    if (outs.length) Charts.lineChart($("#chart-ind-out"), cargoSeries(outs, t("ind_produced"), t("shipped")), labels, { zeroBase: true, ...tx });
+    if (ins.length) Charts.lineChart($("#chart-ind-in"), cargoSeries(ins, t("ind_consumed"), t("delivered")), labels, { zeroBase: true, ...tx });
+    Charts.lineChart($("#chart-ind-lvl"), [
+      { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#3fb950", unit: "%" },
+      { name: t("th_level"), values: hist.map(x => x.level), color: "#bc8cff", axis: "right", step: true },
+    ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
     renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, defaultSort: "name" });
   }
 
   // ------------------------------------------------------------ stations & depots
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
+    const stations = s.stations || []; state.cache.stations = stations;
+    if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     renderTable($("#st-table"), [
       { key: "name", label: t("th_station"), render: x => `${ico(x.is_cargo ? "cargo" : "passengers", "sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
@@ -969,7 +1016,8 @@
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
-    ], s.stations || [], { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, defaultSort: "used", defaultAsc: false });
+    ], stations, { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
+    if (state.selSt) renderStationDetail(state.selSt);
     const DEPOT_ICON = { RAIL: "depot_rail", ROAD: "depot_road", TRAM: "depot_tram", WATER: "depot_water", AIR: "depot_air" };
     renderTable($("#dep-table"), [
       { key: "name", label: t("th_depot"), render: x => `${ico(DEPOT_ICON[x.carrier] || "depot", "sm")}${esc(x.name)}` },
@@ -979,6 +1027,30 @@
       { key: "maintenance_pool", label: t("th_maint_pool"), num: true, render: x => x.maintenance_pool == null ? "–" : t("pool_fmt", { avg: num(x.pool_avg, 1), max: num(x.pool_max, 0), n: x.maintenance_pool }) },
       { key: "act", label: "", render: x => entBtns(x.depot_id) },
     ], d.depots || [], { empty: { icon: "depot", text: t("empty_depots") }, defaultSort: "name" });
+  }
+
+  // Detail card: waiting items against the capacity (platforms + storage) and the overflow over time, plus the lines
+  // calling at the station. Game figures only, as in the station window.
+  async function renderStationDetail(id) {
+    const st = (state.cache.stations || []).find(x => x.station_id === id); if (!st) return;
+    const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
+    const hist = h.history || [], labels = hist.map(x => dateLabel(x)), lines = h.lines || [];
+    const cap = (st.terminal_capacity || 0) + (st.pool_capacity || 0);
+    $("#st-detail").innerHTML = `<h2>${ico(st.is_cargo ? "cargo" : "passengers", "lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
+      <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
+        <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
+        <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr></table>
+      <h2>${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
+      ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
+      <h2 style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
+    bindActions($("#st-detail"));
+    $$(".row.goto[data-line]", $("#st-detail")).forEach(r => r.addEventListener("click", () => { state.selLine = +r.dataset.line; showTab("lines"); }));
+    Charts.lineChart($("#chart-st-1"), [
+      { name: t("th_waiting"), values: hist.map(x => x.used), color: "#4f8a8a", area: true },
+      { name: t("th_capacity"), values: hist.map(x => (x.terminal_capacity || 0) + (x.pool_capacity || 0) || null), color: "#8b98a8", dash: [4, 4] },
+      { name: t("th_overflow"), values: hist.map(x => x.overflow), color: "#d62560", step: true },
+    ], labels, { zeroBase: true, ...tsOpts(hist, "st") });
   }
 
   // ------------------------------------------------------------ finance (secondary)

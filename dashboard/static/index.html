@@ -197,14 +197,18 @@
       <input id="ind-filter" data-i18n-ph="filter">
       <label><input type="checkbox" id="ind-unserved"> <span data-i18n="unserved"></span></label>
     </div>
-    <div class="panels" data-layout="industries"><div class="card tablecard" data-panel="ind-table" data-w="12"><table id="ind-table" class="data"></table></div></div>
+    <div class="panels" data-layout="industries">
+      <div class="card tablecard" data-panel="ind-table" data-w="7"><table id="ind-table" class="data"></table></div>
+      <div class="card sticky" id="ind-detail" data-panel="ind-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_industry"></p></div>
+    </div>
   </section>
 
   <!-- ------------------------------------------------ stations -->
   <section id="tab-stations" class="tab">
     <div class="panels" data-layout="stations">
       <div class="card tablecard" data-panel="st-table" data-w="7"><h2><i class="ico" data-ico="station"></i><span data-i18n="stations"></span></h2><table id="st-table" class="data"></table></div>
-      <div class="card tablecard" data-panel="dep-table" data-w="5"><h2><i class="ico" data-ico="depot"></i><span data-i18n="depots"></span></h2><table id="dep-table" class="data"></table></div>
+      <div class="card sticky" id="st-detail" data-panel="st-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_station"></p></div>
+      <div class="card tablecard" data-panel="dep-table" data-w="7"><h2><i class="ico" data-ico="depot"></i><span data-i18n="depots"></span></h2><table id="dep-table" class="data"></table></div>
     </div>
   </section>
 

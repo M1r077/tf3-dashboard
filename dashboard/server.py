@@ -469,6 +469,27 @@ def api_industries(q: dict) -> dict:
     return {"industries": inds}
 
 
+def api_industry_history(q: dict) -> dict:
+    """State and per-cargo yearly figures of one industry over the range (slow export, one row per ~30 s)."""
+    iid = int(q["id"][0])
+    gid = _gid()
+    since, limit = _since_iso(q), _limit(q, 300)
+    hist = rows("""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day, st.level, st.production_rating, st.producing, st.thrown_away, st.closure_time
+                   FROM industry_state st JOIN snapshot s USING(snapshot_id)
+                   WHERE s.game_id=? AND s.real_time >= ? AND st.industry_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, since, iid, limit))
+    hist.reverse()
+    _stamp(hist)
+    if not hist:
+        return {"history": [], "cargo": []}
+    # cargo rows only for the snapshots kept above (same window, same thinning-free limit)
+    cargo = rows("""SELECT ic.snapshot_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.shipped_year,
+                           ic.consumed_year, ic.max_cons_year, ic.delivered_year, ct.name AS cargo, ct.key AS cargo_key
+                    FROM industry_cargo ic LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=ic.cargo_id
+                    WHERE ic.industry_id=? AND ic.snapshot_id BETWEEN ? AND ? ORDER BY ic.snapshot_id""",
+                 (gid, iid, hist[0]["snapshot_id"], hist[-1]["snapshot_id"]))
+    return {"history": hist, "cargo": cargo}
+
+
 def api_stations(q: dict) -> dict:
     gid = _gid()
     st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, s.construction, t.name AS town_name, ss.*
@@ -477,6 +498,24 @@ def api_stations(q: dict) -> dict:
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
                  ORDER BY ss.used DESC""", (gid,))
     return {"stations": st}
+
+
+def api_station_history(q: dict) -> dict:
+    """Waiting items, overflow and capacity of one station over the range, plus the lines calling there."""
+    sid = int(q["id"][0])
+    gid = _gid()
+    hist = rows("""SELECT s.real_time, s.year, s.month, s.day, ss.used, ss.overflow, ss.pool_capacity, ss.terminal_capacity, ss.lines
+                   FROM station_state ss JOIN snapshot s USING(snapshot_id)
+                   WHERE s.game_id=? AND s.real_time >= ? AND ss.station_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), sid, _limit(q, 300)))
+    hist.reverse()
+    _stamp(hist)
+    # lines calling at this station: a line stop references the station *group* (line_stop.station is not
+    # resolved by the mod, it is 0), so match on the group the station belongs to
+    lines = rows("""SELECT DISTINCT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes
+                    FROM station st JOIN line_stop ls ON ls.game_id=st.game_id AND ls.station_group=st.station_group
+                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    WHERE st.game_id=? AND st.station_id=? ORDER BY l.name""", (gid, sid))
+    return {"history": hist, "lines": lines}
 
 
 def api_depots(q: dict) -> dict:
@@ -701,8 +740,8 @@ def api_diag(q: dict) -> dict:
 ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
-    "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/stations": api_stations,
-    "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

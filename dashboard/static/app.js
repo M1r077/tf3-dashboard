@@ -676,16 +676,15 @@
       { key: "max_frequency", label: t("th_headway"), num: true, render: l => headway(l.max_frequency), sortValue: l => l.max_frequency },
       // average speed of the vehicles en route right now (live snapshot), the game shows no such figure for a line
       { key: "speed", label: t("th_avg_speed"), num: true, render: l => kmh(l.live && l.live.speed), sortValue: l => l.live ? l.live.speed : null },
-      { key: "load", label: t("th_load"), gauge: true, num: true, render: l => { const c = loadOf(l); return c.c ? bar(c.u, c.c, fillCls(pct(c.u, c.c))) : "–"; }, sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
+      // load: one short gauge per cargo type (icon + used/capacity), stacked for multi-cargo lines; sorted by the overall ratio
+      { key: "load", label: t("th_load"), gauge: true, render: l => l.capacities.some(c => c.capacity) ? `<span class="qstack">${l.capacities.filter(c => c.capacity).map(c => `<span title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}${bar(c.used || 0, c.capacity, fillCls(pct(c.used || 0, c.capacity)), `${c.used || 0}/${c.capacity}`)}</span>`).join("")}</span>` : "–", sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
       // the game's "transported" figure of the line window (last 12 months, mod rev 8+): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
-      { key: "pax", label: t("th_pax_unhappy"), render: l => carriesPax(l) ? barQuality(l.pax_bad, l.pax_total) : NA, sortValue: l => carriesPax(l) && l.pax_total ? l.pax_bad / l.pax_total : null },
-      { key: "cargo", label: t("th_cargo_late"), render: l => carriesCargo(l) ? barQuality(l.cargo_bad, l.cargo_total) : NA, sortValue: l => carriesCargo(l) && l.cargo_total ? l.cargo_bad / l.cargo_total : null },
-      // what the line carries: icons only (the names are in the line sheet), so the table fits its 7-column card with the per-year figure
-      { key: "cargos", label: t("th_carries"), render: l => `<span class="onboard">${l.capacities.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}</span>`).join("")}</span>`, sortValue: l => l.capacities.length ? cargoName(l.capacities[0].cargo) : null },
+      // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
+      { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
-    ].filter(c => (c.key !== "pax" || rows.some(carriesPax)) && (c.key !== "cargo" || rows.some(carriesCargo)));  // filtered to trucks only: no "unhappy pax" column, and vice versa
+    ];
     renderTable($("#lines-table"), cols, rows, { total: lines.length, empty: { icon: "line", text: t("empty_lines"), hint: t("empty_lines_hint") }, id: "line_id", defaultSort: "name", onRow: (id, tr) => { state.selLine = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderLineDetail(+id); }, rowClass: l => (l.line_id === state.selLine ? "sel" : "") });
     if (state.selLine) renderLineDetail(state.selLine);
   }

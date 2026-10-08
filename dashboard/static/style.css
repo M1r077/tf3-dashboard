@@ -420,6 +420,12 @@ table.stops .stopedit .stopbtns { flex-basis: 100%; display: flex; gap: 6px; fle
 
 /* ---- lines: vehicle type icon + type filter bar */
 table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertical-align: middle; }
+/* stacked gauges in a cell (quality pax + cargo, one gauge per cargo type): one compact row each, shorter bars */
+.qstack { display: inline-flex; flex-direction: column; gap: 2px; vertical-align: middle; }
+.qstack > span { display: inline-flex; align-items: center; white-space: nowrap; line-height: 16px; }
+.qstack > span .ico { margin-right: 6px; }
+.qstack .bar { width: 64px; height: 8px; }
+.qstack .bar + .mono { margin-left: 6px; font-size: 11px; }
 /* long line names (Chinese routes, "A - B via C") get an ellipsis instead of pushing the right columns under the sticky action cell */
 table#lines-table td:first-child { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 table#lines-table td:first-child:hover { max-width: none; }

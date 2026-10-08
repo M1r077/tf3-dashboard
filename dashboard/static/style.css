@@ -159,6 +159,11 @@ table.kv { width: 100%; border-collapse: collapse; }
 .bar { display: inline-block; height: 10px; background: var(--border); border-radius: 3px; width: 90px; position: relative; vertical-align: middle; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
 .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); } .bar.ok > i { background: var(--ok); }
+/* cargo on board: icon + count per type, after the load bar */
+.onboard { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
+.onboard .ob .ico { margin: 0; }
+.onboard .ob small { font-family: var(--mono); font-size: 11px; color: var(--text); }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); margin-right: 4px; }
 .chip.bad { color: var(--bad); border-color: var(--bad); }

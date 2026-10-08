@@ -306,14 +306,26 @@ local function collectVehicles()
 				days_in_depot = num(tv.daysInDepot), days_at_terminal = num(tv.daysAtTerminal), doors_open = tv.doorsOpen and true or false }
 			pcall(function() rec.speed = num(api.engine.util.vehicle.getSpeed(v)) end)
 			pcall(function() rec.pos = vec3(api.engine.util.vehicle.getPosition(v)) end)
-			local okL, loadN = pcall(sys.simEntityAtVehicleSystem.getVehicleSimEntitiesCount, v)
-			if okL and num(loadN) then rec.load = num(loadN)
-			else
-				pcall(function()
-					local total = 0
-					for _, n in ipairs(arr(api.engine.util.cargo.getNumCargoPerTypeInVehicle(v))) do total = total + (num(n) or 0) end
-					rec.load = total
-				end)
+			-- load = items on board; cargo = the same split by cargo type (what the game draws above the wagons),
+			-- only the non-zero types: { [cargo id] = count }. Like getLineCapacityUsages, the engine returns a dense
+			-- array over all cargo types (Lua 1-based: key k = cargo type k-1) unless a key 0 is present.
+			pcall(function()
+				local per = api.engine.util.cargo.getNumCargoPerTypeInVehicle(v)
+				local total, by, dense = 0, {}, per[0] == nil
+				for k, n in pairs(per) do
+					local c = num(n) or 0
+					if c > 0 then
+						total = total + c
+						local ct = dense and (num(k) - 1) or num(k)
+						if ct then by[tostring(ct)] = c end
+					end
+				end
+				rec.load = total
+				if next(by) then rec.cargo = by end
+			end)
+			if rec.load == nil then
+				local okL, loadN = pcall(sys.simEntityAtVehicleSystem.getVehicleSimEntitiesCount, v)
+				if okL and num(loadN) then rec.load = num(loadN) end
 			end
 			pcall(function() rec.maintenance = num(api.engine.util.vehicle.getVehicleMaintenanceState(v)) end)
 			pcall(function() rec.closest_town = num(tv.closestTown) end)
@@ -352,9 +364,20 @@ local function vehicleStaticItem(v)
 	pcall(function() rec.running_cost = num(api.engine.util.vehicle.getRunningCost(v)) end)
 	pcall(function() rec.value = num(api.engine.util.vehicle.getDepreciatedValue(v)) end)
 	pcall(function()
-		local caps = arr(api.engine.util.vehicle.getVehicleCapacities(v)); local total = 0
-		for _, c in ipairs(caps) do total = total + (num(c) or 0) end
+		-- capacity = seats/slots in total; capacities = the same per cargo type the vehicle can carry (what the player
+		-- bought it for): { ["<cargo id>"] = capacity }. Dense array over all cargo types, Lua 1-based (see collectVehicles).
+		local caps = api.engine.util.vehicle.getVehicleCapacities(v)
+		local total, by, dense = 0, {}, caps[0] == nil
+		for k, c in pairs(caps) do
+			local n = num(c) or 0
+			if n > 0 then
+				total = total + n
+				local ct = dense and (num(k) - 1) or num(k)
+				if ct then by[tostring(ct)] = n end
+			end
+		end
 		rec.capacity = total
+		if next(by) then rec.capacities = by end
 	end)
 	return rec
 end

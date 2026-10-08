@@ -46,51 +46,25 @@ local PARAM_VALUES = {
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
--- Settings come from two places: the mod parameters chosen when the game was loaded (api.engine.config.getModParams,
--- read-only during the game) and, since rev 9, the in-game status window. Its changes ("overrides", one 1-based index
--- per key) live in the saved script state (handleEvent / state:set) so they survive save and load; the loading-screen
--- parameters remain the defaults for every key without an override.
-local cachedDefaults
-local function defaults()
-	if cachedDefaults then return cachedDefaults end
+-- Settings are the mod parameters chosen when the game was loaded (api.engine.config.getModParams, read-only during
+-- the game). The status window shows them, it does not change them.
+local cachedOptions
+local function options()
+	if cachedOptions then return cachedOptions end
 	local ok, all = pcall(api.engine.config.getModParams)
 	local raw = (ok and all and all[MOD_ID]) or {}
 	local o = {}
 	for key, values in pairs(PARAM_VALUES) do
 		local r = raw[key]
 		local v
-		if type(r) == "number" then
-			-- params declared with "numbers" in mod.json come back as the number itself (1, 2, 5, 10...),
-			-- the others as an index (1-based observed on Button params; tolerate 0-based).
-			-- Match the value first, then fall back to index. Both conventions give the right slider value.
-			for _, cand in ipairs(values) do
-				if cand == r then v = cand; break end
-			end
-			if v == nil then v = values[r] end
-			if v == nil then v = values[r + 1] end
-		end
+		-- Every param comes back as a 1-based index into its values, sliders included (seen in stdout.txt at load:
+		-- "interval_fast = 1, accept_commands = 2"). Up to rev 8 the code matched the value first, which happened
+		-- to work for the first slider position only.
+		if type(r) == "number" then v = values[math.floor(r)] end
 		if v == nil then v = values[PARAM_DEFAULT_INDEX[key]] end
 		o[key] = v
 	end
-	if ok and all then cachedDefaults = o end
-	return o
-end
-
--- overrides as last seen in the script state (guiUpdate copies them every frame: a table lookup, nothing more)
-local overrides = {}
-local overridesVersion = -1
-local cachedOptions, cachedOptionsOverrides
-local function options()
-	if cachedOptions and cachedOptionsOverrides == overrides then return cachedOptions end
-	local d = defaults()
-	local o = {}
-	for key, values in pairs(PARAM_VALUES) do
-		local idx = overrides[key]
-		local v = type(idx) == "number" and values[idx] or nil
-		if v == nil then v = d[key] end
-		o[key] = v
-	end
-	cachedOptions, cachedOptionsOverrides = o, overrides
+	if ok and all then cachedOptions = o end
 	return o
 end
 
@@ -1412,16 +1386,9 @@ function script.update(_userParams, _state, _dt)
 end
 
 local lastPoll = -1e9
-function script.guiUpdate(_userParams, state, _guiState)
+
+function script.guiUpdate(_userParams, _state, _guiState)
 	local now = os.clock()
-	-- in-game settings: the saved state is written by handleEvent (engine side), read here (GUI side, read-only)
-	-- (state:get() may hand out a fresh copy every call: compare the version number, not the table)
-	local okS, saved = pcall(function() return state:get() end)
-	local version = (okS and type(saved) == "table" and num(saved.version)) or 0
-	if version ~= overridesVersion then
-		overridesVersion = version
-		overrides = (version > 0 and type(saved.overrides) == "table") and saved.overrides or {}
-	end
 	local o = options()
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
@@ -1513,60 +1480,35 @@ function script.guiUpdate(_userParams, state, _guiState)
 	end
 end
 
--- ---------------------------------------------------------------- in-game settings and status window (rev 9)
--- The status window (status_ui.script.lua, a plugin of the game's mod button area) talks to this script two ways:
---   api.gui.fireGuiScriptEvent(UI_ID, "read")            -> guiHandleEvent returns { status, options, defaults, values }
---   api.cmd.makeScriptingSendEventCmd("", UI_ID, "set", { key, index }) / "reset"
---                                                         -> handleEvent stores the override in the saved state
--- The saved state is { version = n, overrides = { key = 1-based index } }; version changes on every write so that
--- guiUpdate notices cheaply. Only known keys and valid indices are accepted.
+-- ---------------------------------------------------------------- status window (rev 10)
+-- The status window (status_ui.script.lua, a plugin of the game's mod button area) reads from this script with
+--   api.gui.fireGuiScriptEvent(UI_ID, "read")  -> guiHandleEvent returns { status, current = { key = 1-based index } }
+-- Read-only: settings are changed in the game's mod menu, like for any other mod. (A rev 9 prototype wrote them to
+-- the saved state through handleEvent; the window did not follow the engine-side state reliably, so it was dropped.)
+-- The event name has to be subscribed on the engine side for gui events to reach guiHandleEvent at all.
 local UI_ID = "TF3_DASHBOARD_EXPORT"
-local UI_EVENTS = { "set", "reset" }
+local UI_EVENTS = { "read" }
 
 local function paramIndex(key, value)
 	for i, v in ipairs(PARAM_VALUES[key] or {}) do if v == value then return i end end
 	return PARAM_DEFAULT_INDEX[key]
 end
 
-function script.handleEvent(_userParams, state, _src, id, name, param)
-	if id ~= UI_ID then
-		-- lifecycle events come with an empty id: (re)subscribe to our names, nothing else to do
-		if id == "" then for _, ev in ipairs(UI_EVENTS) do pcall(function() state:subscribeToEvent(ev) end) end end
-		return
-	end
-	local okS, saved = pcall(function() return state:get() end)
-	saved = (okS and type(saved) == "table") and saved or {}
-	local ov = {}
-	if type(saved.overrides) == "table" then for k, v in pairs(saved.overrides) do ov[k] = v end end
-	if name == "set" then
-		if type(param) ~= "table" or type(param.key) ~= "string" or PARAM_VALUES[param.key] == nil then return end
-		local idx = num(param.index)
-		if idx == nil or idx < 1 or idx > #PARAM_VALUES[param.key] or idx ~= math.floor(idx) then return end
-		ov[param.key] = idx
-	elseif name == "reset" then
-		ov = {}
-	else
-		return
-	end
-	state:set({ version = (num(saved.version) or 0) + 1, overrides = ov })
-	log("in-game setting " .. tostring(name) .. (name == "set" and (" " .. param.key .. " = " .. ov[param.key]) or ""))
+function script.handleEvent(_userParams, state, _src, id, _name, _param)
+	-- lifecycle events come with an empty id: (re)subscribe to our names, nothing else to do
+	if id == "" then for _, ev in ipairs(UI_EVENTS) do pcall(function() state:subscribeToEvent(ev) end) end end
 end
 
 function script.guiHandleEvent(_userParams, _state, _guiState, _src, id, name, _param)
 	if id ~= UI_ID or name ~= "read" then return nil end
-	local o, d = options(), defaults()
-	local values, current, default = {}, {}, {}
-	for key, list in pairs(PARAM_VALUES) do
-		values[key] = list
-		current[key] = paramIndex(key, o[key])
-		default[key] = paramIndex(key, d[key])
-	end
+	local o = options()
+	local current = {}
+	for key in pairs(PARAM_VALUES) do current[key] = paramIndex(key, o[key]) end
 	if status.folder == nil then pcall(function() status.folder = tostring(app.getUserDataFolder()) .. "/" .. DIR end) end
-	local overridden = next(overrides) ~= nil
 	return {
 		status = { state = status.state, last_ok = status.last_ok, last_error = status.last_error,
 			companion_seen = status.companion_seen, folder = status.folder, now = os.time() },
-		values = values, current = current, default = default, overridden = overridden,
+		current = current,
 	}
 end
 

@@ -1,11 +1,10 @@
--- Status button and window (rev 9): a small button in the game's mod button area (the same place other mods put
--- theirs), coloured by the state of the export, and a window with the state of the export and the mod settings,
--- changeable during the game.
+-- Status button and window (rev 10): a small button in the game's mod button area (the same place other mods put
+-- theirs), coloured by the state of the export, and a window with the state of the export and the current mod
+-- settings. Read-only: settings are changed in the game's mod menu when loading the game, like any other mod.
 --
 -- Nothing here runs per frame. The button is rendered once and re-rendered when the export script fires
 -- "TF3DashboardStatus" (only when the state changes). The window reads the script state once when it opens
--- (api.gui.fireGuiScriptEvent -> guiHandleEvent) and after each change it makes; settings go through
--- api.cmd.makeScriptingSendEventCmd -> handleEvent, where they are stored in the savegame.
+-- (api.gui.fireGuiScriptEvent -> guiHandleEvent) and again on each status change.
 
 local react = ug_require "::/gui/main/react.lua"
 local builtin = ug_require "::/gui/main/builtin.lua"
@@ -14,8 +13,7 @@ local styleutil = ug_require "::/gui/main/styleutil.tl"
 
 local UI_ID = "TF3_DASHBOARD_EXPORT"
 local STATUS_EVENT = "TF3DashboardStatus"
-local REFRESH_EVENT = "TF3DashboardRefresh"
-local ICON = "::/gui/context_helper/icons/menu_charts@2x.tga"
+local ICON = "::/gui/line_vehicle_mgmt/icons/symbol_info_outline@2x.tga"  -- the game's "i" symbol; readable at 16 px
 -- the settings in the order of mod.json; labels and value labels reuse the mod.json strings
 local SETTINGS = {
 	{ key = "interval_fast", name = "param_interval_fast_name", tooltip = "param_interval_fast_tooltip", labels = { "1 s", "2 s", "5 s", "10 s" } },
@@ -30,6 +28,7 @@ local COLORS = {
 	starting = { 0.55, 0.55, 0.55, 1 },
 }
 local WIDTH = 420
+local WRAP = 52  -- characters per line for the small texts (TextViews do not wrap by themselves; 420 px, body font)
 
 local function tr(key) return _(key) end
 
@@ -42,10 +41,38 @@ local function style(def)
 	return result
 end
 
-local function text(value, class, extra)
+local function text(value, class, extra, clipTip)
 	local meta = { class = class or "font-scale-body" }
 	if extra then for k, v in pairs(extra) do meta[k] = v end end
-	return builtin.TextView { text = value, meta = meta }
+	-- tooltipWhenClipped is a TextView parameter, not a meta entry (a meta entry breaks the window's state update)
+	return builtin.TextView { text = value, meta = meta, tooltipWhenClipped = clipTip }
+end
+-- TextViews do not wrap: long texts are broken into lines here (the game does the same in its context help).
+-- One sentence per line; a sentence longer than `width` characters is broken at word boundaries.
+local function wrap(value, width)
+	local lines = {}
+	for sentence in (tostring(value) .. " "):gmatch("(.-[%.!?])%s+") do
+		local cur = ""
+		for word in sentence:gmatch("%S+") do
+			if cur == "" then cur = word
+			elseif #cur + 1 + #word > width then lines[#lines + 1] = cur; cur = word
+			else cur = cur .. " " .. word end
+		end
+		if cur ~= "" then lines[#lines + 1] = cur end
+	end
+	if #lines == 0 then return tostring(value) end
+	return table.concat(lines, "\n")
+end
+
+-- a path is broken at its separators
+local function wrapPath(value, width)
+	local lines, cur = {}, ""
+	for part in tostring(value):gmatch("[^/\\]+[/\\]?") do
+		if cur ~= "" and #cur + #part > width then lines[#lines + 1] = cur; cur = "" end
+		cur = cur .. part
+	end
+	if cur ~= "" then lines[#lines + 1] = cur end
+	return table.concat(lines, "\n")
 end
 local function row(children) return builtin.BoxLayout { orientation = builtin.type.Orientation.Horizontal, children = children } end
 local function column(children) return builtin.BoxLayout { orientation = builtin.type.Orientation.Vertical, children = children } end
@@ -84,19 +111,12 @@ end
 
 StatusWindow = react.RegisterWrapperRecipe("TF3DashboardStatusWindow", builtin.Window, function()
 	local data = react.useState(nil)
-	local pending = react.useState(false)
 	local function refresh() data:set(readState()) end
 	react.onMount(refresh)
 	react.onEvent(STATUS_EVENT, refresh)
-	react.onEvent(REFRESH_EVENT, function() pending:set(false); refresh() end)
-
-	local function send(name, param)
-		if pending:old() then return end
-		pending:set(true)
-		api.cmd.sendCommand(api.cmd.makeScriptingSendEventCmd("", UI_ID, name, param), function()
-			api.gui.fireReactEvent(REFRESH_EVENT, {})
-		end)
-	end
+	-- "x s ago" and "companion seen" move while the window is open: re-read every 2 s (one gui script event, nothing
+	-- heavy), only while the window exists
+	react.onStepTimer(refresh, 2.0)
 
 	local d = data:old()
 	local st = d and d.status or nil
@@ -110,53 +130,31 @@ StatusWindow = react.RegisterWrapperRecipe("TF3DashboardStatusWindow", builtin.W
 	})
 	if st and st.state == "error" then
 		if st.last_error then
-			children[#children + 1] = text(tostring(st.last_error), "font-scale-small", { tooltipWhenClipped = tostring(st.last_error),
-				styleSheet = style({ size = { WIDTH - 24, 22 } }) })
+			children[#children + 1] = text(wrap(st.last_error, WRAP), "font-scale-small")
 		end
-		children[#children + 1] = text(tr("status_error_help"), "font-scale-small", { styleSheet = style({ size = { WIDTH - 24, 60 } }) })
+		children[#children + 1] = text(wrap(tr("status_error_help"), WRAP), "font-scale-small")
 	end
 	if st and st.folder then
-		children[#children + 1] = text(tr("status_folder") .. " " .. tostring(st.folder), "font-scale-small",
-			{ tooltipWhenClipped = tostring(st.folder), styleSheet = style({ size = { WIDTH - 24, 22 } }) })
+		children[#children + 1] = text(tr("status_folder"), "font-scale-small", { styleSheet = style({ padding = { 6, 0, 0, 0 } }) })
+		children[#children + 1] = text(wrapPath(st.folder, WRAP), "font-scale-small")
 	end
 	if st then
 		local a = ago(st.now, st.companion_seen)
 		children[#children + 1] = text(a and (tr("status_companion_seen") .. " " .. a) or tr("status_companion_never"), "font-scale-small")
 	end
 
-	-- settings
+	-- settings (read-only)
 	children[#children + 1] = text(tr("status_settings"), "font-scale-title-2", { styleSheet = style({ padding = { 10, 0, 4, 0 } }) })
-	children[#children + 1] = text(tr("status_settings_help"), "font-scale-small", { styleSheet = style({ size = { WIDTH - 24, 44 } }) })
+	children[#children + 1] = text(wrap(tr("status_settings_help"), WRAP), "font-scale-small")
 	for _, s in ipairs(SETTINGS) do
-		local buttons = {}
-		for i, label in ipairs(s.labels) do
-			local shown = label:match("^param_") and tr(label) or label
-			local isDefault = d and d.default and d.default[s.key] == i
-			buttons[i] = { content = text(shown .. (isDefault and " *" or "")) }
-		end
-		local current = (d and d.current and d.current[s.key]) or 1
+		local current = d and d.current and d.current[s.key] or nil
+		local label = current and s.labels[current] or nil
+		local shown = label and (label:match("^param_") and tr(label) or label) or "-"
 		children[#children + 1] = row({
-			text(tr(s.name), "font-scale-body", { tooltip = tr(s.tooltip), styleSheet = style({ size = { 150, 30 }, padding = { 6, 0, 0, 0 } }) }),
-			builtin.ToggleButtonGroup {
-				meta = { enabled = not pending:old(), styleSheet = style({ size = { WIDTH - 24 - 150, 30 } }) },
-				buttons = buttons,
-				selected = current,
-				layout = "Uniform",
-				onValueChange = function(index)
-					if index ~= current then send("set", { key = s.key, index = index }) end
-				end,
-			},
+			text(tr(s.name), "font-scale-body", { tooltip = tr(s.tooltip), styleSheet = style({ size = { 220, 26 }, padding = { 2, 0, 0, 0 } }) }),
+			text(shown, "font-scale-body", { styleSheet = style({ size = { WIDTH - 24 - 220, 26 }, padding = { 2, 0, 0, 0 } }) }),
 		})
 	end
-	children[#children + 1] = row({
-		text(tr("status_default_hint"), "font-scale-small", { styleSheet = style({ size = { WIDTH - 24 - 130, 30 }, padding = { 6, 0, 0, 0 } }) }),
-		builtin.Button {
-			meta = { enabled = (not pending:old()) and (d ~= nil and d.overridden == true), class = "secondary",
-				tooltip = tr("status_reset_tip"), styleSheet = style({ size = { 130, 30 } }) },
-			content = text(tr("status_reset")),
-			onClick = function() send("reset", {}) end,
-		},
-	})
 
 	return builtin.Window {
 		id = "tf3-dashboard-status-window",

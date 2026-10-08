@@ -1,6 +1,6 @@
 -- Resource name "tf3_dashboard_export::/dashboard_export/dashboard_export.gs" identifies the saved
 -- mod state. Never rename or move this file after release.
--- rev 9: handleEvent (in-game settings, stored in the savegame) and guiHandleEvent (status window reads).
+-- rev 10: guiHandleEvent answers the status window's reads; handleEvent only subscribes to the event name.
 function data()
 	return {
 		updateScript = { fileName = "dashboard_export.script@update" },

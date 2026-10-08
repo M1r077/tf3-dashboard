@@ -1179,7 +1179,7 @@
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
   }
   function fitMap(canvas) {
-    const d = map.data; const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles].filter(p => p.x != null);
+    const d = map.data; const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles, ...(d.headquarters ? [d.headquarters] : [])].filter(p => p.x != null);
     if (!pts.length) return;
     const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
     const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
@@ -1234,6 +1234,7 @@
     ctx.font = "12px " + font;
     if ($("#map-lines").checked && d.lines) d.lines.forEach(l => { if (l.points.length < 2) return; const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? 0.5 : 0.95) : 0.08; ctx.lineWidth = on && lf != null ? 4 : 2; ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.globalAlpha = 1; });
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#4f8a8a"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
+    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
     if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 14, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 4, y - 4, 8, 8); } });
     if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill(); });
@@ -1272,6 +1273,7 @@
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));
     if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}`));
+    if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", null, `<b>${t("map_hq")}</b>`);
     return best ? { ...best, mx, my } : null;
   }
   function hoverMap(canvas, e) {

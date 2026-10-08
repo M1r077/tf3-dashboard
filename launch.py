@@ -1,4 +1,4 @@
-"""TF3 Dashboard launcher, shared by Windows and Linux: starts the collector (live.lua -> SQLite) and the web server,
+"""TF3 Dashboard launcher, shared by Windows and Linux: starts the collector (live file -> SQLite) and the web server,
 restarts them when they stop, opens the browser once the dashboard answers. Ctrl+C (or closing the terminal)
 stops everything.
 
@@ -9,8 +9,8 @@ stops everything.
 
 --db is passed to both, --port / --no-cmd to the server. Before the first server start: the game's icons are
 extracted when dashboard/static/icons/_manifest.json is missing or older than extract_icons.py (a new version that
-uses more of the game's icons), and the port must be free (an old instance would
-otherwise keep serving old code). Stdlib only.
+uses more of the game's icons), and the port must be free (an old instance would otherwise keep serving old code).
+Stdlib only.
 """
 from __future__ import annotations
 

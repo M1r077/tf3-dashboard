@@ -3,22 +3,36 @@
 Short version: [../README.md](../README.md). Repository: https://github.com/M1r077/tf3-dashboard
 Other mods (what we may read, what needs permission): [INTEGRATIONS.md](INTEGRATIONS.md).
 
-Quick start (game running, mod "Second Screen Dashboard" enabled in the savegame): `run_dashboard.cmd`
--> opens a Windows Terminal window (2 panes: collector | server; the "TF3 Dashboard" profile is used if it exists,
-otherwise the default profile) then http://127.0.0.1:8765/. On a second monitor: browser full screen (F11). Closing the
-window stops everything. Without Windows Terminal: two classic console windows.
-Python: `python_embedded\python.exe` from the release zip if present, otherwise `py -3` / `python` (3.10+, stdlib only;
-see `_python.cmd`). Nothing to install.
-Developer demo without the game (repository only, not in the release zip): `run_dashboard_demo.cmd` regenerates `test\fake.db` with simulated data and serves it on port 8766 with commands disabled.
-Pane helpers: `_collector.cmd`, `_server.cmd [--port N] [--db PATH]` (stay open on error, any key = retry;
-`_server.cmd` refuses to start if the port is already taken, so an old instance never keeps serving stale code).
+Quick start (game running, mod "Second Screen Dashboard" enabled in the savegame):
+- Windows: `run_dashboard.cmd` -> opens a Windows Terminal window (2 panes: collector | server; the "TF3 Dashboard"
+  profile is used if it exists, otherwise the default profile). Closing the window stops everything. Without Windows
+  Terminal: both in one console, lines prefixed `[collector]` / `[server]`.
+- Linux: `run_dashboard.sh` -> both in the current terminal, lines prefixed; Ctrl+C or closing the terminal stops
+  everything. `--install-desktop` writes `~/.local/share/applications/tf3-dashboard.desktop`.
+
+Then http://127.0.0.1:8765/ opens in the browser; on a second monitor: full screen (F11).
+All the logic is in `launch.py` (shared): first-start icon extraction (when `dashboard/static/icons/_manifest.json`
+is missing), port check (waits while the port is taken, so an old instance never keeps serving stale code), restart
+of a stopped collector / server (2, 5, 10, then every 30 s; back to 2 s after a minute of normal running), browser
+once the server answers, clean stop on Ctrl+C / SIGTERM / SIGHUP (Linux: children also stop if the launcher is
+killed). `launch.py --only collector|server` runs one part without prefixes (the Windows Terminal panes,
+`_collector.cmd` / `_server.cmd [--port N] [--db PATH] [--no-cmd] [--no-browser]`).
+Python: Windows: `python_embedded\python.exe` from the release zip if present, otherwise `py -3` / `python`
+(`_python.cmd`); Linux: `python3` / `python` (`_python.sh`). 3.10+, stdlib only, nothing to install.
+Developer demo without the game (repository only, not in the release): `run_dashboard_demo.cmd` / `.sh` regenerates
+`test/fake.db` with simulated data and serves it on port 8766 with commands disabled.
 
 Three independent parts:
 
 1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *Second Screen Dashboard*): a game
    script that writes `<Steam>\userdata\<id>\3493540\local\towns_industries\tf3dash_live.lua` and
 `tf3dash_slow_<section>.lua` via
-   `app.saveUserdata` (folder auto-detected by `collector\tf3paths.py`: Steam registry, or `config.json`).
+   `app.saveUserdata` (folder auto-detected by `collector/tf3paths.py`: Steam registry and libraries,
+   `%APPDATA%\Transport Fever 3` for Epic/GOG, on Linux the same folder inside every Wine/Proton prefix found
+   (Heroic `GamesConfig`, Steam `compatdata`, Lutris, Bottles, `$WINEPREFIX`, `~/.wine`) and
+   `~/.local/share/Transport Fever 3` for the native build, or `config.json`; most recent live file wins, then most
+   recent `crash_dump/stdout.txt`. The game log's "User data folder" (a `C:\…` path under Wine) is translated
+   through the prefix's `dosdevices` for the cross-check).
    - **why `towns_industries` and a `tf3dash_` prefix (rev 9)**: game build 40420 (stability update, 8 Oct 2026)
   restricted `app.saveUserdata` to three userdata folders: `heightmaps`, `mod_presets`, `towns_industries` (any
   other: `The directory you trying to access is not available or invalid`; the list sits next to that message in
@@ -145,7 +159,7 @@ Three independent parts:
 
 2. **Collector `collector\collector.py`** (Python, stdlib only): watches `live.lua`, parses it (`luatable.py`, own Lua
    table parser) and fills `db\tf3_dashboard.db` (SQLite, schema `collector\schema.sql`).
-   - `run_collector.cmd`: starts watching (Ctrl+C to stop)
+   - `run_collector.cmd` / `run_collector.sh`: starts watching (Ctrl+C to stop), arguments passed through
    - `python collector.py --once`: import the current file once
    - `python collector.py --status`: database summary
    - `python collector.py --list-games` / `--forget-game <id>`: a "game" = one player entity; the dashboard only shows
@@ -157,7 +171,7 @@ Three independent parts:
      Two nets behind that rule, after 0.6.1 shipped a column without its migration and lost the slow history of
      pre-0.6.1 databases for three releases: `Store._sync_columns()` adds at start-up any column `schema.sql` declares
      and the database lacks (reported as "database upgraded: added ..."), and `test\migrate_check.py` (run by
-     `build_release.cmd`, no zip if it fails) opens the old databases in `test\` with the current code, ingests the
+     `build_release.py`, no archive if it fails) opens the old databases in `test\` with the current code, ingests the
      recorded export in `test\export\` and fails when a table stays empty, when the columns differ from a fresh
      database, or when the data only got in thanks to the safety net.
    - slow sections are only stored when they were re-collected (`slow_seq` changed)
@@ -213,14 +227,16 @@ Three independent parts:
      side view, base game + DLCs: buses, trucks, trams, locomotives, wagons, planes, helicopters, zeppelins, ships) into
      `icons\vehicles\<cat>\<model>.png` + `_manifest.json`; the dashboard shows the real model in the tables and the
      **whole consist** in the vehicle sheet (unknown model, e.g. from a mod -> generic pictogram). Stdlib only (own TGA
-     decoder + PNG writer, no Pillow); run automatically by `_server.cmd` at first start when
-     `static\icons\_manifest.json` is missing; the game is found through the Steam libraries (`libraryfolders.vdf`) or
-     `game_dir` in `config.json`. The icons are not redistributed; `_server.cmd` extracts again when `extract_icons.py`
-     is newer than the manifest (a new version using more of the game's icons). **Rule**: an icon means here what it
+     decoder + PNG writer, no Pillow); run automatically by `launch.py` at first start when
+     `static/icons/_manifest.json` is missing; the game is found through `game_dir` in `config.json`, the Steam
+     libraries (`libraryfolders.vdf`), Epic manifests / GOG registry (Windows), Heroic's installed games and the
+     usual folders inside Wine prefixes (Linux); a GOG Linux install's `game/` subfolder is accepted. The icons are
+     not redistributed; `launch.py` extracts again when `extract_icons.py` is newer than the manifest (a new version
+     using more of the game's icons). **Rule**: an icon means here what it
      means in the game, never something else (the camera manager's play / stop / save / pencil / bin are reused for
      the travellings for that reason). The few functions the game has no icon for (the camera movements: orbit,
-     dolly, flyover, sweep, spiral, reverse) are drawn by `dashboard\own_icons.py` (Pillow, white strokes, 48 px) into
-     `static\icons\own\`, which is committed.
+     dolly, flyover, sweep, spiral, reverse) are drawn by `dashboard/own_icons.py` (Pillow, white strokes, 48 px) into
+     `static/icons/own/`, which is committed.
    - **Game control**: pause / x1 / x2 / x4 bar in the header (shortcuts Space, 1, 2, 3), camera buttons on
      vehicles / lines / towns / industries / stations / depots / alerts, vehicle sheet: follow, stop / start, reverse,
      depart, send to depot; click on the map = camera on the object (Shift+click on a vehicle = follow). Greyed out when

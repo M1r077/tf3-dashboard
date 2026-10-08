@@ -65,7 +65,7 @@ GAME_FOLDER_NAMES = ("Transport Fever 3", "TransportFever3")
 
 def version() -> str:
     """Companion version: the VERSION = "x.y.z" line of dashboard/server.py (single source, also read by
-    build_release.cmd); the collector must not import the server to know it."""
+    build_release.py); the collector must not import the server to know it."""
     try:
         with open(ROOT / "dashboard" / "server.py", encoding="utf-8") as f:
             for line in f:
@@ -461,7 +461,7 @@ def apply_pending_restore(db: Path, say=print) -> bool:
         return True
     except OSError as e:
         # Windows: still open by a running collector/server -> next full restart
-        say(f"restore postponed ({e}): close the collector and the server, then start run_dashboard.cmd again")
+        say(f"restore postponed ({e}): close the collector and the server, then start {launcher_name()} again")
         return False
 
 

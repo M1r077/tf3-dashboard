@@ -1,5 +1,5 @@
 #!/bin/sh
-# Starts the collector alone (watches live.lua, fills the SQLite db). Ctrl+C to stop.
+# Starts the collector alone (watches tf3dash_live.lua, fills the SQLite db). Ctrl+C to stop.
 # Extra arguments are passed through, e.g. run_collector.sh --status / --once / --list-games
 cd "$(dirname "$0")/.." || exit 1
 . ./_python.sh || exit 1

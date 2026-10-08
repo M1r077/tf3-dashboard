@@ -182,6 +182,17 @@ for k in range(N):
         snap["depots"] = [{"id": did, "name": nm, "carrier": car, "vehicles": sum(1 for vv in vehicles if vv["state"] == "IN_DEPOT" and vv["carrier"] == car), "incoming": 0, "maintenance_pool": 12, "pool_max": 9, "pool_avg": 6.5} for did, nm, car in DEPOTS]
     store.ingest(snap)
 
+# vehicle catalogue (tf3dash_catalogue.lua, opt-in mod setting): a few models around the demo's game years (1908-1909)
+CATALOGUE = [("train/c6_8", "C 5/6 Elefant", "RAIL", 1903, 1940, 18.0, 0, 120000, 1100), ("train/re_44i", "Re 4/4 I", "RAIL", 1909, 0, 34.7, 0, 260000, 2300),
+             ("bus/saurer_tuescher", "Saurer 3CT1D", "ROAD", 1905, 1909, 11.1, 30, 18000, None), ("truck/saurer_c_typ_box", "Saurer C-Typ", "ROAD", 1906, 1935, 9.7, 8, 21000, None),
+             ("bus/benz_omnibus", "Benz Omnibus", "ROAD", 1909, 1930, 12.5, 24, 22000, None), ("tram/ce_44", "Ce 4/4", "TRAM", 1909, 1950, 13.9, 60, 55000, None),
+             ("train/be_66", "Be 6/6 Krokodil", "RAIL", 1911, 0, 25.0, 0, 410000, 1650), ("ship/steamer", "Dampfschiff Uri", "WATER", 1910, 1960, 7.5, 400, 300000, None),
+             ("plane/ju52", "Junkers Ju 52", "AIR", 1932, 0, 69.4, 17, 900000, None), ("truck/fbw_tanker", "FBW Tanker", "ROAD", 1912, 0, 13.9, 12, 34000, None),
+             ("waggon/ew_ii", "EW II", "RAIL", 1890, 0, 30.6, 72, 40000, None)]
+store.catalogue({"lang": "fr", "items": [{"key": k, "name": n, "carrier": c, "year_from": a, "year_to": b, "speed": sp, "capacity": cap or None, "price": pr, "power": pw}
+                                         for k, n, c, a, b, sp, cap, pr, pw in CATALOGUE]
+                 + [{"key": "train/re_44i", "name": "Re 4/4 I + EW II (Pendelzug)", "carrier": "RAIL", "year_from": 1909, "year_to": 0, "speed": 30.6, "capacity": 216, "price": 380000, "multiple_unit": 7}]})
+
 # retention: fold everything older than 2 h into per-minute aggregates (like the live collector does)
 print(store.rollup(detail_hours=2.0, slow_days=14, say=print))
 print(store.status())

@@ -32,6 +32,14 @@
             "defaultIndex": 0
         },
         {
+            "key": "export_catalogue",
+            "name": "param_export_catalogue_name",
+            "tooltip": "param_export_catalogue_tooltip",
+            "uiType": "Button",
+            "values": ["param_off", "param_on"],
+            "defaultIndex": 0
+        },
+        {
             "key": "accept_commands",
             "name": "param_accept_commands_name",
             "tooltip": "param_accept_commands_tooltip",

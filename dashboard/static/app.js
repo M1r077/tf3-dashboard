@@ -267,11 +267,16 @@
     if (e.code === "Space") { e.preventDefault(); sendCmd("toggle_pause", {}); }
     else if (/^Digit[1-9]$/.test(e.code) && e.shiftKey) { const v = camViews.list[+e.code.slice(5) - 1]; if (v) { e.preventDefault(); gotoView(v); } }  // Shift+1..9 = saved camera view
     else if (["Digit1", "Digit2", "Digit3"].includes(e.code)) { sendCmd("set_speed", { speed: { Digit1: 1, Digit2: 2, Digit3: 4 }[e.code] }); }
+    // H = horn of the selected vehicle (Vehicles tab) or of every vehicle of the selected line (Lines tab). Mod rev 8+.
+    else if (e.code === "KeyH" && !e.shiftKey) {
+      if (state.tab === "vehicles" && state.selVeh) sendCmd("horn", { vehicle: state.selVeh });
+      else if (state.tab === "lines" && state.selLine) sendCmd("horn", { line: state.selLine });
+    }
   });
   const vehActions = (v) => {
     const off = !cmd.enabled || cmd.accepted === 0;
     const b = (name, icon, label, extra = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${v.vehicle_id}" ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
-    return `${cmdHint()}<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger")}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger")}</div>`;
+    return `${cmdHint()}<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger")}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger")}${b("horn", "noise", t("act_horn"))}</div>`;
   };
   // compact icon buttons for any entity: camera (focus) + select (opens the game window); lines also get "manage"
   const entBtns = (id, o = {}) => {
@@ -283,7 +288,8 @@
     $$("button.act", root).forEach(b => b.addEventListener("click", async e => {
       e.stopPropagation(); const id = +b.dataset.veh; const n = b.dataset.cmd;
       if (b.dataset.confirm && !(await modal.confirm(b.dataset.confirm, { danger: true, ok: b.textContent.trim() }))) return;
-      const args = n.startsWith("vehicle_") ? { vehicle: id } : (n === "open_line_manager" || n.startsWith("line_")) ? { line: id } : { entity: id };
+      const args = n.startsWith("vehicle_") || n === "horn" ? { vehicle: id } : (n === "open_line_manager" || n.startsWith("line_")) ? { line: id } : { entity: id };
+      if (n === "horn" && b.dataset.line) { args.line = +b.dataset.line; delete args.vehicle; }
       sendCmd(n, args, b);
     }));
   }
@@ -669,7 +675,8 @@
   const lineBulkBtns = (l, nveh) => {
     const off = !cmd.enabled || cmd.accepted === 0 || !nveh;
     const b = (name, icon, label, extra = "", confirmMsg = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${l.line_id}" ${confirmMsg ? `data-confirm="${esc(confirmMsg)}"` : ""} ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
-    return b("line_stop_all", "stop", t("line_stop_all"), "danger", t("confirm_stop_all", { n: nveh })) + b("line_start_all", "play_1", t("line_start_all")) + b("line_all_to_depot", "to_depot", t("line_all_to_depot"), "danger", t("confirm_all_depot", { n: nveh }));
+    return b("line_stop_all", "stop", t("line_stop_all"), "danger", t("confirm_stop_all", { n: nveh })) + b("line_start_all", "play_1", t("line_start_all")) + b("line_all_to_depot", "to_depot", t("line_all_to_depot"), "danger", t("confirm_all_depot", { n: nveh }))
+      + `<button class="btn act" data-cmd="horn" data-veh="${l.line_id}" data-line="${l.line_id}" ${off ? "disabled" : ""}>${ico("noise", "sm")}${esc(t("act_horn_all"))}</button>`;
   };
   // Terminals of a stop (same data as the game's "Terminals for Stop N" panel). key "s:t" = station:terminal (0-based).
   const termKey = (x) => `${x.station}:${x.terminal}`;

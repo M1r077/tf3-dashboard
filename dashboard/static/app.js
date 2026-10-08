@@ -955,7 +955,7 @@
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },
     ];
-    renderTable($("#ind-table"), cols, rows, { id: "industry_id", defaultSort: "name", onRow: (id, tr) => { state.selInd = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderIndustryDetail(+id); }, rowClass: i => (i.industry_id === state.selInd ? "sel" : "") });
+    renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, id: "industry_id", defaultSort: "name", onRow: (id, tr) => { state.selInd = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderIndustryDetail(+id); }, rowClass: i => (i.industry_id === state.selInd ? "sel" : "") });
     if (state.selInd) renderIndustryDetail(state.selInd);
   }
 
@@ -999,7 +999,6 @@
       { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#3fb950", unit: "%" },
       { name: t("th_level"), values: hist.map(x => x.level), color: "#bc8cff", axis: "right", step: true },
     ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
-    renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, defaultSort: "name" });
   }
 
   // ------------------------------------------------------------ stations & depots

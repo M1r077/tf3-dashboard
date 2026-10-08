@@ -174,6 +174,46 @@
   }
   ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, activityHint, { passive: true, capture: true }));
 
+  // ------------------------------------------------------------ modal (replaces the browser's prompt/confirm)
+  // modal.confirm(text, {title, ok, danger}) -> Promise<boolean>; modal.prompt(text, {title, value, ok}) -> Promise<string|null>
+  const modal = (() => {
+    let dlg = null;
+    function open(html, setup) {
+      if (!dlg) { dlg = document.createElement("dialog"); dlg.id = "modal"; document.body.appendChild(dlg); }
+      dlg.innerHTML = html;
+      return new Promise(resolve => {
+        let done = false;
+        const finish = (v) => { if (done) return; done = true; dlg.close(); resolve(v); };
+        setup(finish);
+        $(".md-x", dlg).addEventListener("click", () => finish(null));
+        $(".md-cancel", dlg).addEventListener("click", () => finish(null));
+        dlg.oncancel = (e) => { e.preventDefault(); finish(null); };          // Escape
+        dlg.onclick = (e) => { if (e.target === dlg) finish(null); };         // backdrop
+        dlg.showModal();
+      });
+    }
+    const head = (title) => `<div class="md-head"><b>${esc(title)}</b><button class="btn iconbtn md-x" title="${esc(t("cancel"))}">${ico("close", "sm")}</button></div>`;
+    return {
+      confirm(text, o = {}) {
+        return open(`${head(o.title || t("confirm_title"))}<p class="md-text">${esc(text)}</p>
+          <div class="md-foot"><button class="btn md-cancel">${t("cancel")}</button><button class="btn primary md-ok ${o.danger ? "danger" : ""}">${o.danger ? "" : ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
+          (finish) => { const ok = $(".md-ok", dlg); ok.addEventListener("click", () => finish(true)); setTimeout(() => ok.focus(), 0); }).then(v => v === true);
+      },
+      prompt(text, o = {}) {
+        return open(`${head(o.title || text)}${o.title ? `<p class="md-text">${esc(text)}</p>` : ""}
+          <input class="md-input" type="text" maxlength="${o.maxlength || 40}" value="${esc(o.value || "")}" spellcheck="false">
+          <div class="md-foot"><button class="btn md-cancel">${t("cancel")}</button><button class="btn primary md-ok">${ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
+          (finish) => {
+            const inp = $(".md-input", dlg), ok = $(".md-ok", dlg);
+            const submit = () => { const v = inp.value.trim(); if (v) finish(v); else inp.focus(); };
+            ok.addEventListener("click", submit);
+            inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+            setTimeout(() => { inp.focus(); inp.select(); }, 0);
+          });
+      },
+    };
+  })();
+
   // ------------------------------------------------------------ commands (dashboard -> game)
   const cmd = { enabled: true, accepted: null, lastSent: null, pendingId: null };
   async function sendCmd(name, args, el) {
@@ -240,9 +280,9 @@
     return `<span class="entbtns">${b("focus_entity", "camera", t("act_focus"))}${o.follow ? b("follow_entity", "locate", t("act_follow")) : ""}${b("select_entity", "select", t("act_select"))}${o.line ? b("open_line_manager", "configure_line", t("act_manage_line")) : ""}</span>`;
   };
   function bindActions(root) {
-    $$("button.act", root).forEach(b => b.addEventListener("click", e => {
+    $$("button.act", root).forEach(b => b.addEventListener("click", async e => {
       e.stopPropagation(); const id = +b.dataset.veh; const n = b.dataset.cmd;
-      if (b.dataset.confirm && !confirm(b.dataset.confirm)) return;
+      if (b.dataset.confirm && !(await modal.confirm(b.dataset.confirm, { danger: true, ok: b.textContent.trim() }))) return;
       const args = n.startsWith("vehicle_") ? { vehicle: id } : (n === "open_line_manager" || n.startsWith("line_")) ? { line: id } : { entity: id };
       sendCmd(n, args, b);
     }));
@@ -964,19 +1004,19 @@
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("camera", "sm")}${esc(t("cam_save"))}</button>` +
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
-    $(".cv-save", box).addEventListener("click", () => {
-      const name = prompt(t("cam_name_prompt"), t("cam_default_name", { n: views.length + 1 })); if (name === null) return;
-      editViews({ action: "add", name, camera: camViews.cur });
+    $(".cv-save", box).addEventListener("click", async () => {
+      const name = await modal.prompt(t("cam_name_prompt"), { value: t("cam_default_name", { n: views.length + 1 }), ok: t("cam_save_ok") });
+      if (name) editViews({ action: "add", name, camera: camViews.cur });
     });
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, v = views.find(x => x.id === id); if (!v) return;
-      $$("[data-act]", el).forEach(b => b.addEventListener("click", e => {
+      $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "go") gotoView(v);
-        else if (a === "update") { if (confirm(t("cam_update_confirm", { name: v.name }))) editViews({ action: "update", id, camera: camViews.cur }); }
-        else if (a === "rename") { const name = prompt(t("cam_name_prompt"), v.name); if (name !== null && name.trim()) editViews({ action: "rename", id, name }); }
+        else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur }); }
+        else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
-        else if (a === "delete") { if (confirm(t("cam_delete_confirm", { name: v.name }))) editViews({ action: "delete", id }); }
+        else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: v.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) editViews({ action: "delete", id }); }
       }));
     });
   }

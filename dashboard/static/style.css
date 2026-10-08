@@ -364,6 +364,18 @@ table.stops .cargo-pick .chip.muted { color: var(--muted); }
 table.stops .cargo-pick .chip.more { color: var(--muted); font-weight: 600; padding: 0 6px; }
 table.stops .cargo-pick .chip small { margin-left: 2px; color: var(--warn); }
 table.stops .cargo-pick > .ico { color: var(--muted); margin: 0 2px; }
+/* generic modal (replaces window.prompt / window.confirm) */
+dialog#modal { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; width: 380px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+dialog#modal::backdrop { background: rgba(0,0,0,.55); }
+dialog#modal .md-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+dialog#modal .md-head b { font-size: 14px; }
+dialog#modal .md-head .md-x { margin-left: auto; }
+dialog#modal .md-text { margin: 0 0 12px; font-size: 13px; color: var(--text); line-height: 1.4; }
+dialog#modal .md-input { width: 100%; box-sizing: border-box; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px; margin-bottom: 12px; }
+dialog#modal .md-input:focus { outline: none; border-color: var(--accent); }
+dialog#modal .md-foot { display: flex; gap: 6px; justify-content: flex-end; }
+dialog#modal .md-foot .btn { display: inline-flex; align-items: center; gap: 4px; }
+dialog#modal .md-ok.danger { background: var(--bad); border-color: var(--bad); }
 dialog#cargo-picker { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; width: 420px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
 dialog#cargo-picker::backdrop { background: rgba(0,0,0,.55); }
 dialog#cargo-picker .cp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }

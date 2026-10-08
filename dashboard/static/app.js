@@ -966,6 +966,19 @@
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
       { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
     ], labels, { rightAxis: true, zeroBase: true, ...tx });
+    // company figures (slow export): network size and company value over the same range
+    const comp = fin.company || [], clabels = comp.map(x => dateLabel(x)), ctx = tsOpts(comp, "fin");
+    Charts.lineChart($("#chart-network"), [
+      { name: t("tracks"), values: comp.map(x => x.track_length_m != null ? x.track_length_m / 1000 : null), color: "#4f8a8a", unit: "km" },
+      { name: t("roads"), values: comp.map(x => x.road_length_m != null ? x.road_length_m / 1000 : null), color: "#e8b04b", unit: "km" },
+      { name: t("lines"), values: comp.map(x => x.number_of_lines), color: "#58a6ff", axis: "right", step: true },
+      { name: t("stations"), values: comp.map(x => x.total_stations), color: "#bc8cff", axis: "right", step: true },
+    ], clabels, { rightAxis: true, zeroBase: true, unit: "km", rightUnit: "", ...ctx });
+    Charts.lineChart($("#chart-company"), [
+      { name: t("score"), values: comp.map(x => x.total_score), color: "#3fb950" },
+      { name: t("assets"), values: comp.map(x => x.total_assets), color: "#4f8a8a", axis: "right", unit: "$" },
+      { name: t("debt"), values: comp.map(x => x.debt), color: "#d62560", axis: "right", dash: [6, 4], unit: "$" },
+    ], clabels, { rightAxis: true, zeroBase: true, rightUnit: "$", ...ctx });
     const c = (o && o.company) || {}, f = (o && o.finance) || {};
     $("#company-table").innerHTML = [
       [t("balance"), money(f.balance)], [t("debt"), money(f.loan)], [t("annual_result"), money(f.earnings_ytd)], [t("assets"), money(c.total_assets)], [t("score"), int(c.total_score)],

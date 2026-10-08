@@ -46,9 +46,13 @@ local PARAM_VALUES = {
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
-local cachedOptions
-local function options()
-	if cachedOptions then return cachedOptions end
+-- Settings come from two places: the mod parameters chosen when the game was loaded (api.engine.config.getModParams,
+-- read-only during the game) and, since rev 9, the in-game status window. Its changes ("overrides", one 1-based index
+-- per key) live in the saved script state (handleEvent / state:set) so they survive save and load; the loading-screen
+-- parameters remain the defaults for every key without an override.
+local cachedDefaults
+local function defaults()
+	if cachedDefaults then return cachedDefaults end
 	local ok, all = pcall(api.engine.config.getModParams)
 	local raw = (ok and all and all[MOD_ID]) or {}
 	local o = {}
@@ -68,8 +72,40 @@ local function options()
 		if v == nil then v = values[PARAM_DEFAULT_INDEX[key]] end
 		o[key] = v
 	end
-	if ok and all then cachedOptions = o end
+	if ok and all then cachedDefaults = o end
 	return o
+end
+
+-- overrides as last seen in the script state (guiUpdate copies them every frame: a table lookup, nothing more)
+local overrides = {}
+local overridesVersion = -1
+local cachedOptions, cachedOptionsOverrides
+local function options()
+	if cachedOptions and cachedOptionsOverrides == overrides then return cachedOptions end
+	local d = defaults()
+	local o = {}
+	for key, values in pairs(PARAM_VALUES) do
+		local idx = overrides[key]
+		local v = type(idx) == "number" and values[idx] or nil
+		if v == nil then v = d[key] end
+		o[key] = v
+	end
+	cachedOptions, cachedOptionsOverrides = o, overrides
+	return o
+end
+
+-- what the status window shows: "starting" (first slow cycle running), "ok" (files written), "error" (saveUserdata
+-- refused: Controlled folder access, antivirus, read-only folder...). The React side is told only when it changes.
+local status = { state = "starting", last_ok = nil, last_error = nil, companion_seen = nil, folder = nil }
+local STATUS_EVENT = "TF3DashboardStatus"
+local function setStatus(state, err)
+	local now = os.time()
+	if state == "ok" then status.last_ok = now
+	elseif state == "error" then status.last_error = tostring(err) end
+	if status.state ~= state then
+		status.state = state
+		pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = state })
+	end
 end
 
 local function log(...)
@@ -1010,8 +1046,10 @@ local function writeSnapshot(snap)
 	local ok, err = pcall(app.saveUserdata, DIR, FILE, snap)
 	if not ok then
 		log("saveUserdata failed:", tostring(err))
+		setStatus("error", err)
 		return false
 	end
+	setStatus("ok")
 	return true
 end
 
@@ -1032,7 +1070,7 @@ local function slowWriteNext()
 	local body = { schema = SCHEMA, mod = MOD_ID, slow_seq = slowPending.collected_seq, section = name, items = slowPending[name] or {} }
 	local t0 = os.clock()
 	local ok, err = pcall(app.saveUserdata, DIR, SLOW_FILE_PREFIX .. name, body)
-	if not ok then log("saveUserdata failed for " .. name .. ":", tostring(err))
+	if not ok then log("saveUserdata failed for " .. name .. ":", tostring(err)); setStatus("error", err)
 	elseif options().debug_log then
 		local dt = os.clock() - t0
 		if dt > 0.01 then log(string.format("slow file %s written in %.0fms", name, dt * 1000)) end
@@ -1374,12 +1412,21 @@ function script.update(_userParams, _state, _dt)
 end
 
 local lastPoll = -1e9
-function script.guiUpdate(_userParams, _state, _guiState)
+function script.guiUpdate(_userParams, state, _guiState)
 	local now = os.clock()
+	-- in-game settings: the saved state is written by handleEvent (engine side), read here (GUI side, read-only)
+	-- (state:get() may hand out a fresh copy every call: compare the version number, not the table)
+	local okS, saved = pcall(function() return state:get() end)
+	local version = (okS and type(saved) == "table" and num(saved.version)) or 0
+	if version ~= overridesVersion then
+		overridesVersion = version
+		overrides = (version > 0 and type(saved.overrides) == "table") and saved.overrides or {}
+	end
 	local o = options()
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()
+		if present[ACTIVITY_FILE] or present[CMD_FILE] then status.companion_seen = os.time() end
 		if present[ACTIVITY_FILE] then
 			local okA, hinted = pcall(pollActivity, now)
 			if not okA then debug("pollActivity failed:", tostring(hinted))
@@ -1464,6 +1511,63 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 		debug(string.format("seq %d written, %d error(s), %d vehicles", snap.seq, #snap.errors, snap.vehicles and #snap.vehicles or 0))
 	end
+end
+
+-- ---------------------------------------------------------------- in-game settings and status window (rev 9)
+-- The status window (status_ui.script.lua, a plugin of the game's mod button area) talks to this script two ways:
+--   api.gui.fireGuiScriptEvent(UI_ID, "read")            -> guiHandleEvent returns { status, options, defaults, values }
+--   api.cmd.makeScriptingSendEventCmd("", UI_ID, "set", { key, index }) / "reset"
+--                                                         -> handleEvent stores the override in the saved state
+-- The saved state is { version = n, overrides = { key = 1-based index } }; version changes on every write so that
+-- guiUpdate notices cheaply. Only known keys and valid indices are accepted.
+local UI_ID = "TF3_DASHBOARD_EXPORT"
+local UI_EVENTS = { "set", "reset" }
+
+local function paramIndex(key, value)
+	for i, v in ipairs(PARAM_VALUES[key] or {}) do if v == value then return i end end
+	return PARAM_DEFAULT_INDEX[key]
+end
+
+function script.handleEvent(_userParams, state, _src, id, name, param)
+	if id ~= UI_ID then
+		-- lifecycle events come with an empty id: (re)subscribe to our names, nothing else to do
+		if id == "" then for _, ev in ipairs(UI_EVENTS) do pcall(function() state:subscribeToEvent(ev) end) end end
+		return
+	end
+	local okS, saved = pcall(function() return state:get() end)
+	saved = (okS and type(saved) == "table") and saved or {}
+	local ov = {}
+	if type(saved.overrides) == "table" then for k, v in pairs(saved.overrides) do ov[k] = v end end
+	if name == "set" then
+		if type(param) ~= "table" or type(param.key) ~= "string" or PARAM_VALUES[param.key] == nil then return end
+		local idx = num(param.index)
+		if idx == nil or idx < 1 or idx > #PARAM_VALUES[param.key] or idx ~= math.floor(idx) then return end
+		ov[param.key] = idx
+	elseif name == "reset" then
+		ov = {}
+	else
+		return
+	end
+	state:set({ version = (num(saved.version) or 0) + 1, overrides = ov })
+	log("in-game setting " .. tostring(name) .. (name == "set" and (" " .. param.key .. " = " .. ov[param.key]) or ""))
+end
+
+function script.guiHandleEvent(_userParams, _state, _guiState, _src, id, name, _param)
+	if id ~= UI_ID or name ~= "read" then return nil end
+	local o, d = options(), defaults()
+	local values, current, default = {}, {}, {}
+	for key, list in pairs(PARAM_VALUES) do
+		values[key] = list
+		current[key] = paramIndex(key, o[key])
+		default[key] = paramIndex(key, d[key])
+	end
+	if status.folder == nil then pcall(function() status.folder = tostring(app.getUserDataFolder()) .. "/" .. DIR end) end
+	local overridden = next(overrides) ~= nil
+	return {
+		status = { state = status.state, last_ok = status.last_ok, last_error = status.last_error,
+			companion_seen = status.companion_seen, folder = status.folder, now = os.time() },
+		values = values, current = current, default = default, overridden = overridden,
+	}
 end
 
 -- .script.lua resources expose their exports through data(), not a return value

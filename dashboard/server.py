@@ -253,9 +253,13 @@ def api_lines(q: dict) -> dict:
                     WHERE l.game_id=? AND ls.snapshot_id=(SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id=l.line_id)
                     ORDER BY l.name""", (gid,))
     sid_by_line = {l["line_id"]: l["snapshot_id"] for l in lines}
+    # Correlated MAX per line (uses the (snapshot_id, line_id, cargo_id) primary key) instead of
+    # "IN (SELECT MAX ... GROUP BY line_id)", which scanned the whole table through a temp b-tree.
     caps = rows("""SELECT lc.line_id, lc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, lc.used, lc.capacity
-                   FROM line_capacity lc LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=lc.cargo_id
-                   WHERE lc.snapshot_id IN (SELECT MAX(snapshot_id) FROM line_capacity GROUP BY line_id)""", (gid,))
+                   FROM line l JOIN line_capacity lc ON lc.line_id=l.line_id
+                        AND lc.snapshot_id=(SELECT MAX(snapshot_id) FROM line_capacity x WHERE x.line_id=l.line_id)
+                   LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
+                   WHERE l.game_id=?""", (gid,))
     veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(vs.speed_ms) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id

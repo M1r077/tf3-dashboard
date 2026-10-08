@@ -207,10 +207,14 @@ def api_finance(q: dict) -> dict:
                       ORDER BY snapshot_id DESC LIMIT ?""",
         agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, balance, loan, earnings_ytd, passengers_transported, cargo_transported
                    FROM agg_finance_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
-    comp = rows("""SELECT s.snapshot_id, s.real_time, s.year, c.total_score, c.total_assets, c.debt, c.number_of_lines,
-                   c.total_stations, c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
-                   FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? ORDER BY s.snapshot_id DESC LIMIT 200""", (gid,))
+    # company figures come with the slow export (one row per ~30 s, kept 14 days): same range as the charts above
+    comp = rows("""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day, c.total_score, c.total_assets, c.debt, c.number_of_lines,
+                   c.total_stations, c.track_length_m, c.road_length_m,
+                   c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
+                   FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ?
+                   ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), limit))
     comp.reverse()
+    _stamp(comp)
     return {"series": series, "company": comp}
 
 

@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.6"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.7"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))

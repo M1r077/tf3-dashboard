@@ -228,6 +228,20 @@ Three independent parts:
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
 
+## Text encoding (verified with a Chinese savegame, 9 Oct 2026)
+
+Names travel as raw UTF-8 all the way: `app.saveUserdata` writes them unescaped (no `\ddd`), `luatable.py` reads
+UTF-8, SQLite stores TEXT, `server.py` answers `charset=utf-8`. A savegame downloaded from a Chinese player (7 towns
+丽水, 青田, 大港头..., 212 stations, 207 vehicles like 飞机1 / 直升机1, lines like 大港头-市区 铁路客运, full-width
+punctuation （...）) showed in the dashboard with 0 replacement characters and 0 mojibake, while **the game itself did
+not render those names** on a French client: `locale.zip` ships the Noto CJK fonts but the game only loads them for a
+CJK UI language, so a Western client shows boxes/blanks for Chinese names. Not our bug, but worth knowing when a
+player reports "the dashboard shows names the game does not". Mixed-language names (`青田 双跑道机场 Gare`) come
+from the game: auto-named stations use the client's language at the time they were built.
+Sorting uses the browser's `localeCompare` without a locale argument: for CJK that means code-point order, acceptable.
+Known gap: `luatable._unescape` turns `\ddd` escapes into one `chr()` per byte; the game never writes them for names,
+and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fix: collect the bytes, decode UTF-8).
+
 ## Schema (summary)
 
 - `game`: one row per savegame (key = player entity)

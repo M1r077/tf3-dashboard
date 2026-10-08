@@ -300,7 +300,7 @@ def api_line_history(q: dict) -> dict:
     lid = int(q["id"][0])
     gid = _gid()
     hist = rows("""SELECT s.real_time, s.year, s.month, ls.vehicles, ls.persons_on_line, ls.pax_bad, ls.pax_total, ls.cargo_bad, ls.cargo_total,
-                   ls.max_frequency FROM line_state ls JOIN snapshot s USING(snapshot_id)
+                   ls.max_frequency, ls.throughput, ls.pax_avg_quality, ls.cargo_avg_quality FROM line_state ls JOIN snapshot s USING(snapshot_id)
                    WHERE s.game_id=? AND s.real_time >= ? AND ls.line_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), lid, _limit(q, 300)))
     hist.reverse()
     _stamp(hist)

@@ -88,6 +88,7 @@ window.I18N = {
     // settings
     settings: "Settings", set_lang: "Language", set_icons: "Icon size", set_font: "Text size", set_density: "Table density", dense: "dense", normal: "normal", airy: "airy",
     set_refresh: "Refresh", set_history: "History shown", set_finance: "Finances", set_finance_hint: "show the Finances tab and balance", set_keys: "Shortcuts", set_keys_hint: "Space = pause, 1/2/3 = speed",
+    set_clock: "Game clock", set_clock_hint: "show the time of day next to the date", line_throughput: "Transported / yr", line_pax_rating: "Pax rating", line_cargo_rating: "Cargo rating",
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -188,6 +189,7 @@ window.I18N = {
     empty_stations: "Aucune gare pour l'instant", empty_stations_hint: "Construisez une gare dans le jeu ; elle apparaît ici au prochain export lent.", empty_depots: "Aucun dépôt pour l'instant",
     settings: "Réglages", set_lang: "Langue", set_icons: "Taille des icônes", set_font: "Taille du texte", set_density: "Densité des tableaux", dense: "dense", normal: "normale", airy: "aérée",
     set_refresh: "Rafraîchissement", set_history: "Historique affiché", set_finance: "Finances", set_finance_hint: "afficher l'onglet Finances et la trésorerie", set_keys: "Raccourcis", set_keys_hint: "Espace = pause, 1/2/3 = vitesse",
+    set_clock: "Horloge du jeu", set_clock_hint: "afficher l'heure à côté de la date", line_throughput: "Transporté / an", line_pax_rating: "Note passagers", line_cargo_rating: "Note fret",
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -287,6 +289,7 @@ window.I18N = {
     empty_stations: "Noch keine Station", empty_stations_hint: "Bauen Sie im Spiel eine Station; sie erscheint hier mit dem nächsten langsamen Export.", empty_depots: "Noch kein Depot",
     settings: "Einstellungen", set_lang: "Sprache", set_icons: "Symbolgrösse", set_font: "Textgrösse", set_density: "Tabellendichte", dense: "dicht", normal: "normal", airy: "luftig",
     set_refresh: "Aktualisierung", set_history: "Angezeigter Verlauf", set_finance: "Finanzen", set_finance_hint: "Finanzen-Tab und Kontostand anzeigen", set_keys: "Tastenkürzel", set_keys_hint: "Leertaste = Pause, 1/2/3 = Tempo",
+    set_clock: "Spieluhr", set_clock_hint: "Uhrzeit neben dem Datum anzeigen", line_throughput: "Befördert / Jahr", line_pax_rating: "Bewertung Passagiere", line_cargo_rating: "Bewertung Fracht",
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
@@ -402,6 +405,7 @@ window.I18N = {
     // settings
     settings: "Configurações", set_lang: "Idioma", set_icons: "Tamanho dos ícones", set_font: "Tamanho do texto", set_density: "Densidade das tabelas", dense: "compacta", normal: "normal", airy: "espaçada",
     set_refresh: "Atualização", set_history: "Histórico exibido", set_finance: "Finanças", set_finance_hint: "mostrar a aba Finanças e o saldo", set_keys: "Atalhos", set_keys_hint: "Espaço = pausa, 1/2/3 = velocidade",
+    set_clock: "Relógio do jogo", set_clock_hint: "mostrar a hora ao lado da data", line_throughput: "Transportado / ano", line_pax_rating: "Avaliação passageiros", line_cargo_rating: "Avaliação carga",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
     range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos (tempo real)",

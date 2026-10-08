@@ -17,7 +17,7 @@ goto :parse
 :icons
 REM first start: extract the game's icons (cargo, vehicles, UI) from the local game installation
 if not exist "dashboard\static\icons\_manifest.json" (
-    echo first start: extracting the game's icons (a few seconds)...
+    echo first start: extracting the game's icons, a few seconds...
     %PY% dashboard\extract_icons.py
     echo.
 )

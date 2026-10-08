@@ -1,4 +1,4 @@
-"""TF3 Dashboard web server: serves the dashboard page and a JSON API over the SQLite database
+﻿"""TF3 Dashboard web server: serves the dashboard page and a JSON API over the SQLite database
 filled by collector.py. Stdlib only.
 
     python server.py                 # http://localhost:8765
@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.2.4"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.2.5"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))

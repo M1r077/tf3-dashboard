@@ -54,6 +54,8 @@
     <label><input type="checkbox" id="set-finance"> <span data-i18n="set_finance_hint"></span></label></div>
   <div class="setrow"><span class="lbl" data-i18n="set_keys"></span>
     <label><input type="checkbox" id="set-keys"> <span data-i18n="set_keys_hint"></span></label></div>
+  <div class="setrow"><span class="lbl" data-i18n="set_clock"></span>
+    <label><input type="checkbox" id="set-clock"> <span data-i18n="set_clock_hint"></span></label></div>
   <div class="setrow"><span class="lbl" data-i18n="set_default_tab"></span>
     <select id="set-default-tab"><option value="overview" data-i18n="tab_overview"></option><option value="vehicles" data-i18n="tab_vehicles"></option><option value="lines" data-i18n="tab_lines"></option><option value="map" data-i18n="tab_map"></option></select></div>
   <div class="setrow"><span class="lbl" data-i18n="set_layout"></span>
@@ -221,6 +223,14 @@
       <div class="card" data-panel="transport" data-w="4">
         <h2><i class="ico" data-ico="passengers"></i><span data-i18n="transport_cum"></span></h2>
         <canvas id="chart-transport" data-h="200"></canvas>
+      </div>
+      <div class="card" data-panel="network" data-w="4">
+        <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="network_growth"></span></h2>
+        <canvas id="chart-network" data-h="200"></canvas>
+      </div>
+      <div class="card" data-panel="company-chart" data-w="4">
+        <h2><i class="ico" data-ico="chart"></i><span data-i18n="company_growth"></span></h2>
+        <canvas id="chart-company" data-h="200"></canvas>
       </div>
       <div class="card" data-panel="company" data-w="4">
         <h2><i class="ico" data-ico="info"></i><span data-i18n="company"></span></h2>

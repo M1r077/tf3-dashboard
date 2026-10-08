@@ -5,8 +5,14 @@
   --isz: 28px;          /* base icon size (settings: S 16 / M 22 / L 28 / XL 36) */
   --fs: 14px;           /* base font size */
   --rowpad: 6px;        /* table density */
+  color-scheme: dark;   /* native scrollbars, selects and checkboxes follow the dark theme (no white scrollbars) */
 }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4656 transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3a4656; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #4f5d70; }
+::-webkit-scrollbar-corner { background: transparent; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs)/1.4 var(--font); height: 100%; }
 body { display: flex; flex-direction: column; min-height: 100vh; }
 a { color: var(--info); }
@@ -16,11 +22,18 @@ small { color: var(--muted); font-weight: normal; }
 .hint { color: var(--muted); margin-left: auto; font-size: 12px; }
 
 /* ---------------- top bar */
-#topbar { display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .brand { font-size: 20px; font-weight: 700; letter-spacing: 1px; white-space: nowrap; }
 .brand span { color: var(--accent); font-weight: 300; }
 .brand small { font-size: 11px; font-weight: 400; color: var(--muted); margin-left: 6px; vertical-align: 2px; }
 .vital { display: flex; gap: 10px; flex: 1; flex-wrap: wrap; }
+/* key figures: own full-width row under brand + controls, equal tiles that reflow (1 row on a wide screen,
+   2-3 on a portrait monitor or a phone); labels, details and full numbers always visible, value scales with the width */
+#vital { order: 3; flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+@media (max-width: 1300px) { #vital { grid-template-columns: repeat(4, 1fr); } }  /* 4 + 3, not 6 + 1 */
+@media (max-width: 600px) { #vital { grid-template-columns: repeat(2, 1fr); } }
+#vital .kpi { min-width: 0; padding: 8px 14px; }
+#vital .kpi .v { font-size: clamp(20px, 1.5vw, 28px); line-height: 1.25; }  /* a long unit ("passageiros") wraps under the number, never inside it */
 .kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; min-width: 120px; }
 .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
 .kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -40,13 +53,16 @@ small { color: var(--muted); font-weight: normal; }
 .pos { color: var(--ok); } .neg { color: var(--bad); }
 
 /* ---------------- tabs */
-#tabs { display: flex; gap: 4px; padding: 6px 16px 0; background: var(--panel); border-bottom: 1px solid var(--border); align-items: flex-end; }
-.rangebar { margin-left: auto; margin-bottom: 5px; display: inline-flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px 2px 8px; }
+/* the tab strip scrolls sideways on a narrow window instead of wrapping onto a second row */
+#tabs { display: flex; gap: 4px; padding: 6px 16px 0; background: var(--panel); border-bottom: 1px solid var(--border); align-items: flex-end; overflow-x: auto; scrollbar-width: none; }
+#tabs::-webkit-scrollbar { display: none; }
+/* the time range stays visible at the right end while the tab strip scrolls */
+.rangebar { flex: none; position: sticky; right: 0; margin-left: auto; margin-bottom: 5px; display: inline-flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px 2px 8px; }
 .rangebar .ico { color: var(--muted); margin-right: 4px; }
 .rangebar button { background: transparent; border: 1px solid transparent; color: var(--muted); border-radius: 5px; padding: 3px 8px; font: inherit; font-size: 12px; cursor: pointer; }
 .rangebar button:hover { color: var(--text); }
 .rangebar button.active { background: var(--accent); color: #fff; }
-#tabs button { background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; border-radius: 6px 6px 0 0; font: inherit; }
+#tabs button { flex: none; white-space: nowrap; background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; border-radius: 6px 6px 0 0; font: inherit; }
 #tabs button:hover { color: var(--text); }
 #tabs button.active { background: var(--bg); color: var(--text); border-color: var(--border); }
 main { flex: 1; padding: 14px 16px; overflow: auto; }
@@ -62,8 +78,9 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .panels > .card.sized { overflow: hidden; }
 .panels > .card.sized > .alerts, .panels > .card.sized > .minilist, .panels > .card.sized > table, .panels > .card.sized > pre { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
-.panels > .card.tablecard.sized { display: flex; }
-.panels > .card.tablecard.sized > table { display: block; }
+/* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
+.panels > .card.tablecard.sized { display: flex; overflow: auto; }
+.panels > .card.tablecard.sized > table { flex: none; overflow: visible; }
 .hidden-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
 .hidden-bar .chip.restore { cursor: pointer; font: inherit; font-size: 12px; padding: 3px 9px; }
 .hidden-bar .chip.restore:hover { border-color: var(--accent); color: var(--text); }
@@ -150,6 +167,11 @@ table.kv { width: 100%; border-collapse: collapse; }
 .bar { display: inline-block; height: 10px; background: var(--border); border-radius: 3px; width: 90px; position: relative; vertical-align: middle; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
 .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); } .bar.ok > i { background: var(--ok); }
+/* cargo on board: icon + count per type, after the load bar */
+.onboard { display: inline-flex; gap: 6px; margin-left: 8px; vertical-align: middle; }
+.onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
+.onboard .ob .ico { margin: 0; }
+.onboard .ob small { font-family: var(--mono); font-size: 11px; color: var(--text); }
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
 .chip { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); margin-right: 4px; }
 .chip.bad { color: var(--bad); border-color: var(--bad); }
@@ -166,6 +188,13 @@ table.kv { width: 100%; border-collapse: collapse; }
 .alert .who { color: var(--muted); font-size: 12px; }
 .alert .age { color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 .empty { color: var(--muted); padding: 16px; text-align: center; }
+/* empty table: icon + message (+ what to do) centred in the card */
+.emptystate { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 36px 16px; text-align: center; color: var(--muted); }
+.emptystate > .ico { width: calc(var(--isz) * 1.5); height: calc(var(--isz) * 1.5); opacity: .5; margin: 0; }
+.emptystate .t { font-size: 14px; color: var(--text); opacity: .8; }
+.emptystate .h { font-size: 12px; max-width: 420px; white-space: normal; }
+table.data tr.emptyrow:hover { background: none; }
+table.data tr.emptyrow td { white-space: normal; border-bottom: 0; }
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
 pre { font-family: var(--mono); font-size: 12px; color: var(--warn); white-space: pre-wrap; margin: 0; }
 
@@ -191,10 +220,11 @@ body.layout-edit .panels > .card > .panel-tools + .toolbar { pointer-events: non
 .panel-tools .pbtn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 5px; min-width: 24px; height: 24px; padding: 0 6px; cursor: pointer; font: inherit; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .panel-tools .pbtn:hover { border-color: var(--accent); }
 .panel-tools .pbtn .ico { margin: 0; }
+/* handles kept inside the card edge: sticking out by 4px made every scrolling card show both scrollbars in edit mode */
 .rz { position: absolute; z-index: 5; }
-.rz-e { top: 0; right: -4px; width: 10px; height: 100%; cursor: ew-resize; }
-.rz-s { left: 0; bottom: -4px; height: 10px; width: 100%; cursor: ns-resize; }
-.rz-se { right: -4px; bottom: -4px; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
+.rz-e { top: 0; right: 0; width: 10px; height: 100%; cursor: ew-resize; }
+.rz-s { left: 0; bottom: 0; height: 10px; width: 100%; cursor: ns-resize; }
+.rz-se { right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
 .rz-se::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
 .rz-e:hover, .rz-s:hover { background: rgba(79,138,138,.25); }
 .rz-ghost { position: absolute; right: 10px; bottom: 10px; background: rgba(15,20,25,.95); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 8px; font-family: var(--mono); font-size: 12px; color: var(--text); pointer-events: none; z-index: 7; }
@@ -230,7 +260,7 @@ h2 .ico { color: var(--accent); }
 .cond.bad { color: var(--bad); } .cond.warn { color: var(--warn); } .cond.ok { color: var(--ok); }
 
 /* ---------------- game controls (speed / pause) + language */
-.controls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-left: auto; }
 .speedbar { display: flex; align-items: center; gap: 2px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; }
 .sbtn { background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--muted); width: calc(var(--isz) * 1.7); height: calc(var(--isz) * 1.5); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .sbtn .ico { margin: 0; width: calc(var(--isz) * 0.9); height: calc(var(--isz) * 0.9); }
@@ -282,10 +312,12 @@ td .ico, .row .ico { color: var(--muted); }
 #settings h2 .close { margin-left: auto; cursor: pointer; color: var(--muted); }
 #settings h2 .close:hover { color: var(--text); }
 .setrow { display: grid; grid-template-columns: 130px 1fr; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+/* rows with a segmented control: the label gives way (and wraps) so that long button labels (pt "espaçada") are not clipped */
+.setrow:has(> .seg) { grid-template-columns: minmax(90px, 130px) max-content; }
 .setrow:last-child { border-bottom: 0; }
 .setrow .lbl { color: var(--muted); }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 10px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); }
+.seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); white-space: nowrap; }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: #fff; }
 .seg button:hover:not(.active) { color: var(--text); }

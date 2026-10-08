@@ -38,7 +38,7 @@
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
 
   // ------------------------------------------------------------ settings (browser-local)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, defaultTab: "overview", range: "1h" };
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1h" };
   const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "all"];
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
@@ -48,7 +48,7 @@
     $$("#settings .seg").forEach(seg => $$("button", seg).forEach(b => b.classList.toggle("active", String(settings[seg.dataset.set]) === b.dataset.v)));
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
-    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-default-tab").value = settings.defaultTab;
+    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
@@ -63,6 +63,7 @@
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
   $("#set-keys").addEventListener("change", e => { settings.keys = e.target.checked; applySettings(); });
+  $("#set-clock").addEventListener("change", e => { settings.clock = e.target.checked; applySettings(); refresh(true); });
   $("#set-default-tab").addEventListener("change", e => { settings.defaultTab = e.target.value; applySettings(); });
   $("#set-reset").addEventListener("click", () => { Object.assign(settings, DEFAULTS); localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); applySettings(); refresh(true); });
 
@@ -122,6 +123,10 @@
   const cargoKey = (c) => { const k = c && typeof c === "object" ? c.cargo_key : null; if (k) return String(k).toLowerCase(); const name = c && typeof c === "object" ? c.cargo : c; return String(name || "").toLowerCase().replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/[\s-]+/g, "_").replace("canned_food", "tinned_food").replace("tinplate", "sheet_metal"); };
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
+  // What is on board, by cargo type (vehicle_state.cargo, mod rev 8+): the icons the game draws above the wagons,
+  // with the count. Nothing when the mod does not export it (older revision) or the vehicle is empty.
+  const onBoard = (v, cls = "sm") => Array.isArray(v.cargo) && v.cargo.length
+    ? ` <span class="onboard">${v.cargo.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}: ${c.n}">${cargoIcon(c, cls)}<small>${c.n}</small></span>`).join("")}</span>` : "";
   const ALERT_ICON = { line_problem: "line_problem", line_issue: "line_unload", vehicle_problem: "no_path", blocked_train: "stop", no_path_vehicle: "no_path", town_problem: "town", closing_industry: "industry_closed", thrown_away_cargo: "stock_full" };
 
   // ------------------------------------------------------------ formatting
@@ -319,7 +324,12 @@
     const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
-    if (!sorted.length) table.innerHTML += `<tbody><tr><td colspan="${cols.length}" class="empty">${t("no_data")}</td></tr></tbody>`;
+    if (!sorted.length) {
+      // A real message in the middle of the card, not a one-line "no data". opts.total = rows before the filters
+      // (so the filters hide everything); opts.empty = { icon, text, hint } for "nothing exists yet".
+      const e = opts.total > 0 ? { icon: "hidden", text: t("empty_filtered"), hint: t("empty_filtered_hint") } : (opts.empty || { icon: "info", text: t("no_data") });
+      table.innerHTML += `<tbody><tr class="emptyrow"><td colspan="${cols.length}"><div class="emptystate">${ico(e.icon)}<div class="t">${esc(e.text)}</div>${e.hint ? `<div class="h">${esc(e.hint)}</div>` : ""}</div></td></tr></tbody>`;
+    }
     if (lastStick >= 0) requestAnimationFrame(() => {
       // left offsets depend on the rendered widths of the previous pinned columns
       let left = 0;
@@ -359,7 +369,9 @@
     const age = (Date.now() - new Date(written).getTime()) / 1000;
     dot.className = "dot " + (age < 15 ? "live" : age < 120 ? "stale" : "dead");
     txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(written) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
-    $("#k-date").textContent = date(s);
+    // optional game clock (snapshot.time_of_day_s, seconds since midnight in game time)
+    const clock = settings.clock && s.time_of_day_s != null ? ` ${String(Math.floor(s.time_of_day_s / 3600) % 24).padStart(2, "0")}:${String(Math.floor(s.time_of_day_s / 60) % 60).padStart(2, "0")}` : "";
+    $("#k-date").textContent = date(s) + clock;
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
     const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
@@ -410,7 +422,15 @@
         const logRef = mono(g.log);
         if (g.userdata_matches === false) step(false, t("setup_log_other_folder"), t("setup_log_other_folder_help", { dir: mono(g.userdata), cfg: mono("config.json"), log: logRef }));
         else if (!g.mod_loaded) step(false, t("setup_log_no_mod"), t("setup_log_no_mod_help", { log: logRef }));
-        else if (g.save_errors > 0) step(false, t("setup_log_write_error", { n: g.save_errors }), mono(g.last_error) + "<br>" + t("setup_log_write_error_help", { log: logRef }));
+        else if (g.save_errors > 0) {
+          // the game refuses to write. Narrow it down: a junction/symlink on the path (moved Steam folder), or the
+          // companion writes fine in that very folder -> only the game process is refused (Controlled folder access,
+          // antivirus, game and Steam not run the same way)
+          let help = d.reparse_point ? t("setup_write_reparse_help")
+            : (d.companion_files || []).length ? t("setup_write_game_only_help", { files: d.companion_files.map(mono).join(", ") })
+            : t("setup_log_write_error_help", { log: logRef });
+          step(false, t("setup_log_write_error", { n: g.save_errors }), mono(g.last_error) + "<br>" + help + "<br>" + t("setup_write_report", { log: logRef }));
+        }
         else if (g.mod_lines === 0) step(false, t("setup_log_mod_idle"), t("setup_log_mod_idle_help", { log: logRef }));
         else step(null, t("setup_log_ok", { n: g.written, src: esc(g.mod_source || "?") }), logRef);
       }
@@ -503,7 +523,7 @@
     if (!state.selVeh) { const u = +new URLSearchParams(location.search).get("veh"); if (u && veh.some(v => v.vehicle_id === u)) state.selVeh = u; }  // deep link ?tab=vehicles&veh=<id>
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
     const q = $("#veh-filter").value.toLowerCase(), st = $("#veh-state").value, worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
-    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!st || v.state === st) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || (v.days_in_depot + v.days_at_terminal) > 2));
+    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!st || v.state === st) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || (v.days_in_depot + v.days_at_terminal) > 2));
     $("#veh-count").textContent = `${rows.length} / ${veh.length}`;
     const cols = [
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },
@@ -511,7 +531,9 @@
       { key: "line_name", label: t("th_line"), render: v => esc(v.line_name || (v.line_id ? "#" + v.line_id : "–")) },
       { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
       { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
-      { key: "load", label: t("th_load"), num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
+      // what the vehicle can carry (mod rev 8+), then the load with what is on board right now
+      { key: "carries", label: t("th_carries"), wrap: true, render: v => Array.isArray(v.capacities) && v.capacities.length ? v.capacities.map(c => cargoChip(c)).join("") : "", sortValue: v => Array.isArray(v.capacities) && v.capacities.length ? cargoName(v.capacities[0].cargo) : null },
+      { key: "load", label: t("th_load"), num: true, render: v => (v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load)) + onBoard(v), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
       { key: "maintenance", label: t("th_cond_short"), num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
       { key: "idle", label: t("th_idle_short"), num: true, render: v => { const d = (v.days_in_depot || 0) + (v.days_at_terminal || 0); return d ? `<span class="${d > 3 ? "neg" : ""}">${d} j</span>` : "–"; }, sortValue: v => (v.days_in_depot || 0) + (v.days_at_terminal || 0) },
       { key: "running_cost", label: t("th_cost_year"), num: true, render: v => money(v.running_cost) },
@@ -519,7 +541,7 @@
       { key: "town_name", label: t("th_near"), render: v => esc(v.town_name || "–") },
       { key: "act", label: "", render: v => entBtns(v.vehicle_id, { follow: true }) },
     ];
-    renderTable($("#veh-table"), cols, rows, { id: "vehicle_id", defaultSort: "name", onRow: (id, tr) => { state.selVeh = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderVehicleDetail(+id); }, rowClass: v => (v.vehicle_id === state.selVeh ? "sel" : "") });
+    renderTable($("#veh-table"), cols, rows, { total: veh.length, empty: { icon: "vehicles", text: t("empty_vehicles"), hint: t("empty_vehicles_hint") }, id: "vehicle_id", defaultSort: "name", onRow: (id, tr) => { state.selVeh = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderVehicleDetail(+id); }, rowClass: v => (v.vehicle_id === state.selVeh ? "sel" : "") });
     if (state.selVeh) renderVehicleDetail(state.selVeh);
   }
 
@@ -536,7 +558,8 @@
       <table class="kv">
         <tr><td>${t("th_line")}</td><td>${esc(v.line_name || "–")}</td></tr>
         <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${ST(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
-        <tr><td>${t("th_load")}</td><td>${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}</td></tr>
+        ${Array.isArray(v.capacities) && v.capacities.length ? `<tr><td>${t("th_carries")}</td><td>${v.capacities.map(c => `${cargoChip(c)} <span class="mono">${c.n}</span>`).join(" ")}</td></tr>` : ""}
+        <tr><td>${t("th_load")}</td><td>${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}${onBoard(v, "")}</td></tr>
         <tr><td>${t("condition")}</td><td>${last.maintenance != null ? condIcon(last.maintenance) + bar(last.maintenance, 1, maintCls(last.maintenance)) : "–"}</td></tr>
         <tr><td>${t("th_speed")}</td><td>${kmh(last.speed_ms)}</td></tr>
       </table>
@@ -616,7 +639,7 @@
       { key: "cargos", label: t("th_carries"), wrap: true, render: l => l.capacities.map(c => cargoChip(c)).join("") },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
     ];
-    renderTable($("#lines-table"), cols, rows, { id: "line_id", defaultSort: "name", onRow: (id, tr) => { state.selLine = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderLineDetail(+id); }, rowClass: l => (l.line_id === state.selLine ? "sel" : "") });
+    renderTable($("#lines-table"), cols, rows, { total: lines.length, empty: { icon: "line", text: t("empty_lines"), hint: t("empty_lines_hint") }, id: "line_id", defaultSort: "name", onRow: (id, tr) => { state.selLine = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderLineDetail(+id); }, rowClass: l => (l.line_id === state.selLine ? "sel" : "") });
     if (state.selLine) renderLineDetail(state.selLine);
   }
 
@@ -643,7 +666,7 @@
         { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
         { key: "stop_index", label: t("th_next_stop"), render: v => v.stop_index == null ? "–" : `<small>${v.stop_index + 1}.</small> ${esc(v.stop_name || "?")}`, sortValue: v => v.stop_index },
         { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
-        { key: "load", label: t("th_load"), num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
+      { key: "load", label: t("th_load"), num: true, render: v => (v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load)) + onBoard(v), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
         { key: "maintenance", label: t("th_cond_short"), num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
         { key: "act", label: "", render: v => entBtns(v.vehicle_id, { follow: true }) },
       ];
@@ -652,12 +675,17 @@
     }
     if (keepStops) $("#line-stops-wrap").replaceWith(keepStops); else renderStops(l, $("#line-stops-wrap"));
     const hist = h.history || [], labels = hist.map(x => dateLabel(x));
+    // throughput = the game's "transported per year" figure of the line window, on the right axis next to vehicles
     const s1 = [{ name: t("kpi_vehicles"), values: hist.map(x => x.vehicles), color: "#4f8a8a", step: true }];
     if (carriesPax(l)) s1.push({ name: t("th_onboard"), values: hist.map(x => x.persons_on_line), axis: "right", color: "#58a6ff", area: true });
-    Charts.lineChart($("#chart-line-1"), s1, labels, { rightAxis: carriesPax(l), zeroBase: true, ...tsOpts(hist, "line") });
+    s1.push({ name: t("line_throughput"), values: hist.map(x => x.throughput), axis: "right", color: "#e8b04b", dash: [5, 4] });
+    Charts.lineChart($("#chart-line-1"), s1, labels, { rightAxis: true, zeroBase: true, ...tsOpts(hist, "line") });
+    // quality: the game's average rating (0..1, as in the line window) alongside the share of unhappy / late
     const s2 = [];
-    if (carriesPax(l)) s2.push({ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" });
-    if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" });
+    if (carriesPax(l)) s2.push({ name: t("th_pax_unhappy"), values: hist.map(x => x.pax_total ? pct(x.pax_bad, x.pax_total) : null), color: "#d62560", unit: "%" },
+      { name: t("line_pax_rating"), values: hist.map(x => x.pax_avg_quality != null && x.pax_total ? x.pax_avg_quality * 100 : null), color: "#58a6ff", dash: [5, 4], unit: "%" });
+    if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" },
+      { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     bindActions(el);
@@ -871,7 +899,7 @@
       { key: "act", label: "", render: x => entBtns(x.town_id) },
     ];
     if (!state.selTown) { const u = +new URLSearchParams(location.search).get("town"); if (u && towns.some(x => x.town_id === u)) state.selTown = u; }  // deep link ?tab=towns&town=<id>
-    renderTable($("#towns-table"), cols, towns, { id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
+    renderTable($("#towns-table"), cols, towns, { empty: { icon: "town", text: t("empty_towns") }, id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
     if (state.selTown) renderTownDetail(state.selTown);
   }
 
@@ -919,7 +947,7 @@
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
       { key: "act", label: "", render: i => entBtns(i.industry_id) },
     ];
-    renderTable($("#ind-table"), cols, rows, { defaultSort: "name" });
+    renderTable($("#ind-table"), cols, rows, { total: inds.length, empty: { icon: "industry", text: t("empty_industries") }, defaultSort: "name" });
   }
 
   // ------------------------------------------------------------ stations & depots
@@ -938,6 +966,7 @@
       { key: "act", label: "", render: x => entBtns(x.station_id) },
     ], stations, { id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
     if (state.selSt) renderStationDetail(state.selSt);
+    ], s.stations || [], { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, defaultSort: "used", defaultAsc: false });
     const DEPOT_ICON = { RAIL: "depot_rail", ROAD: "depot_road", TRAM: "depot_tram", WATER: "depot_water", AIR: "depot_air" };
     renderTable($("#dep-table"), [
       { key: "name", label: t("th_depot"), render: x => `${ico(DEPOT_ICON[x.carrier] || "depot", "sm")}${esc(x.name)}` },
@@ -946,7 +975,7 @@
       { key: "incoming", label: t("th_incoming"), num: true },
       { key: "maintenance_pool", label: t("th_maint_pool"), num: true, render: x => x.maintenance_pool == null ? "–" : t("pool_fmt", { avg: num(x.pool_avg, 1), max: num(x.pool_max, 0), n: x.maintenance_pool }) },
       { key: "act", label: "", render: x => entBtns(x.depot_id) },
-    ], d.depots || [], { defaultSort: "name" });
+    ], d.depots || [], { empty: { icon: "depot", text: t("empty_depots") }, defaultSort: "name" });
   }
 
   // Detail card: waiting items against the capacity (platforms + storage) and the overflow over time, plus the lines
@@ -988,6 +1017,19 @@
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
       { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
     ], labels, { rightAxis: true, zeroBase: true, ...tx });
+    // company figures (slow export): network size and company value over the same range
+    const comp = fin.company || [], clabels = comp.map(x => dateLabel(x)), ctx = tsOpts(comp, "fin");
+    Charts.lineChart($("#chart-network"), [
+      { name: t("tracks"), values: comp.map(x => x.track_length_m != null ? x.track_length_m / 1000 : null), color: "#4f8a8a", unit: "km" },
+      { name: t("roads"), values: comp.map(x => x.road_length_m != null ? x.road_length_m / 1000 : null), color: "#e8b04b", unit: "km" },
+      { name: t("lines"), values: comp.map(x => x.number_of_lines), color: "#58a6ff", axis: "right", step: true },
+      { name: t("stations"), values: comp.map(x => x.total_stations), color: "#bc8cff", axis: "right", step: true },
+    ], clabels, { rightAxis: true, zeroBase: true, unit: "km", rightUnit: "", ...ctx });
+    Charts.lineChart($("#chart-company"), [
+      { name: t("score"), values: comp.map(x => x.total_score), color: "#3fb950" },
+      { name: t("assets"), values: comp.map(x => x.total_assets), color: "#4f8a8a", axis: "right", unit: "$" },
+      { name: t("debt"), values: comp.map(x => x.debt), color: "#d62560", axis: "right", dash: [6, 4], unit: "$" },
+    ], clabels, { rightAxis: true, zeroBase: true, rightUnit: "$", ...ctx });
     const c = (o && o.company) || {}, f = (o && o.finance) || {};
     $("#company-table").innerHTML = [
       [t("balance"), money(f.balance)], [t("debt"), money(f.loan)], [t("annual_result"), money(f.earnings_ytd)], [t("assets"), money(c.total_assets)], [t("score"), int(c.total_score)],

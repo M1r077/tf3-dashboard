@@ -147,6 +147,8 @@ class Store:
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
         ("snapshot", "camera", "TEXT"),
+        ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
+        ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -303,23 +305,30 @@ class Store:
             if not isinstance(v, dict) or v.get("id") is None:
                 continue
             vid = v["id"]
+            caps = v.get("capacities")
             self.con.execute(
-                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, first_seen, last_seen, icon_type, model, model_key, parts)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, first_seen, last_seen, icon_type, model, model_key, parts, capacities)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=COALESCE(excluded.name, vehicle.name),
                    carrier=COALESCE(excluded.carrier, vehicle.carrier), capacity=COALESCE(excluded.capacity, vehicle.capacity),
                    last_seen=excluded.last_seen,
                    icon_type=COALESCE(excluded.icon_type, vehicle.icon_type), model=COALESCE(excluded.model, vehicle.model),
-                   model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts)""",
+                   model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts),
+                   capacities=COALESCE(excluded.capacities, vehicle.capacities)""",
                 (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now, now,
-                 clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts")),
+                 clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts"),
+                 json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None),
             )
             x, y, z = xyz(v.get("pos"))
+            cargo = v.get("cargo")
             self.con.execute(
-                """INSERT OR REPLACE INTO vehicle_state VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT OR REPLACE INTO vehicle_state(snapshot_id, vehicle_id, line_id, state, stop_index, x, y, z, speed_ms, load,
+                   maintenance, running_cost, value, user_stopped, no_path, doors_open, depot_id, days_in_depot, days_at_terminal, closest_town, cargo)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, vid, v.get("line"), clean_enum(v.get("state")), v.get("stop_index"), x, y, z, v.get("speed"), v.get("load"),
                  v.get("maintenance"), v.get("running_cost"), v.get("value"), b(v.get("user_stopped")), b(v.get("no_path")),
-                 b(v.get("doors_open")), v.get("depot"), v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town")),
+                 b(v.get("doors_open")), v.get("depot"), v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town"),
+                 json.dumps(cargo, separators=(",", ":")) if isinstance(cargo, dict) and cargo else None),
             )
 
     def _lines(self, sid: int, gid: int, now: str, slow_seq: int, ls: Any):

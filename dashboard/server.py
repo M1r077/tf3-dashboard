@@ -950,12 +950,12 @@ VIEWS_NAME_MAX = 40
 _views_lock = threading.Lock()
 
 
-def _views_path() -> Path:
-    return DB_PATH.parent / "camera_views.json"
+def _views_path(name: str = "camera_views") -> Path:
+    return DB_PATH.parent / f"{name}.json"
 
 
-def _views_load() -> dict:
-    p = _views_path()
+def _views_load(name: str = "camera_views") -> dict:
+    p = _views_path(name)
     if not p.exists():
         return {}
     try:
@@ -965,12 +965,84 @@ def _views_load() -> dict:
         return {}
 
 
-def _views_save(d: dict) -> None:
-    p = _views_path()
+def _views_save(d: dict, name: str = "camera_views") -> None:
+    p = _views_path(name)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(d, indent=1, ensure_ascii=False), encoding="utf-8")
     tmp.replace(p)
+
+
+# db/travellings.json = { "<game key>": [ {id, name, kind, ...spec}, ... ] } - saved camera travellings (rev 11).
+# A travelling is a recipe, not a baked path: {kind: "view", view: <view id>, move, dir, amp} | {kind: "chain"} |
+# {kind: "line", line: <line id>} plus the shared settings {dur, loop, music, vol, tail, alt?}; it is rebuilt from the
+# current state when played (a line tour over today's vehicles, a view that follows its vehicle...).
+TRAVEL_MAX = 20
+TRAVEL_NUM = ("dur", "amp", "vol", "alt", "dir", "view", "line")
+TRAVEL_STR = ("kind", "move", "music")
+TRAVEL_BOOL = ("loop", "tail")
+
+
+def _travel_clean(spec: dict) -> dict:
+    out = {}
+    for k in TRAVEL_NUM:
+        v = spec.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+            out[k] = v
+    for k in TRAVEL_STR:
+        v = spec.get(k)
+        if isinstance(v, str) and len(v) <= 200:
+            out[k] = v
+    for k in TRAVEL_BOOL:
+        if k in spec:
+            out[k] = bool(spec.get(k))
+    if out.get("kind") not in ("view", "chain", "line"):
+        raise ValueError("bad travelling kind")
+    return out
+
+
+def api_travellings(q: dict) -> dict:
+    key = _game_key()
+    return {"game": key, "items": _views_load("travellings").get(key, []) if key else [], "max": TRAVEL_MAX}
+
+
+def edit_travellings(body: dict) -> dict:
+    """POST /api/travellings: {action: add|update|rename|delete|move, id?, name?, spec?, delta?}."""
+    key = _game_key()
+    if not key:
+        raise ValueError("no game in the database yet")
+    action = str(body.get("action", ""))
+    with _views_lock:
+        store = _views_load("travellings")
+        items = [v for v in store.get(key, []) if isinstance(v, dict)]
+        tid = body.get("id")
+        idx = next((i for i, v in enumerate(items) if v.get("id") == tid), None)
+        if action == "add":
+            if len(items) >= TRAVEL_MAX:
+                raise ValueError(f"at most {TRAVEL_MAX} travellings")
+            name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX] or f"Travelling {len(items) + 1}"
+            items.append({"id": max([v.get("id", 0) for v in items] + [0]) + 1, "name": name, **_travel_clean(body.get("spec") or {})})
+        elif idx is None:
+            raise ValueError("unknown travelling")
+        elif action == "update":
+            name = items[idx]["name"]; iid = items[idx]["id"]
+            items[idx] = {"id": iid, "name": name, **_travel_clean({**items[idx], **(body.get("spec") or {})})}
+        elif action == "rename":
+            name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX]
+            if not name:
+                raise ValueError("empty name")
+            items[idx]["name"] = name
+        elif action == "delete":
+            items.pop(idx)
+        elif action == "move":
+            j = idx + (1 if body.get("delta", 0) > 0 else -1)
+            if 0 <= j < len(items):
+                items[idx], items[j] = items[j], items[idx]
+        else:
+            raise ValueError(f"unknown action: {action}")
+        store[key] = items
+        _views_save(store, "travellings")
+    return {"game": key, "items": items, "max": TRAVEL_MAX}
 
 
 def _game_key() -> str | None:
@@ -1172,12 +1244,48 @@ def restore_backup(body: dict) -> dict:
     return res
 
 
+# the game's own soundtrack: base/content/music.zip holds 24 OGG tracks. Served straight out of the zip (one entry
+# read per request, nothing extracted, nothing copied): they stay where the player's game put them. Listed under the
+# "game:" prefix so the dashboard can tell them from the player's own files in music/.
+_game_music: dict = {"zip": None, "tracks": None, "at": 0.0}
+
+
+def game_music_zip() -> Path | None:
+    if _game_music["zip"] is not None and _game_music["zip"] is not False:
+        return _game_music["zip"]
+    try:
+        import extract_icons  # same folder: finds the game install (config.json game_dir, Steam, Epic, GOG)
+        g = extract_icons.find_game()
+        z = g / "base" / "content" / "music.zip" if g else None
+        _game_music["zip"] = z if z and z.is_file() else False
+    except Exception:  # noqa: BLE001
+        _game_music["zip"] = False
+    return _game_music["zip"] or None
+
+
+def game_music_tracks() -> list[str]:
+    if _game_music["tracks"] is not None and time.time() - _game_music["at"] < 300:
+        return _game_music["tracks"]
+    out: list[str] = []
+    z = game_music_zip()
+    if z:
+        try:
+            with zipfile.ZipFile(z) as zf:
+                out = sorted(n for n in zf.namelist() if n.lower().endswith(".ogg"))
+        except (OSError, zipfile.BadZipFile):
+            out = []
+    _game_music["tracks"], _game_music["at"] = out, time.time()
+    return out
+
+
 def api_music(q: dict) -> dict:
-    """Audio files in <companion>/music/ (not recursive), for the camera travelling."""
+    """Audio for the camera travelling: the player's files in <companion>/music/ (not recursive) and the game's own
+    soundtrack ("game:<entry>" names, read from the game's music.zip on demand)."""
     tracks = []
     if MUSIC_DIR.is_dir():
         tracks = sorted(p.name for p in MUSIC_DIR.iterdir() if p.is_file() and p.suffix.lower() in MUSIC_EXT)
-    return {"dir": str(MUSIC_DIR), "tracks": tracks}
+    game = ["game:" + n for n in game_music_tracks()]
+    return {"dir": str(MUSIC_DIR), "tracks": tracks, "game": game}
 
 
 def api_diag(q: dict) -> dict:
@@ -1206,7 +1314,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 
@@ -1251,7 +1359,17 @@ class Handler(BaseHTTPRequestHandler):
         if u.path.startswith("/music/"):
             # audio for the travelling, whole file (browsers cope without range requests for local files)
             from urllib.parse import unquote
-            f = (MUSIC_DIR / unquote(u.path[7:])).resolve()
+            name = unquote(u.path[7:])
+            if name.startswith("game:"):
+                entry = name[5:]
+                z = game_music_zip()
+                if not z or entry not in game_music_tracks():
+                    self._send(404, b"not found", "text/plain")
+                    return
+                with zipfile.ZipFile(z) as zf:
+                    self._send(200, zf.read(entry), "audio/ogg")
+                return
+            f = (MUSIC_DIR / name).resolve()
             if MUSIC_DIR.resolve() not in f.parents or not f.is_file() or f.suffix.lower() not in MUSIC_EXT:
                 self._send(404, b"not found", "text/plain")
                 return
@@ -1266,7 +1384,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/backup", "/api/restore"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
@@ -1283,8 +1401,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
-            if u.path == "/api/views":
-                res = edit_views(body if isinstance(body, dict) else {})
+            if u.path in ("/api/views", "/api/travellings"):
+                res = (edit_views if u.path == "/api/views" else edit_travellings)(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
             if u.path in ("/api/backup", "/api/restore"):

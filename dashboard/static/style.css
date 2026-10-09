@@ -88,7 +88,7 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .panels > .card { grid-column: span 12; min-width: 0; position: relative; display: flex; flex-direction: column; }
 .panels > .card > h2 { flex: none; }
 /* cards of one row share its height (charts and lists); tables, detail panes, the map and user-sized cards keep their own */
-.panels > .card:not(.sized):not(.tablecard):not(.sticky):not(.mapcard) { align-self: stretch; }
+.panels > .card:not(.sized):not(.tablecard):not(.sticky):not(.mapcard):not(.camviews) { align-self: stretch; }
 .panels > .card.hidden-panel { display: none; }
 /* a card with a user-set height: its scrollable body fills the rest */
 .panels > .card.sized { overflow: hidden; }
@@ -143,6 +143,9 @@ table.data.compact th, table.data.compact td { padding: 4px 8px; font-size: 12px
 .tablecard h2 { padding: 12px 14px 0; }
 canvas { width: 100%; display: block; }
 .mapcard { padding: 0; position: relative; height: calc(100vh - 220px); overflow: hidden; }
+/* the map spans two grid rows so the views and the travellings cards stack beside it instead of below */
+.panels[data-layout=map] { grid-template-rows: min-content 1fr; }
+.panels[data-layout=map] > .mapcard { grid-row: span 2; }
 .mapcard.sized #map { height: 100%; }
 body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8px; top: 0; z-index: 8; margin: 8px 0; pointer-events: auto; }
 #map { width: 100%; height: 100%; cursor: grab; }
@@ -550,3 +553,16 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 .mapstyle label:first-child { margin-left: 0; }
 #map-style-btn.active { border-color: var(--accent); color: var(--accent); }
 .mapstyle[hidden] { display: none; }  /* the class sets display:flex, which would beat the hidden attribute */
+
+/* travellings panel: second music group (game soundtrack) gets its own label inside the segment */
+.camviews .cv-travel .seg .lbl { min-width: 0; padding: 0 4px; font-size: 11px; }
+.camviews .cv-travel .tr-row > .muted.small { margin-left: 4px; }
+
+/* chain editor inside a travelling: ordered views, drag to reorder, drop a view from the views card */
+.camviews .tr-chain { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 4px; border: 1px dashed var(--border); border-radius: 6px; }
+.camviews .tr-chain.drag-over { border-color: var(--accent); }
+.camviews .tr-chain .cv.ch { cursor: grab; }
+.camviews .tr-chain .cv.ch.drag-over { outline: 2px solid var(--accent); }
+.camviews .tr-chain .ch-name { flex: 1; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.camviews .tr-chain .ch-drop { text-align: center; padding: 2px; }
+.camviews .cv[draggable=true] { cursor: grab; }

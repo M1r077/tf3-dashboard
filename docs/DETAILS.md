@@ -261,6 +261,19 @@ Three independent parts:
      track already playing is kept when another travelling starts (its end is pushed back, never cut); "Stop the
      music" appears while a track lingers. Browsers only allow audio to start inside a click, so `play()` is called
      synchronously before any fetch (the track list is prefetched), else the panel reports "music blocked".
+     The game's own soundtrack is offered too (group "Game soundtrack"): `base/content/music.zip` of the install found
+     by `extract_icons.find_game()` holds 24 OGG tracks; they are listed as `game:<entry>` and read out of the zip on
+     request (one `zipfile.read` per play, nothing extracted or copied). "Any" prefers the player's own files and falls
+     back to the game's when `music/` is empty.
+   - **Travellings panel** (own card beside the views, `#travellings`): a travelling is a *recipe*, not a baked path:
+     `{kind: view|chain|line, view?, line?, move, dir, amp, dur, loop, music, vol, tail}`, rebuilt from the current
+     state when played (today's vehicles on the line, a view that follows its vehicle at its position now). The panel
+     holds one **draft** (set by the view row's travelling button, the line sheet's button or "Chain all views"; its
+     settings are the browser preferences `tf3.travel`) and the **saved list** (`db/travellings.json`, per savegame
+     key, max 20, `GET/POST /api/travellings` with the same actions as the views: add / update / rename / delete /
+     move). The gear on a saved travelling edits it in place (every click is a `update`), "Play" rebuilds and plays
+     it; a subject that no longer exists reports "no longer exists". The map's dotted eye-track preview follows the
+     draft when it is a movement around a view.
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
      the Advanced Camera Tool); not exposed in the UI until tested in a free game.
    - **Cargo per vehicle** (mod rev 8 / companion 0.3.1): the fast vehicle record carries `cargo` = {cargo id: count

@@ -180,15 +180,37 @@ Three independent parts:
      `set_camera` command (the mod detaches a running follow camera first, else it pulls the view back); also
      Shift+1..9 and a click on the numbered pin on the map. Update / rename / reorder / delete through
      `POST /api/views`. With a rev 6 mod the panel explains that revision 7 is needed.
-   - **Travelling** (mod rev 10): "Play the views" sends `camera_path {points, duration, loop, ease}` once (the saved
-     views in order); the mod keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
+   - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
+     keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead
      of cornering), shortest-way heading, linear pitch, smoothstep per leg. Cost: one Vec5f per frame. It stops by
      itself at the end (or loops), on `camera_stop`, on `set_camera` / a new path, when a follow camera is active,
      or when the camera is no longer where the mod left it (the player grabbed it). `snapshot.camera.path
      {playing, progress, loop, n}` is exported while it plays; the panel shows a progress bar and the map draws the
-     path (dashed when idle, solid while playing). Seconds per leg (5/10/20/40) and loop are remembered per browser
-     (`tf3.travel`). An older mod answers "unknown command": the panel says revision 10 is needed.
+     path (dashed when idle, solid while playing). An older mod answers "unknown command": the panel says revision
+     10 is needed. Three ways to make a path, all in the dashboard except the last:
+     - *Around one view* (camera button on a view's row, or pick a view and press Play): the view is the subject,
+       the points are generated around it — orbit (full turn), dolly (far -> view, or away), flyover (high and
+       far, levelling out), sweep (back and forth +-45 degrees), spiral (turn while coming closer). Direction,
+       amplitude (x0.5/1/2), duration (10/20/40/90 s), loop.
+     - *Chain all views*: the saved views in order, the duration spread over the legs.
+     - *Line tour* (button on a line's sheet, `camera_tour {line, route, closed, alt, speed, loop}`): the dashboard
+       sends the stops of the line; **the mod reads the positions of the line's vehicles at that moment**, inserts
+       them along the route, merges points closer than alt/2, puts an approach and an exit point around every point
+       of interest (heading swinging -30 -> +30 degrees across it, so the camera pans over the subject) and a high
+       waypoint in the middle of long empty stretches, then plays it as a normal path. Altitude = 15 % of the span
+       of the line, 250-900 m, x amplitude; stops at 0.7x, vehicles at 0.45x, stretches at 1.5x; constant ground
+       speed = alt/8 per second (the duration preference can only speed it up). It is a snapshot: a vehicle that
+       moves on during the flight is not followed - a live-tracking version was tried and dropped because vehicle
+       positions only change on simulation ticks and the picture jerked.
+     Preferences live per browser in `localStorage tf3.travel`.
+   - **Music** (companion, not the game: there is no "play this file" API): audio files dropped in `<companion>/music/`
+     (mp3, ogg, m4a, wav, flac; `GET /api/music`, served under `/music/<name>`, never part of the release zip) play
+     in the browser with every travelling. "Any" (default) picks a random track, or one track, or none; fade in 2 s,
+     fade out over the last 3 s of the travelling unless "Let it finish" is on; a manual stop fades over 1 s; a
+     track already playing is kept when another travelling starts (its end is pushed back, never cut); "Stop the
+     music" appears while a track lingers. Browsers only allow audio to start inside a click, so `play()` is called
+     synchronously before any fetch (the track list is prefetched), else the panel reports "music blocked".
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
      the Advanced Camera Tool); not exposed in the UI until tested in a free game.
    - **Cargo per vehicle** (mod rev 8 / companion 0.3.1): the fast vehicle record carries `cargo` = {cargo id: count

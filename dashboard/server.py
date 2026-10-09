@@ -107,17 +107,22 @@ def write_command(cmd: str, args: dict) -> dict:
         if k not in args:
             raise ValueError(f"missing argument: {k}")
     clean = {}
+    # the camera commands carry a ground track: up to a few thousand points / indices (a line along its rails);
+    # everything else stays small
+    big = 4000 if cmd in ("camera_tour", "camera_path") else 64
     for k, v in args.items():
         if isinstance(v, (int, float, bool)) or v is None:
             clean[k] = v
         elif isinstance(v, str) and len(v) < 200:
             clean[k] = v
-        elif isinstance(v, list) and len(v) <= 64 and all(isinstance(x, (int, float)) for x in v):
+        elif isinstance(v, list) and len(v) <= big and all(isinstance(x, (int, float)) for x in v):
             clean[k] = v
         elif isinstance(v, dict) and len(v) <= 8 and all(isinstance(x, (int, float)) and isinstance(kk, str) for kk, x in v.items()):
             clean[k] = v  # e.g. main = {station, terminal}
-        elif isinstance(v, list) and len(v) <= 64 and all(isinstance(x, dict) and len(x) <= 8 and all(isinstance(y, (int, float)) and isinstance(kk, str) for kk, y in x.items()) for x in v):
-            clean[k] = v  # e.g. alternatives = [{station, terminal}, ...]
+        elif isinstance(v, list) and len(v) <= big and all(isinstance(x, dict) and len(x) <= 8 and all(isinstance(y, (int, float, bool)) and isinstance(kk, str) for kk, y in x.items()) for x in v):
+            clean[k] = v  # e.g. alternatives = [{station, terminal}, ...], route = [{x, y}, ...]
+        else:
+            console.say(f"command {cmd}: argument {k} dropped (unsupported shape or too big)", "warn")
     with _cmd_lock:
         _cmd_seq[0] += 1
         cid = _cmd_seq[0]

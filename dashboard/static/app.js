@@ -780,21 +780,27 @@
     const pts = ml ? ml.points : [];
     if (pts.length < 2) return;
     const prefs = travelPrefs();
-    const pitch = 0.95, dist0 = 180 * prefs.amp, points = [];
+    // Zoom rhythm: close and steep at each stop (the station is the subject), then climb to a high, flatter
+    // point halfway along the leg (the leg is the subject), and dive again. amp scales the whole range.
+    const near = 120 * prefs.amp, nearPitch = 1.0, farPitch = 0.75, points = [];
     // closing the loop back to the first stop (the game's lines are circuits) unless the line is a shuttle A-B
     const ring = pts.length > 2 ? pts.concat([pts[0]]) : pts;
+    // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
+    const headTo = (x, y, to) => (Math.atan2(-(to[0] - x), to[1] - y) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = ring[i], nx = ring[(i + 1) % ring.length], px = ring[(i - 1 + ring.length) % ring.length];
       const to = i < ring.length - 1 ? nx : px;  // last point: keep the previous heading (look back along the leg)
-      // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
-      const heading = (Math.atan2(-(to[0] - x), to[1] - y) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
-      const leg = Math.hypot(nx[0] - x, nx[1] - y);
-      points.push({ x, y, dist: dist0 + leg * 0.35, angle: heading, pitch });
+      points.push({ x, y, dist: near, angle: headTo(x, y, to), pitch: nearPitch });
+      if (i < ring.length - 1) {
+        const leg = Math.hypot(nx[0] - x, nx[1] - y);
+        // high point: at least 3x the close-up, more on long legs, so the dive is always visible
+        points.push({ x: (x + nx[0]) / 2, y: (y + nx[1]) / 2, dist: Math.max(near * 3, near + leg * 0.6), angle: headTo(x, y, nx), pitch: farPitch });
+      }
     }
     // stop-to-stop duration proportional to leg length so the speed over the ground is roughly constant
     const legLen = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
     const total = legLen.reduce((a, b) => a + b, 0) || 1;
-    const dur = Math.max(prefs.dur, points.length * 3);  // at least 3 s per leg, else it is a slideshow
+    const dur = Math.max(prefs.dur, (ring.length - 1) * 5);  // at least 5 s per stop-to-stop leg (dive + climb), else it is a slideshow
     sendCmd("camera_path", { points: points.map((p, i) => ({ ...p, duration: i < legLen.length ? dur * legLen[i] / total : 0 })), loop: prefs.loop, ease: true });
     travel.active = { kind: "line", id: l.line_id, points, loop: prefs.loop, at: Date.now(), dur };
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: points.length };
@@ -1213,7 +1219,7 @@
   const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
   function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
-  const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "", vol: 0.6 };
+  const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "auto", vol: 0.6 };
   const travelPrefs = () => { try { return Object.assign({}, TRAVEL_DEFAULTS, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { ...TRAVEL_DEFAULTS }; } };
   const saveTravelPrefs = (p) => localStorage.setItem("tf3.travel", JSON.stringify(p));
   // Movements around ONE view (the view is the subject; the game's orbit camera is centre + distance + heading +
@@ -1250,10 +1256,12 @@
   // fade in over 2 s and out over the last 3 s of the travelling; stops with it
   const music = { el: null, timer: null, list: null };
   async function musicTracks() { if (music.list) return music.list; try { music.list = (await api("/api/music")).tracks || []; } catch (e) { music.list = []; } return music.list; }
-  function musicStart(prefs) {
+  async function musicStart(prefs) {
     musicStop();
-    if (!prefs.music) return;
-    const el = new Audio("music/" + encodeURIComponent(prefs.music)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
+    if (!prefs.music) return;  // "" = off; "auto" = any track of the folder (none there = silence); else a file name
+    let file = prefs.music;
+    if (file === "auto") { const tracks = await musicTracks(); if (!tracks.length) return; file = tracks[Math.floor(Math.random() * tracks.length)]; }
+    const el = new Audio("music/" + encodeURIComponent(file)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
     el.play().catch(() => {});
     const vol = prefs.vol ?? 0.6, t0 = Date.now(), total = prefs.dur * 1000;
     music.timer = setInterval(() => {
@@ -1331,7 +1339,8 @@
     musicTracks().then(tracks => {
       const row = $("#tr-music", box); if (!row) return;
       if (!tracks.length) { row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
-      row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
+      // "auto" (default) = a random track of the folder, so dropping files in music/ is all it takes
+      row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
         <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">`;
       $$("[data-tset=music] button", row).forEach(b => b.addEventListener("click", () => { tp.music = b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; saveTravelPrefs(tp); if (music.el) music.el.volume = tp.vol; });

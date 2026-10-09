@@ -202,7 +202,7 @@
     return {
       confirm(text, o = {}) {
         return open(`${head(o.title || t("confirm_title"))}<p class="md-text">${esc(text)}</p>
-          <div class="md-foot"><button class="btn md-cancel">${t("cancel")}</button><button class="btn primary md-ok ${o.danger ? "danger" : ""}">${o.danger ? "" : ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
+          <div class="md-foot"><button class="btn md-cancel">${esc(o.cancel || t("cancel"))}</button><button class="btn primary md-ok ${o.danger ? "danger" : ""}">${o.danger ? "" : ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
           (finish) => { const ok = $(".md-ok", dlg); ok.addEventListener("click", () => finish(true)); setTimeout(() => ok.focus(), 0); }).then(v => v === true);
       },
       prompt(text, o = {}) {
@@ -787,20 +787,32 @@
     // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
     if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
     if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
+    // along the network when the legs are known (rev 11): the ground track = the legs' polylines chained in stop
+    // order, thinned to ~every 60 m (the mod bends through the points), with the stops marked; the mod then flies
+    // the rails / roads instead of the straight stop-to-stop route
+    const stopsAlong = findRoute();
+    let stops = null;
+    const legs = linePolylines(l.line_id);
+    if (legs && legs.length) {
+      const track = [], marks = [];
+      const push = (p) => { const q = track[track.length - 1]; if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > 60) track.push(p); };
+      legs.forEach(leg => { marks.push(track.length); leg.pts.forEach(push); });
+      if (track.length > 2) { route = track.map(p => ({ x: p[0], y: p[1] })); stops = marks; }
+    }
     // the mod builds ONE path from the stops + the vehicles' positions at this moment and derives the altitude from
     // the size of the line; amp scales that altitude, the duration preference sets the speed (full loop in dur x 4 s
     // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it
-    const closed = route.length > 2;
+    const closed = stops ? (() => { const a = route[0], b = route[route.length - 1]; return Math.hypot(a.x - b.x, a.y - b.y) < 200; })() : route.length > 2;
     const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0) + (closed ? Math.hypot(route[0].x - route[route.length - 1].x, route[0].y - route[route.length - 1].y) : 0);
-    const xs = route.map(p => p.x), ys = route.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const xs = stopsAlong.map(p => p.x), ys = stopsAlong.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
     // altitude: 15 % of the span, 250..900 m (a 2-stop shuttle 4 km long is seen from 600 m, not 1700), x amp
     const alt = Math.max(250, Math.min(900, span * 0.15)) * prefs.amp;
     // speed = apparent motion: an eighth of the altitude per second whatever the length (10 m/s over a 4 km line
     // seen from 600 m looks frozen, 75 m/s reads as a steady helicopter); the duration preference can only speed it up
     const speed = Math.max(alt / 8, len / Math.max(20, prefs.dur * 4)), dur = len / speed;
-    sendCmd("camera_tour", { line: l.line_id, route, closed, alt, speed, loop: prefs.loop });
+    sendCmd("camera_tour", { line: l.line_id, route, stops, closed, alt, speed, loop: prefs.loop });
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: route.length };
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length };
     musicRetime(dur);
     renderCamViews(); if (map.data) drawMap($("#map"));
   }
@@ -1213,8 +1225,15 @@
   // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
   const angDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
   const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
-  const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
-  function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
+  // a view attached to a vehicle is "active" while the camera follows that vehicle (its position moves)
+  const activeView = () => camViews.list.find(v => v.follow ? (camViews.cur && camViews.cur.follow === v.follow) : sameView(camViews.cur, v)) || null;
+  // a view attached to a vehicle, resolved to where the vehicle is NOW (map data); null when the vehicle is unknown
+  function liveView(v) {
+    if (!v.follow) return v;
+    const veh = map.data && (map.data.vehicles || []).find(x => x.vehicle_id === v.follow);
+    return veh && veh.x != null ? { ...v, x: veh.x, y: veh.y } : null;
+  }
+  function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
   const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "auto", vol: 0.6 };
   const travelPrefs = () => { try { return Object.assign({}, TRAVEL_DEFAULTS, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { ...TRAVEL_DEFAULTS }; } };
@@ -1292,9 +1311,12 @@
     const fade = setInterval(() => { k--; el.volume = Math.max(0, v0 * k / 10); if (k <= 0) { clearInterval(fade); el.pause(); } }, 100);
   }
   async function editViews(body) {
-    const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = await r.json();
-    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return false; }
+    let j;
+    try {
+      const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      j = await r.json(); if (!j.ok && !j.error) j.error = String(r.status);
+    } catch (e) { j = { ok: false, error: e.message }; }  // server down / non-JSON reply used to throw out of the click handler
+    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error }); $("#cmd-status").className = "cmdstatus bad"; return false; }
     camViews.list = j.views || []; renderCamViews(); if (map.data) drawMap($("#map")); return true;
   }
   async function loadViews() { try { const j = await api("/api/views"); camViews.list = j.views || []; camViews.game = j.game || null; } catch (e) { camViews.list = []; } camViews.loaded = true; }
@@ -1305,7 +1327,7 @@
     const views = camViews.list, act = activeView();
     const row = (v, i) => `<div class="cv ${act && act.id === v.id ? "on" : ""}" data-id="${v.id}">
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
-      <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
+      <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${v.follow ? esc(t("cam_follow_view", { v: v.follow_name || v.follow })) : fmtCam(v)}" ${off ? "disabled" : ""}>${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</button>
       <span class="cv-tools">
         <button class="btn" data-act="travel" title="${esc(t("cam_travel_here"))}" ${off ? "disabled" : ""}>${ico("follow", "sm")}</button>
         <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("star_outline", "sm")}</button>
@@ -1338,8 +1360,11 @@
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) + travelBlock +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
+      const cur = camViews.cur; if (!cur) return;
+      // following a vehicle: offer to attach the view to it (recalled = follow it again with this framing)
+      const attach = cur.follow ? await modal.confirm(t("cam_attach_confirm"), { title: t("cam_attach_title"), ok: t("cam_attach_yes"), cancel: t("cam_attach_no") }) : false;
       const name = await modal.prompt(t("cam_name_prompt"), { value: t("cam_default_name", { n: views.length + 1 }), ok: t("cam_save_ok") });
-      if (name) editViews({ action: "add", name, camera: camViews.cur });
+      if (name) editViews({ action: "add", name, camera: cur, attach });
     });
     // settings: segments and toggles
     $$("[data-tset] button, .btn[data-tset]", box).forEach(b => b.addEventListener("click", () => {
@@ -1350,8 +1375,8 @@
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.travel;
       if (a === "stop") return stopTravelling();
-      if (a === "view" && sel) return playTravelling(tp.move, TRAVEL_MOVES[tp.move](sel, tp), tp);
-      if (a === "chain") { const pts = views.map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); return playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, views.length - 1) / 2 }); }
+      if (a === "view" && sel) { const lv = liveView(sel); if (!lv) return; return playTravelling(tp.move, TRAVEL_MOVES[tp.move](lv, tp), tp); }
+      if (a === "chain") { const pts = views.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); if (pts.length < 2) return; return playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, views.length - 1) / 2 }); }
     }));
     // music row (async: the track list comes from the server)
     musicTracks().then(tracks => {
@@ -1372,8 +1397,8 @@
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); }
-        else if (a === "travel") { travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](v, tp2), tp2); }
-        else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur }); }
+        else if (a === "travel") { const lv = liveView(v); if (!lv) return; travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](lv, tp2), tp2); }
+        else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur, attach: !!(camViews.cur && camViews.cur.follow && v.follow) }); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: v.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) editViews({ action: "delete", id }); }
@@ -1434,10 +1459,12 @@
     camViews.cur = (o && o.camera) || null;
     // views belong to a savegame: reload the list when the game changed (another save loaded while the page stayed open)
     const gameKey = o && o.game && o.game.key;
-    if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
+    map.gameKey = gameKey || map.gameKey;
+    // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
+    if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
-    await loadGeo();
+    await loadGeo(); await loadLinePaths();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1446,9 +1473,9 @@
     drawMap(canvas);
   }
   function initMap(canvas) {
-    canvas.addEventListener("wheel", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; map.ox = mx - (mx - map.ox) * f; map.oy = my - (my - map.oy) * f; map.scale *= f; drawMap(canvas); }, { passive: false });
+    canvas.addEventListener("wheel", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; map.ox = mx - (mx - map.ox) * f; map.oy = my - (my - map.oy) * f; map.scale *= f; saveView(); drawMap(canvas); }, { passive: false });
     canvas.addEventListener("mousedown", e => { map.drag = { x: e.clientX, y: e.clientY, ox: map.ox, oy: map.oy, moved: false }; canvas.style.cursor = "grabbing"; });
-    window.addEventListener("mouseup", () => { map.drag = null; canvas.style.cursor = "grab"; });
+    window.addEventListener("mouseup", () => { if (map.drag && map.drag.moved) saveView(); map.drag = null; canvas.style.cursor = "grab"; });
     canvas.addEventListener("mousemove", e => { if (map.drag) { if (Math.abs(e.clientX - map.drag.x) + Math.abs(e.clientY - map.drag.y) > 3) map.drag.moved = true; map.ox = map.drag.ox + e.clientX - map.drag.x; map.oy = map.drag.oy + e.clientY - map.drag.y; drawMap(canvas); } else hoverMap(canvas, e); });
     canvas.addEventListener("click", e => {
       const hit = pickMap(canvas, e); if (!hit || map.lastDragMoved) return;
@@ -1459,8 +1486,8 @@
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });
     $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
-    $("#map-fit").addEventListener("click", () => { map.fitted = false; drawMap(canvas); });
-    $("#map-style-btn").addEventListener("click", () => { const b = $("#map-style"); b.hidden = !b.hidden; $("#map-style-btn").classList.toggle("active", !b.hidden); if (!b.hidden) renderMapStyle(); });
+    $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
+    $("#map-style-btn").addEventListener("click", (e) => { e.preventDefault(); const b = $("#map-style"); const open = b.hidden; b.hidden = !open; $("#map-style-btn").classList.toggle("active", open); if (open) renderMapStyle(); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
@@ -1473,11 +1500,47 @@
       const g = await api("/api/geo" + (geo.seq != null ? `?have=${geo.seq}&game=${geo.game}` : ""));
       if (g.unchanged) return;
       if (!g.available) { geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; return; }
-      geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = "";
-      map.fitted = map.fitted && !geo.firstFit; geo.firstFit = true;  // first geography: refit on the real bounds
+      geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = ""; geo.edgeById = null;
+      // first geography of the session: refit on the real bounds, unless the player already has a view (panned / zoomed /
+      // restored from the last visit) - never move the map under their hands
+      if (!geo.firstFit && !map.userView) map.fitted = false; geo.firstFit = true;
     } catch (e) { /* older server: no endpoint */ }
   }
-  // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
+  // line paths (mod rev 11): per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
+  // rebuilt when either the paths or the geography changed.
+  const linePaths = { stamp: null, lines: null, poly: {}, builtFor: "" };
+  async function loadLinePaths() {
+    try {
+      const r = await api("/api/line_paths" + (linePaths.stamp ? `?have=${encodeURIComponent(linePaths.stamp)}` : ""));
+      if (r.unchanged) return;
+      linePaths.stamp = r.stamp; linePaths.lines = r.lines || null; linePaths.builtFor = "";
+    } catch (e) { /* older server */ }
+  }
+  // one polyline per leg. A leg is either a list of edge ids (real, from a vehicle's MOVE_PATH, or predicted by the
+  // server over the network) -> chain the geo segments, orienting each to continue from the previous end; or a list
+  // of points (water route, air, or no path found). Returns [{pts, predicted}] or null.
+  function linePolylines(lineId) {
+    const g = geo.data, lp = linePaths.lines && linePaths.lines[lineId];
+    if (!g || !g.edges || !lp || !lp.legs) return null;
+    if (linePaths.builtFor !== geo.seq + "|" + linePaths.stamp) { linePaths.poly = {}; linePaths.builtFor = geo.seq + "|" + linePaths.stamp; }
+    if (linePaths.poly[lineId] !== undefined) return linePaths.poly[lineId];
+    if (!geo.edgeById) { geo.edgeById = new Map(); g.edges.forEach(e => { if (e[5] != null) geo.edgeById.set(e[5], e); }); }
+    const legs = [];
+    lp.legs.forEach(leg => {
+      if (leg.points && leg.points.length > 1) { legs.push({ pts: leg.points.map(p => [p[0], p[1]]), predicted: !!leg.predicted }); return; }
+      const ids = leg.edges || []; let pts = [], last = null;
+      ids.forEach((id, k) => {
+        const e = geo.edgeById.get(id); if (!e) return;
+        let a = [e[0], e[1]], b = [e[2], e[3]];
+        if (last) { const da = Math.hypot(a[0] - last[0], a[1] - last[1]), db = Math.hypot(b[0] - last[0], b[1] - last[1]); if (db < da) { [a, b] = [b, a]; } if (Math.min(da, db) > 150) { if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted }); pts = []; } }
+        else if (ids.length > 1) { const n = geo.edgeById.get(ids[k + 1]); if (n) { const d = (p) => Math.min(Math.hypot(p[0] - n[0], p[1] - n[1]), Math.hypot(p[0] - n[2], p[1] - n[3])); if (d(a) < d(b)) { [a, b] = [b, a]; } } }
+        if (!pts.length) pts.push(a); pts.push(b); last = b;
+      });
+      if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted });
+    });
+    linePaths.poly[lineId] = legs.length ? legs : null;
+    return linePaths.poly[lineId];
+  }  // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
   // refresh: 10 000 edges + a few thousand water vertices cost ~15 ms to stroke, the blit nothing
   // map style (gear next to the layer checkboxes): a few looks, each a palette + relief / network strength. Kept in
   // localStorage; changing one invalidates the terrain bitmap and the geo layer.
@@ -1501,43 +1564,53 @@
   }
   // terrain bitmap at grid resolution, built once per geography: land shaded by height (dark low, lighter high,
   // with a soft hill shade from the west), water cells blue. Rows are run lengths starting with land, north first.
+  // terrain bitmap at `sub` x the grid resolution (the shore cells carry a sub x sub land/water mask: 11 m on an
+  // 11 km map), built once per geography. Land: hillshade on the theme tone, plus on the light themes a height ramp
+  // (green - ochre - grey - snow) so the mountains read as mountains. Water: theme blue.
   function terrainBitmap(g, withWater) {
     if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
-    const [nx, ny] = g.grid, c = document.createElement("canvas"); c.width = nx; c.height = ny;
-    const ctx = c.getContext("2d"), img = ctx.createImageData(nx, ny), px = img.data;
+    const [nx, ny] = g.grid, sub = g.shore_sub || 1, W = nx * sub, Hh = ny * sub;
+    const c = document.createElement("canvas"); c.width = W; c.height = Hh;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(W, Hh), px = img.data;
+    const th = mapTheme(), relief = mapPrefs().relief, light = th.land[0] > 80;
     const every = g.height_every || 4, hx = Math.ceil(nx / every), hy = Math.ceil(ny / every), H = g.heights || [];
     const [hmin, hmax] = g.height_range && g.height_range.length === 2 ? g.height_range : [0, 1];
     const hRaw = (ci, ri) => { ci = Math.max(0, Math.min(hx - 1, ci)); ri = Math.max(0, Math.min(hy - 1, ri)); const v = H[ri * hx + ci]; return v != null ? v : hmin; };
-    // bicubic-ish: bilinear on the coarse samples, then the per-cell slopes come from the smooth field, not the
-    // sample steps; `every` cells per sample so the relief reads as hills, not as blocks
     const hAt = (col, row) => { const fx = Math.max(0, col / every - 0.5), fy = Math.max(0, row / every - 0.5), ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri; const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty); return (hRaw(ci, ri) * (1 - sx) + hRaw(ci + 1, ri) * sx) * (1 - sy) + (hRaw(ci, ri + 1) * (1 - sx) + hRaw(ci + 1, ri + 1) * sx) * sy; };
-    // hillshade: light from the north-west, 45 degrees up; slopes in m/m from the cell size; vertical exaggeration
-    // so a 10 % slope is clearly visible on a flat-looking game map
-    const th = mapTheme(), relief = mapPrefs().relief;
-    const cell = (g.bounds[2] - g.bounds[0]) / nx, zx = 1.6 * relief;
-    const lx = -0.5, ly = -0.5, lz = 0.7071;  // unit light vector (x east, y south in image space)
-    const land = th.land, water = th.water;
+    // smooth height field at grid resolution (3x3 blur), slopes from it
     const hb0 = new Float32Array(nx * ny), hb = new Float32Array(nx * ny);
     for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) hb0[row * nx + col] = hAt(col, row);
-    // 3x3 box blur: takes the last steps out of the interpolated field
     for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) { let s = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const r = row + dy, q = col + dx; if (r >= 0 && r < ny && q >= 0 && q < nx) { s += hb0[r * nx + q]; n++; } } hb[row * nx + col] = s / n; }
     const hAtB = (col, row) => hb[Math.max(0, Math.min(ny - 1, row)) * nx + Math.max(0, Math.min(nx - 1, col))];
+    const cell = (g.bounds[2] - g.bounds[0]) / nx, zx = 1.6 * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    // land / water at grid resolution, then the shore masks
+    const wat = new Uint8Array(nx * ny);
+    for (let row = 0; row < ny; row++) { const runs = String(g.water_rows[row] || "").split(",").map(Number); let col = 0, on = false; for (const n of runs) { if (on) for (let k = 0; k < n && col + k < nx; k++) wat[row * nx + col + k] = 1; col += n; on = !on; } }
+    const shore = new Map(); (g.shore || []).forEach(s => shore.set(s[1] * nx + s[0], s[2]));
+    // height ramp for the light themes: [t, r, g, b]
+    const ramp = [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
+    const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
+    const water = th.water;
     for (let row = 0; row < ny; row++) {
-      const runs = String(g.water_rows[row] || "").split(",").map(Number);
-      let col = 0, on = false;
-      for (const n of runs) {
-        for (let k = 0; k < n && col < nx; k++, col++) {
-          const o = (row * nx + col) * 4;
-          if (on && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
-          const dzdx = (hAtB(col + 1, row) - hAtB(col - 1, row)) / (2 * cell) * zx, dzdy = (hAtB(col, row + 1) - hAtB(col, row - 1)) / (2 * cell) * zx;
-          const nl = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
-          const shade = Math.max(0, (-dzdx * lx - dzdy * ly + lz) * nl);  // 0.71 on flat ground
-          const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;          // flat = 0.6, lit slopes brighter, shadowed darker
-          const t = relief ? Math.max(0, Math.min(1, (hAtB(col, row) - hmin) / Math.max(1, hmax - hmin))) * 0.25 : 0;  // a hint of height
-          const bright = th.land[0] > 128 ? 1.35 : 1;  // light themes: the land tone is the lit value, not the base
-          px[o] = Math.min(255, Math.round(land[0] * (f + t) * bright)); px[o + 1] = Math.min(255, Math.round(land[1] * (f + t) * bright)); px[o + 2] = Math.min(255, Math.round(land[2] * (f + t) * bright)); px[o + 3] = 255;
+      for (let col = 0; col < nx; col++) {
+        const i = row * nx + col, mask = shore.get(i);
+        // land colour of the cell (hillshade x ramp or tone)
+        const dzdx = (hAtB(col + 1, row) - hAtB(col - 1, row)) / (2 * cell) * zx, dzdy = (hAtB(col, row + 1) - hAtB(col, row - 1)) / (2 * cell) * zx;
+        const nl = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+        const shade = Math.max(0, (-dzdx * lx - dzdy * ly + lz) * nl);
+        const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;
+        const tH = Math.max(0, Math.min(1, (hAtB(col, row) - hmin) / Math.max(1, hmax - hmin)));
+        let r, gg, b;
+        if (light) { const base = rampAt(tH); const k = 0.75 + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k; }
+        else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
+        // snow on the dark themes too: a light cap above 90 % of the range
+        if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
+        for (let sr = 0; sr < sub; sr++) for (let sc = 0; sc < sub; sc++) {
+          const isW = mask != null ? ((mask >> (sr * sub + sc)) & 1) === 1 : wat[i] === 1;
+          const o = ((row * sub + sr) * W + col * sub + sc) * 4;
+          if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; }
+          else { px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255; }
         }
-        on = !on;
       }
     }
     ctx.putImageData(img, 0, 0);
@@ -1560,11 +1633,13 @@
       else { ctx.fillStyle = `rgb(${th.land.join(",")})`; ctx.fillRect(ax, ay, bx - ax, by - ay); }
       ctx.strokeStyle = th.frame; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1);
     }
-    if (showW && g.water) {
-      ctx.fillStyle = WATER_FILL; ctx.strokeStyle = WATER_FILL; ctx.lineWidth = 1;
+    // river / lake meshes: only where the grid has no shore detail (no refined cells yet = older mod); with the
+    // refined grid the meshes would add tile-seam jaggies on top of a better picture
+    if (showW && g.water && !(g.shore && g.shore.length)) {
+      ctx.fillStyle = WATER_FILL;
       ctx.beginPath();
       g.water.forEach(c => { for (let i = 0; i < c.length; i += 2) { const [x, y] = P(c[i], c[i + 1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); } ctx.closePath(); });
-      ctx.fill("evenodd"); ctx.stroke();
+      ctx.fill("evenodd");
     }
     if (showN && g.edges) {
       // streets thin and dark, tracks lighter; bridges a shade lighter, tunnels dashed. Below ~0.05 px/m streets
@@ -1592,6 +1667,19 @@
     map.scale = (geo.data && geo.data.bounds ? 0.97 : 0.9) * Math.min(w / Math.max(1, maxx - minx), h / Math.max(1, maxy - miny));
     map.ox = w / 2 - ((minx + maxx) / 2) * map.scale; map.oy = h / 2 + ((miny + maxy) / 2) * map.scale;
     map.fitted = true;
+  }
+  // the view (scale / offset) is remembered per savegame and restored on the next visit; set from wheel / drag / recentre
+  const viewKey = () => "tf3.mapview." + (map.gameKey || "default");
+  function saveView() { map.userView = true; try { localStorage.setItem(viewKey(), JSON.stringify({ s: map.scale, x: map.ox, y: map.oy, w: $("#map").clientWidth, h: $("#map").clientHeight })); } catch (e) { /* ignore */ } }
+  function restoreView(canvas) {
+    try {
+      const v = JSON.parse(localStorage.getItem(viewKey()) || "null"); if (!v || !(v.s > 0)) return false;
+      // the canvas may have another size now: keep the same world point in the centre
+      const cx = (canvas.clientWidth / 2 - v.x) / v.s, cy = -(canvas.clientHeight / 2 - v.y) / v.s;
+      const cx0 = (v.w / 2 - v.x) / v.s, cy0 = -(v.h / 2 - v.y) / v.s;
+      map.scale = v.s; map.ox = canvas.clientWidth / 2 - cx0 * v.s; map.oy = canvas.clientHeight / 2 + cy0 * v.s;
+      map.fitted = true; map.userView = true; return true;
+    } catch (e) { return false; }
   }
   const P = (x, y) => [map.ox + x * map.scale, map.oy - y * map.scale]; // game y up
   function drawIcon(ctx, name, x, y, size, color) {
@@ -1630,7 +1718,7 @@
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (!map.fitted) fitMap(canvas);
+    if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
     const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
     const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015";
@@ -1639,7 +1727,8 @@
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
     const gl = geoLayer(w, h, dpr); if (gl) ctx.drawImage(gl, 0, 0, w, h);
     ctx.font = "12px " + font;
-    if ($("#map-lines").checked && d.lines) d.lines.forEach(l => { if (l.points.length < 2) return; const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.globalAlpha = 1; });
+    // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
+    if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
@@ -1663,7 +1752,7 @@
     // the travelling being played (orbit circle, dolly segment, chain curve...): the points we sent, drawn where the
     // camera EYE is on the ground (centre pushed back along the heading by dist*cos(pitch)); dashed preview of the
     // selected movement when idle. The current camera itself is the view cone drawn just below.
-    const tv = travel.active || (travel.sel && camViews.list.find(v => v.id === travel.sel) ? (() => { const tp = travelPrefs(), v = camViews.list.find(x => x.id === travel.sel); return { points: TRAVEL_MOVES[tp.move](v, tp), preview: true }; })() : null);
+    const tv = travel.active || (travel.sel && camViews.list.find(v => v.id === travel.sel) ? (() => { const tp = travelPrefs(), v = liveView(camViews.list.find(x => x.id === travel.sel)); return v ? { points: TRAVEL_MOVES[tp.move](v, tp), preview: true } : null; })() : null);
     if (tv && tv.points.length > 1) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -1671,8 +1760,9 @@
       ctx.stroke(); ctx.restore();
     }
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : ink);
-    camViews.list.forEach((v, i) => {
-      const [x, y] = P(v.x, v.y), on = act && act.id === v.id;
+    camViews.list.forEach((v0, i) => {
+      const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
+      const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
       drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b");
       ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
@@ -1685,7 +1775,7 @@
     const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;
     let best = null, bd = 140;
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
-    camViews.list.forEach((v, i) => consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v }));
+    camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));
@@ -1704,11 +1794,14 @@
   let busy = false, again = false;
   // A pointer button held down = the user is mid-click. Re-rendering now would swap the element under
   // the pointer between mousedown and mouseup and the browser would drop the click (one had to click twice).
-  let pointerDown = false;
-  document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
-  const pointerUp = () => { if (!pointerDown) return; pointerDown = false; if (again) { again = false; setTimeout(refresh, 0); } };
+  // The guard is released on pointerup / cancel / click / blur, and after 1.5 s whatever happened: a pointerup lost
+  // to a disabled control or to an element replaced mid-click must never leave the refresh loop stalled.
+  let pointerDown = false, pointerTimer = null;
+  const pointerUp = () => { if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (!pointerDown) return; pointerDown = false; if (again) { again = false; setTimeout(refresh, 0); } };
+  document.addEventListener("pointerdown", () => { pointerDown = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(pointerUp, 1500); }, true);
   document.addEventListener("pointerup", pointerUp, true);
   document.addEventListener("pointercancel", pointerUp, true);
+  document.addEventListener("click", pointerUp, true);
   window.addEventListener("blur", pointerUp);
   async function refresh() {
     if (busy || pointerDown) { again = true; return; } busy = true;

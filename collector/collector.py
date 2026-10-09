@@ -242,7 +242,9 @@ class Store:
                 # land/water grid (run lengths per row, north first) + coarse heights: see the mod's geoGridStep
                 "grid": as_list(geo.get("grid")) or None, "water_rows": as_list(geo.get("water_rows")),
                 "heights": as_list(geo.get("heights")), "height_every": geo.get("height_every"),
-                "height_range": as_list(geo.get("height_range")) or None}
+                "height_range": as_list(geo.get("height_range")) or None,
+                # shore refinement: [col, row, mask] per boundary cell, mask bit k = sub-cell k on water
+                "shore": [as_list(s) for s in as_list(geo.get("shore"))], "shore_sub": geo.get("shore_sub")}
         import hashlib
         digest = hashlib.sha1(json.dumps(data, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
         row = self.con.execute("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,)).fetchone()
@@ -256,6 +258,23 @@ class Store:
             (gid, seq, iso(), len(edges), len(water), json.dumps(data, separators=(",", ":"))))
         self.con.commit()
         return True
+
+    def ingest_line_paths(self, snap: dict, lp: dict) -> int:
+        """Replace the line paths of the game `snap` belongs to with the mod's file (rev 11). Returns the leg count."""
+        gid = self.game_id(snap, iso())
+        now = iso()
+        rows = []
+        for rec in as_list(lp.get("items")):
+            if not isinstance(rec, dict):
+                continue
+            for leg in as_list(rec.get("legs")):
+                edges = [int(e) for e in as_list(g(leg, "edges")) if isinstance(e, (int, float))]
+                if g(rec, "line") is not None and g(leg, "stop") is not None and edges:
+                    rows.append((gid, int(rec["line"]), int(leg["stop"]), json.dumps(edges, separators=(",", ":")), now))
+        self.con.execute("DELETE FROM line_path WHERE game_id=?", (gid,))
+        self.con.executemany("INSERT INTO line_path(game_id, line_id, stop_index, edges, received_at) VALUES (?,?,?,?,?)", rows)
+        self.con.commit()
+        return len(rows)
 
     def ingest(self, snap: dict) -> int | None:
         now = iso()
@@ -747,26 +766,33 @@ class SlowFiles:
     def complete_for(self, slow_seq: Any) -> bool:
         return all(slow_seq in self.data.get(n, {}) for n in SLOW_SECTIONS)
 
-    def geo(self) -> dict | None:
-        """tf3dash_geo.lua (mod rev 11): the map's bounds, water and network. Returns the parsed table when the
-        file changed since the last call, else None. Big (hundreds of KB) and rare, so read only on mtime change."""
-        p = self.dir / f"{self.prefix}geo.lua"
+    def _changed_file(self, name: str, must_have: str) -> dict | None:
+        """Parse <prefix><name>.lua when its mtime changed since the last call, else None (big, rare files)."""
+        p = self.dir / f"{self.prefix}{name}.lua"
         try:
             m = os.path.getmtime(p)
         except OSError:
             return None
-        if m == self.mtime.get("geo"):
+        if m == self.mtime.get(name):
             return None
         for _ in range(3):
             try:
                 d = luatable.load(str(p))
-                if isinstance(d, dict) and "edges" in d:
-                    self.mtime["geo"] = m
+                if isinstance(d, dict) and must_have in d:
+                    self.mtime[name] = m
                     return d
             except (luatable.LuaParseError, OSError, ValueError):
                 pass
             time.sleep(0.1)
         return None
+
+    def geo(self) -> dict | None:
+        """tf3dash_geo.lua (mod rev 11): the map's bounds, water and network."""
+        return self._changed_file("geo", "edges")
+
+    def line_paths(self) -> dict | None:
+        """tf3dash_line_paths.lua (mod rev 11): the network edges each line leg runs on."""
+        return self._changed_file("line_paths", "items")
 
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
@@ -990,6 +1016,14 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"geo ingest failed: {e!r}", "error")
+                        try:
+                            lp = slow_files.line_paths()
+                            if lp is not None:
+                                n = store.ingest_line_paths(snap, lp)
+                                say(f"line paths: {len(as_list(lp.get('items')))} lines, {n} legs", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"line paths ingest failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

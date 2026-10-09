@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS geo (
     data           TEXT NOT NULL
 );
 
+-- where each line really runs (mod rev 11): per line and leg (stop the vehicles head to), the ordered list of network
+-- edge entity ids seen in a vehicle's MOVE_PATH; the ids match geo.data.edges[][5]. Replaced whenever the mod rewrites
+-- tf3dash_line_paths.lua.
+CREATE TABLE IF NOT EXISTS line_path (
+    game_id        INTEGER NOT NULL,
+    line_id        INTEGER NOT NULL,
+    stop_index     INTEGER NOT NULL,
+    edges          TEXT NOT NULL,                 -- JSON array of edge entity ids
+    received_at    TEXT NOT NULL,
+    PRIMARY KEY (game_id, line_id, stop_index)
+);
+
 CREATE TABLE IF NOT EXISTS snapshot (
     snapshot_id    INTEGER PRIMARY KEY,
     game_id        INTEGER NOT NULL REFERENCES game(game_id),

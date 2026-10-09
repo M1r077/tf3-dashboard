@@ -200,7 +200,36 @@ Three independent parts:
      land/water picture and a soft relief, the way the in-game minimap mods do it. Measured on an 11 km map with 4 813
      edges: 472 steps, 2.8 s of collection spread over frames, 28 ms to write, 205 KB file, ~140 KB JSON row.
      The collector hashes the content: the mod rewrites the file on every load, the row (and the browser cache) only
-     change when the geography did.
+     change when the geography did. Shore refinement: the cells whose 4-neighbourhood mixes land and water are
+     resampled 4x4 (`shore = [[col, row, mask16], ...]`, 1 389 cells = 22 000 extra `isOnWater` calls on the test map,
+     under a second of frames); the terrain bitmap is built at that sub-cell resolution (1024x1024) and the water-mesh
+     contours are no longer drawn over it (tile seams). Heights every 2 cells (128x128); the light looks use a height
+     ramp (green - ochre - grey - snow above 90 % of the map's range), the dark ones a snow cap only.
+   - **Map style** (gear next to the layer checkboxes, `tf3.map` in localStorage): look (dark / night / atlas /
+     paper), relief, network and line strength; `?mapstyle=<look>` forces a look (screenshots). The map view (zoom /
+     pan) is remembered per savegame (`tf3.mapview.<key>`) and never refitted under the player's hands; Recentre
+     forgets it.
+   - **Views attached to a vehicle** (mod rev 11): saving a view while the camera follows a vehicle offers to attach
+     it; the view stores `follow` (entity) + `follow_name`; recalling it sends `follow_view {entity, dist, angle,
+     pitch}` - the mod calls `followEntity` and re-applies the framing for ~12 frames while the follow camera
+     settles. Such a view is active while that vehicle is followed; the single-view travellings are disabled for it
+     (its position moves), the chain uses its saved position.
+   - **Line routes** (mod rev 11 / companion 0.5.0): where a line really runs. Two sources, merged leg by leg (a leg =
+     the way to stop N): (a) *real* - the mod reads each vehicle's `MOVE_PATH.path.edges` (records `{edgeId, dir}`;
+     `edgeId.entity` is the BASE_EDGE segment exported in the geography) in the slow vehicles section, keeps per (line,
+     leg) the longest sequence seen (a vehicle that just departed holds the whole leg), replaces it when the last edge
+     differs (rerouted), and writes `tf3dash_line_paths.lua` only when something changed (2-3 ms, a few KB); the
+     collector stores it in `line_path`; (b) *predicted* - the server (`predicted_routes`) runs a shortest path on the
+     geography for the legs no vehicle has driven yet: Dijkstra over the street edges for bus / truck / tram lines, over
+     the track edges for trains (`line.transport_modes`: 7-8 train, 10/12 ship, 9/11/13 air), A* over the water cells
+     of the land/water grid for ships (no corner cutting through land, a small penalty along the shore), straight for
+     aircraft; 35 lines / 89 legs in 145 ms, cached until the geography or the stops change. `/api/line_paths` returns
+     per line the legs as edge ids or points, predicted ones flagged; the map draws real legs solid and predicted ones
+     dashed, chaining the geo segments (each oriented to continue from the previous end). About 20 % of a real leg's
+     edge ids are not BASE_EDGE segments (tracks inside stations, depots, construction lanes): the chain skips them
+     (gaps under 150 m are bridged), which is good enough on the map. The line tour sends this polyline (thinned to
+     60 m) with the stops marked (`args.stops`, 0-based) so the camera follows the rails; the mod adds a high
+     waypoint every 2 x alt on long legs.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead

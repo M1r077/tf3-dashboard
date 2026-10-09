@@ -380,7 +380,87 @@ local function collectVehicles()
 	return out
 end
 
+-- ---------------------------------------------------------------- line paths (rev 11)
+-- Where a line really runs: the game keeps, for every vehicle, the series of network edges it is following to its
+-- next stop (MOVE_PATH.path.edges = {{EdgeId{entity, index}, dir}}). Collected with the slow vehicles section (one
+-- vehicle per step, a table of ids, no geometry); the edges' entities are the BASE_EDGE segments exported in the
+-- geography, so the dashboard draws the line along them. Per (line, leg = stop the vehicle is heading to) the
+-- longest sequence seen is kept (a vehicle just departed holds the whole leg; later it holds the remainder), and a
+-- leg is replaced only by a sequence that starts and ends elsewhere (the player rerouted). Legs survive across cycles,
+-- so a few minutes of game give the whole line once each leg was driven once; written in slow_line_paths.lua.
+local linePaths = {}      -- line id -> { [leg] = { edges = {ids}, n = count, seen = os.time() } }
+local linePathsDirty = false
+local LINE_PATH_MAX_EDGES = 3000
+
+local linePathProbe = 3  -- debug: describe the first few MOVE_PATH shapes seen (the API docs and the Lua view differ)
+-- an edge entry of MovePath.path.edges is {EdgeId, dir}; EdgeId = {entity, index}. Seen through Lua the pair may be
+-- an array {id, dir}, a record {edgeId = ..., dir = ...} or the EdgeId itself: try all of them.
+local function pathEdgeEntity(e)
+	if e == nil then return nil end
+	local ok, id = pcall(function()
+		local eid = e[1] ~= nil and e[1] or e.edgeId or e
+		return num(eid.entity) or num(eid[1])
+	end)
+	if ok and id and id > 0 then return id end
+	return nil
+end
+
+local function vehiclePathItem(v, tv)
+	local okP, mp = pcall(api.engine.getComponent, v, api.type.ComponentType.MOVE_PATH)
+	if not okP or not mp then
+		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: MOVE_PATH of vehicle " .. tostring(v) .. ": " .. (okP and "nil" or tostring(mp))) end
+		return
+	end
+	local line, leg = num(tv.line), num(tv.stopIndex)
+	if not line or line <= 0 or leg == nil then return end
+	local okE, raw = pcall(function() return arr(mp.path.edges) end)
+	if not okE or #raw == 0 then
+		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: vehicle " .. tostring(v) .. " path.edges: " .. (okE and ("empty, path=" .. tostring(mp.path)) or tostring(raw))) end
+		return
+	end
+	local edges = {}
+	local last = nil
+	for _, e in ipairs(raw) do
+		local id = pathEdgeEntity(e)
+		if id and id ~= last then edges[#edges + 1] = id; last = id end
+		if #edges >= LINE_PATH_MAX_EDGES then break end
+	end
+	if linePathProbe > 0 then
+		linePathProbe = linePathProbe - 1
+		local e1 = raw[1]
+		local desc = type(e1)
+		pcall(function() desc = desc .. " e1[1]=" .. tostring(e1[1]) .. " e1[2]=" .. tostring(e1[2]) .. " .edgeId=" .. tostring(e1.edgeId) .. " .entity=" .. tostring(e1.entity) end)
+		pcall(function() if e1[1] ~= nil then desc = desc .. " e1[1].entity=" .. tostring(e1[1].entity) .. " e1[1].index=" .. tostring(e1[1].index) end end)
+		debug(string.format("line paths: vehicle %s line %s leg %s: %d raw edges -> %d ids; first entry: %s", tostring(v), tostring(line), tostring(leg), #raw, #edges, desc))
+	end
+	if #edges < 2 then return end
+	local legs = linePaths[line]
+	if not legs then legs = {}; linePaths[line] = legs end
+	local cur = legs[leg]
+	-- keep the longest; a sequence whose last edge differs from the stored one means the leg changed (new route)
+	if cur == nil or #edges > cur.n or cur.edges[cur.n] ~= edges[#edges] then
+		legs[leg] = { edges = edges, n = #edges, seen = os.time() }
+		linePathsDirty = true
+	end
+end
+
+-- the file: one record per line, legs in stop order, each a flat list of edge entity ids
+local function linePathsExport()
+	local out = {}
+	for line, legs in pairs(linePaths) do
+		local rec = { line = line, legs = {} }
+		for leg, d in pairs(legs) do rec.legs[#rec.legs + 1] = { stop = leg, edges = d.edges } end
+		table.sort(rec.legs, function(a, b) return a.stop < b.stop end)
+		out[#out + 1] = rec
+	end
+	return out
+end
+
 local function vehiclesBegin()
+	-- forget the legs of lines that no longer exist
+	local alive = {}
+	for _, l in ipairs(arr(api.engine.system.lineSystem.getLines())) do alive[num(l)] = true end
+	for line in pairs(linePaths) do if not alive[line] then linePaths[line] = nil; linePathsDirty = true end end
 	return arr(api.engine.util.vehicle.getVehicles()), {}
 end
 
@@ -388,6 +468,7 @@ local function vehicleStaticItem(v)
 	local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 	if not tv then return nil end
 	local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
+	pcall(vehiclePathItem, v, tv)
 	pcall(function() rec.icon_type = vehicleIconType(v) end)
 	pcall(function()
 		-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
@@ -1029,6 +1110,7 @@ camPathProgress = function()
 	return math.max(0, math.min(1, e / camPath.total))
 end
 
+local followFrame = nil  -- { entity, dist, angle, pitch, left }: framing to apply over a follow camera (follow_view)
 local function camPathStop(reason)
 	if camPath then debug("camera path stopped: " .. tostring(reason)); camPath = nil end
 end
@@ -1044,7 +1126,35 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
+-- Ground clearance (rev 11): the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
+-- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
+-- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
+-- if the eye would be lower than the highest of them + CAM_CLEARANCE, the distance is raised (same heading and
+-- pitch, the camera backs up and climbs) so that it is not. Cheap: four getHeightAt per frame.
+local CAM_CLEARANCE = 60      -- m above the highest ground sampled (buildings are rarely taller)
+local CAM_MIN_PITCH = 0.25    -- a flatter camera cannot be lifted by distance alone: raise the pitch to this first
+local function camClear(x, y, dist, angle, pitch)
+	local terrain = api.engine.terrain
+	if not terrain or not terrain.getHeightAt then return dist, pitch end
+	if pitch < CAM_MIN_PITCH then pitch = CAM_MIN_PITCH end
+	local sp, cp = math.sin(pitch), math.cos(pitch)
+	local sa, ca = math.sin(angle), math.cos(angle)
+	local function hAt(px, py) local ok, h = pcall(terrain.getHeightAt, api.type.Vec2f.new(px, py)); return ok and num(h) or 0 end
+	local h0 = hAt(x, y)
+	local back = dist * cp
+	local hmax = h0
+	for _, f in ipairs({ 0.33, 0.66, 1.0 }) do
+		local h = hAt(x + sa * back * f, y - ca * back * f)
+		if h > hmax then hmax = h end
+	end
+	local eyeZ = h0 + dist * sp
+	local need = hmax + CAM_CLEARANCE
+	if eyeZ < need and sp > 0.01 then dist = dist + (need - eyeZ) / sp end
+	return dist, pitch
+end
+
 local function camSet(x, y, dist, angle, pitch)
+	dist, pitch = camClear(x, y, dist, angle, pitch)
 	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
 	if not ok then camPathStop("setCameraData failed: " .. tostring(err)); return false end
 	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
@@ -1089,14 +1199,19 @@ local function camTourBuild(args)
 	local l = num(args.line); if not l then error("camera_tour needs args.line") end
 	local raw = args.route
 	if type(raw) ~= "table" or #raw < 2 then error("camera_tour needs args.route with 2+ points") end
+	-- route = the ground track; every point is a stop unless args.stops lists which ones are (rev 11: the dashboard
+	-- sends the real path along the tracks / roads, with the stops marked, so the camera follows the rails)
+	local isStop = nil
+	if type(args.stops) == "table" then isStop = {}; for _, i in ipairs(args.stops) do local k = num(i); if k then isStop[k] = true end end end
 	local pts = {}
 	for i, p in ipairs(raw) do
 		local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
 		if not x or not y then error("route point " .. i .. ": missing x/y") end
-		pts[#pts + 1] = { x = x, y = y, stop = true }
+		local st = isStop == nil or isStop[i - 1] or false  -- args.stops: 0-based indices into route
+		pts[#pts + 1] = { x = x, y = y, stop = st and true or false }
 	end
 	local closed = args.closed ~= false and #pts > 2
-	if closed then pts[#pts + 1] = { x = pts[1].x, y = pts[1].y, stop = true } end
+	if closed then pts[#pts + 1] = { x = pts[1].x, y = pts[1].y, stop = pts[1].stop } end
 	-- cumulative length + size of the route
 	local cum, len = { 0 }, 0
 	local minx, maxx, miny, maxy = math.huge, -math.huge, math.huge, -math.huge
@@ -1111,7 +1226,8 @@ local function camTourBuild(args)
 	local alt = num(args.alt) or math.max(250, math.min(900, span * 0.15))
 	-- points of interest: stops, plus every vehicle of the line at its place along the route (now)
 	local poi = {}
-	for i, p in ipairs(pts) do poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end
+	for i, p in ipairs(pts) do if p.stop then poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end end
+	if #poi == 0 then poi[#poi + 1] = { s = 0, x = pts[1].x, y = pts[1].y, kind = "stop" } end
 	local vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(l))
 	local nv = 0
 	for _, v in ipairs(vs) do
@@ -1156,9 +1272,15 @@ local function camTourBuild(args)
 			local x, y = routeAt(q.s + gap); out[#out + 1] = { s = q.s + gap, x = x, y = y, kind = "mid", swing = SWING }
 		end
 		if nxt and nxt.s - q.s > alt * 4 then
-			local sm = (q.s + nxt.s) / 2
-			local x, y = routeAt(sm)
-			out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
+			-- long stretch: high waypoints every ~2 x alt along the route so the camera follows the track's bends
+			-- (one point in the middle used to be enough for straight stop-to-stop routes)
+			local span2 = nxt.s - q.s - 2 * gap
+			local n = math.max(1, math.floor(span2 / (alt * 2)))
+			for k = 1, n do
+				local sm = q.s + gap + span2 * k / (n + 1)
+				local x, y = routeAt(sm)
+				out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
+			end
 		end
 	end
 	-- headings: along the route (next point), bisector where the direction changes, plus the swing
@@ -1265,6 +1387,7 @@ local GEO_MIN_INTERVAL = 60        -- s between two collections when the network
 local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
 local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
 local GEO_HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
+local GEO_SHORE_SUB = 4            -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (11 m on an 11 km map)
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
 local geoSeq = 0
@@ -1379,7 +1502,8 @@ local function geoJobStart()
 		local w, h = geo.bounds[3] - geo.bounds[1], geo.bounds[4] - geo.bounds[2]
 		if w > 0 and h > 0 then
 			local ny = math.max(8, math.floor(n * h / math.max(w, h) + 0.5)); local nx = math.max(8, math.floor(n * w / math.max(w, h) + 0.5))
-			grid = { nx = nx, ny = ny, i = 0, rows = {}, cur = {}, run = nil, runOn = nil, heights = {}, hsum = 0, hmin = math.huge, hmax = -math.huge }
+			grid = { nx = nx, ny = ny, i = 0, rows = {}, cur = {}, run = nil, runOn = nil, heights = {}, hsum = 0, hmin = math.huge, hmax = -math.huge,
+				cells = {}, shoreList = nil, si = 0, shore = {} }
 			geo.grid = { nx, ny }
 		end
 	end
@@ -1401,6 +1525,7 @@ local function geoGridStep(job)
 		local x, y = b[1] + (col + 0.5) * cw, b[4] - (row + 0.5) * ch  -- rows from north (max y) to south
 		local p = Vec2f.new(x, y)
 		local on = api.engine.terrain.isOnWater(p) and true or false
+		g.cells[g.i] = on
 		if col == 0 then g.cur = {}; g.run = 0; g.runOn = false end
 		if on == g.runOn then g.run = g.run + 1
 		else g.cur[#g.cur + 1] = g.run; g.run = 1; g.runOn = on end
@@ -1413,6 +1538,51 @@ local function geoGridStep(job)
 			if hv > g.hmax then g.hmax = hv end
 		end
 		g.i = g.i + 1
+	end
+	return false
+end
+
+-- shore refinement: once the coarse grid is complete, list the cells whose 4-neighbourhood mixes land and water,
+-- then sample each SUBxSUB; a cell = { col, row, mask } with bit k = sub-cell k (row-major, north-west first) on water.
+-- A coast of 11 km on a 256 grid is ~1 500 boundary cells = 24 000 extra samples, a second of frames.
+local function geoShoreStep(job)
+	local g = job.grid
+	if g.shoreList == nil then
+		local list = {}
+		for row = 0, g.ny - 1 do
+			for col = 0, g.nx - 1 do
+				local i = row * g.nx + col
+				local c = g.cells[i]
+				local mixed = (col > 0 and g.cells[i - 1] ~= c) or (col < g.nx - 1 and g.cells[i + 1] ~= c)
+					or (row > 0 and g.cells[i - g.nx] ~= c) or (row < g.ny - 1 and g.cells[i + g.nx] ~= c)
+				if mixed then list[#list + 1] = i end
+			end
+		end
+		g.shoreList = list
+		g.cells = nil  -- the coarse samples are in the rows already
+		debug(string.format("geo: %d shore cells to refine (%dx%d sub-samples each)", #list, GEO_SHORE_SUB, GEO_SHORE_SUB))
+		return #list == 0
+	end
+	local b = job.geo.bounds
+	local cw, ch = (b[3] - b[1]) / g.nx, (b[4] - b[2]) / g.ny
+	local sub = GEO_SHORE_SUB
+	local Vec2f = api.type.Vec2f
+	local budgetCells = math.max(1, math.floor(GEO_GRID_BATCH / (sub * sub)))
+	for _ = 1, budgetCells do
+		g.si = g.si + 1
+		local i = g.shoreList[g.si]
+		if i == nil then return true end
+		local col, row = i % g.nx, math.floor(i / g.nx)
+		local x0, y0 = b[1] + col * cw, b[4] - row * ch
+		local mask, bit = 0, 1
+		for sr = 0, sub - 1 do
+			for sc = 0, sub - 1 do
+				local p = Vec2f.new(x0 + (sc + 0.5) * cw / sub, y0 - (sr + 0.5) * ch / sub)
+				if api.engine.terrain.isOnWater(p) then mask = mask + bit end
+				bit = bit * 2
+			end
+		end
+		g.shore[#g.shore + 1] = { col, row, mask }
 	end
 	return false
 end
@@ -1471,7 +1641,8 @@ local function geoEdgeStep(job)
 			if enumName("RoadType", { "STREET", "TRACK" }, be.roadType) == "TRACK" then kind = 1 end
 			local et = enumName("BaseEdgeType", { "NORMAL", "BRIDGE", "TUNNEL" }, be.type)
 			if et == "BRIDGE" then kind = kind + 2 elseif et == "TUNNEL" then kind = kind + 4 end
-			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind }
+			-- the entity id lets the line paths (vehicle MOVE_PATH edge ids) refer to this segment
+			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind, num(e) }
 		end)
 		if not ok then job.geo.errors[#job.geo.errors + 1] = { section = "edges", error = tostring(err) } end
 	end
@@ -1491,6 +1662,7 @@ local function geoJobRun(budget)
 		if job.wi < #job.water then geoWaterStep(job)
 		elseif job.ei < #job.edges then geoEdgeStep(job)
 		elseif job.grid and job.grid.i < job.grid.nx * job.grid.ny then geoGridStep(job)
+		elseif job.grid and not job.grid.shoreDone then job.grid.shoreDone = geoShoreStep(job)
 		else done = true end
 		if done then
 			job.geo.duration = os.clock() - job.started
@@ -1500,6 +1672,8 @@ local function geoJobRun(budget)
 				job.geo.heights = job.grid.heights
 				job.geo.height_every = GEO_HEIGHT_EVERY
 				job.geo.height_range = { job.grid.hmin, job.grid.hmax }
+				job.geo.shore = job.grid.shore
+				job.geo.shore_sub = GEO_SHORE_SUB
 			end
 			geoJob = nil
 			return job
@@ -1513,9 +1687,9 @@ local function geoWrite(job)
 	local ok, err = pcall(app.saveUserdata, DIR, GEO_FILE, job.geo)
 	if not ok then log("saveUserdata failed for geo:", tostring(err)); return false end
 	geoCache = { geo_seq = job.geo.geo_seq, edges = #job.geo.edges, water = #job.geo.water }
-	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), grid %s (%d heights), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
+	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), grid %s (%d heights, %d shore cells), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
 		#job.geo.edges, #job.geo.water, job.vertsIn, job.vertsOut, job.geo.grid and (job.geo.grid[1] .. "x" .. job.geo.grid[2]) or "none",
-		job.geo.heights and #job.geo.heights or 0, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
+		job.geo.heights and #job.geo.heights or 0, job.geo.shore and #job.geo.shore or 0, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
 	for i = 1, math.min(3, #job.geo.errors) do log("  geo error:", job.geo.errors[i].section, job.geo.errors[i].error) end
 	return true
 end
@@ -1578,6 +1752,22 @@ local function slowWriteNext()
 		local dt = os.clock() - t0
 		if dt > 0.01 then log(string.format("slow file %s written in %.0fms", name, dt * 1000)) end
 	end
+	return true
+end
+
+-- line paths: their own file (tf3dash_line_paths.lua), outside the slow_seq set, rewritten only when a leg changed
+-- (typically a few times after loading, then rarely); the collector re-reads it on mtime change
+local LINE_PATHS_FILE = PREFIX .. "line_paths"
+local function linePathsWrite()
+	if not linePathsDirty then return false end
+	linePathsDirty = false
+	local items = linePathsExport()
+	local t0 = os.clock()
+	local ok, err = pcall(app.saveUserdata, DIR, LINE_PATHS_FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), items = items })
+	if not ok then log("saveUserdata failed for line_paths:", tostring(err)); return false end
+	local legs = 0
+	for _, r in ipairs(items) do legs = legs + #r.legs end
+	debug(string.format("line paths written: %d lines, %d legs, %.0fms", #items, legs, (os.clock() - t0) * 1000))
 	return true
 end
 
@@ -1675,7 +1865,19 @@ local COMMANDS = {
 			pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(x, y, 0), dist)
 		end
 		camPathStop("set_camera")
+		dist, pitch = camClear(x, y, dist, angle, pitch)
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
+		return true
+	end,
+	-- a view attached to a vehicle (rev 11): follow it, then apply the saved framing (distance, heading, pitch) on
+	-- top of the follow camera, which owns the position. The framing is re-applied for a few frames because the
+	-- follow camera slides to the vehicle first (see followFrame in guiUpdate).
+	follow_view = function(args)
+		local e = num(args and args.entity); if not e then error("missing args.entity") end
+		if not api.engine.entityExists(e) then return false, "vehicle no longer exists" end
+		camPathStop("follow_view")
+		api.gui.camera.followEntity(e, args.jump ~= false)
+		followFrame = { entity = e, dist = num(args.dist), angle = num(args.angle), pitch = num(args.pitch), left = 12 }
 		return true
 	end,
 	-- camera travelling: args = { points = { {x, y, dist, angle, pitch, duration?}, ... }, duration?, loop?, ease? }
@@ -1946,6 +2148,17 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		local okT, errT = pcall(camPathTick)
 		if not okT then log("camera path tick failed:", tostring(errT)); camPath = nil end
 	end
+	if followFrame then  -- follow_view: keep the saved distance / heading / pitch while the follow camera settles
+		local ff = followFrame
+		local okF, errF = pcall(function()
+			local c = api.gui.camera.getCameraData()
+			local d, p = camClear(c.x, c.y, ff.dist or c.z, ff.angle or c.w, ff.pitch or c.q)
+			api.gui.camera.setCameraData(api.type.Vec5f.new(c.x, c.y, d, ff.angle or c.w, p))
+		end)
+		ff.left = ff.left - 1
+		if not okF then log("follow framing failed:", tostring(errF)); followFrame = nil
+		elseif ff.left <= 0 then followFrame = nil end
+	end
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()
@@ -2008,6 +2221,13 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		if slowPending ~= nil then return end  -- do not write live.lua in the same frame as a slow file
 	end
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
+
+	-- line paths: a small file, only when a leg changed; its own frame
+	if linePathsDirty then
+		local okL, wrote = pcall(linePathsWrite)
+		if not okL then log("line paths write failed:", tostring(wrote)); linePathsDirty = false end
+		if wrote then return end
+	end
 
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge
 	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete

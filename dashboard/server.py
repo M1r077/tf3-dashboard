@@ -50,7 +50,7 @@ ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "set_camera": ("x", "y", "dist"),  # mod rev 7+
-    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",),  # mod rev 10+: travelling
+    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # mod rev 10+: travelling
     "horn": (),  # mod rev 8+: args.vehicle or args.line
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
@@ -107,17 +107,22 @@ def write_command(cmd: str, args: dict) -> dict:
         if k not in args:
             raise ValueError(f"missing argument: {k}")
     clean = {}
+    # the camera commands carry a ground track: up to a few thousand points / indices (a line along its rails);
+    # everything else stays small
+    big = 4000 if cmd in ("camera_tour", "camera_path") else 64
     for k, v in args.items():
         if isinstance(v, (int, float, bool)) or v is None:
             clean[k] = v
         elif isinstance(v, str) and len(v) < 200:
             clean[k] = v
-        elif isinstance(v, list) and len(v) <= 64 and all(isinstance(x, (int, float)) for x in v):
+        elif isinstance(v, list) and len(v) <= big and all(isinstance(x, (int, float)) for x in v):
             clean[k] = v
         elif isinstance(v, dict) and len(v) <= 8 and all(isinstance(x, (int, float)) and isinstance(kk, str) for kk, x in v.items()):
             clean[k] = v  # e.g. main = {station, terminal}
-        elif isinstance(v, list) and len(v) <= 64 and all(isinstance(x, dict) and len(x) <= 8 and all(isinstance(y, (int, float)) and isinstance(kk, str) for kk, y in x.items()) for x in v):
-            clean[k] = v  # e.g. alternatives = [{station, terminal}, ...]
+        elif isinstance(v, list) and len(v) <= big and all(isinstance(x, dict) and len(x) <= 8 and all(isinstance(y, (int, float, bool)) and isinstance(kk, str) for kk, y in x.items()) for x in v):
+            clean[k] = v  # e.g. alternatives = [{station, terminal}, ...], route = [{x, y}, ...]
+        else:
+            console.say(f"command {cmd}: argument {k} dropped (unsupported shape or too big)", "warn")
     with _cmd_lock:
         _cmd_seq[0] += 1
         cid = _cmd_seq[0]
@@ -624,6 +629,250 @@ def api_geo(q: dict) -> dict:
     return data
 
 
+# ---------------------------------------------------------------- predicted line routes
+# Until a vehicle has driven a leg (mod rev 11 reports the real MOVE_PATH edges), the route of a line is predicted on
+# the exported geography: shortest path over the street edges for buses / trucks / trams, over the track edges for
+# trains, over the water cells of the land/water grid for ships (so they hug the coast instead of crossing land),
+# straight for aircraft. Pure Python, cached per (game, geo_seq, line stops); a 5 000-edge network takes ~50 ms per leg.
+import heapq
+
+_route_cache: dict = {"key": None, "graphs": {}, "lines": {}}
+
+
+def _geo_graph(edges: list, kind_test) -> dict:
+    """Undirected graph over the geo edges whose kind passes kind_test: nodes = rounded endpoints (5 m snap)."""
+    def key(x, y):
+        return (int(round(x / 5.0)), int(round(y / 5.0)))
+    adj: dict = {}
+    pos: dict = {}
+    for e in edges:
+        if len(e) < 5 or not kind_test(e[4]):
+            continue
+        a, b = key(e[0], e[1]), key(e[2], e[3])
+        if a == b:
+            continue
+        pos.setdefault(a, (e[0], e[1])); pos.setdefault(b, (e[2], e[3]))
+        d = math.hypot(e[2] - e[0], e[3] - e[1])
+        adj.setdefault(a, []).append((b, d, e)); adj.setdefault(b, []).append((a, d, e))
+    return {"adj": adj, "pos": pos, "nodes": list(pos.keys())}
+
+
+def _nearest_node(gr: dict, x: float, y: float, limit: float = 400.0):
+    best, bd = None, limit * limit
+    for n, (px, py) in gr["pos"].items():
+        d = (px - x) ** 2 + (py - y) ** 2
+        if d < bd:
+            best, bd = n, d
+    return best
+
+
+def _dijkstra(gr: dict, a, b) -> list | None:
+    """Returns the list of edge records from a to b, or None."""
+    if a is None or b is None or a == b:
+        return None
+    dist = {a: 0.0}; prev = {}; pq = [(0.0, a)]
+    pos = gr["pos"]; bx, by = pos[b]
+    while pq:
+        d, n = heapq.heappop(pq)
+        if n == b:
+            break
+        if d > dist.get(n, 1e18):
+            continue
+        for m, w, e in gr["adj"].get(n, ()):
+            nd = d + w
+            if nd < dist.get(m, 1e18):
+                dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
+    if b not in prev:
+        return None
+    out = []; n = b
+    while n != a:
+        p, e = prev[n]; out.append(e); n = p
+    out.reverse()
+    return out
+
+
+def _water_route(geo: dict, ax: float, ay: float, bx: float, by: float) -> list | None:
+    """A* over the water cells of the land/water grid (8-neighbour); returns a polyline [[x, y], ...] or None."""
+    grid, rowsrl, bounds = geo.get("grid"), geo.get("water_rows"), geo.get("bounds")
+    if not grid or not rowsrl or not bounds:
+        return None
+    nx, ny = grid
+    cw, ch = (bounds[2] - bounds[0]) / nx, (bounds[3] - bounds[1]) / ny
+    water = [bytearray(nx) for _ in range(ny)]
+    for r, line in enumerate(rowsrl[:ny]):
+        col, on = 0, False
+        for n in str(line).split(","):
+            n = int(n or 0)
+            if on:
+                for k in range(col, min(nx, col + n)):
+                    water[r][k] = 1
+            col += n; on = not on
+    def cell(x, y):
+        c = min(nx - 1, max(0, int((x - bounds[0]) / cw))); r = min(ny - 1, max(0, int((bounds[3] - y) / ch)))
+        return (c, r)
+    def centre(c):
+        return [bounds[0] + (c[0] + 0.5) * cw, bounds[3] - (c[1] + 0.5) * ch]
+    def nearest_water(c, rad=6):
+        if water[c[1]][c[0]]:
+            return c
+        best, bd = None, 1e9
+        for dr in range(-rad, rad + 1):
+            for dc in range(-rad, rad + 1):
+                cc, rr = c[0] + dc, c[1] + dr
+                if 0 <= cc < nx and 0 <= rr < ny and water[rr][cc] and dc * dc + dr * dr < bd:
+                    best, bd = (cc, rr), dc * dc + dr * dr
+        return best
+    s, t = nearest_water(cell(ax, ay)), nearest_water(cell(bx, by))
+    if s is None or t is None:
+        return None
+    # cost: 1 per step (1.414 diagonal) + a small penalty next to land so the route keeps a little off the shore
+    def shore(c):
+        for dc, dr in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            cc, rr = c[0] + dc, c[1] + dr
+            if not (0 <= cc < nx and 0 <= rr < ny) or not water[rr][cc]:
+                return 0.6
+        return 0.0
+    h = lambda c: math.hypot(c[0] - t[0], c[1] - t[1])
+    g = {s: 0.0}; prev = {}; pq = [(h(s), s)]; seen = set()
+    while pq:
+        _, c = heapq.heappop(pq)
+        if c == t:
+            break
+        if c in seen:
+            continue
+        seen.add(c)
+        for dc in (-1, 0, 1):
+            for dr in (-1, 0, 1):
+                if not dc and not dr:
+                    continue
+                m = (c[0] + dc, c[1] + dr)
+                if not (0 <= m[0] < nx and 0 <= m[1] < ny) or not water[m[1]][m[0]]:
+                    continue
+                if dc and dr and not (water[c[1]][m[0]] and water[m[1]][c[0]]):
+                    continue  # no corner cutting through land
+                ng = g[c] + (1.4142 if dc and dr else 1.0) + shore(m)
+                if ng < g.get(m, 1e18):
+                    g[m] = ng; prev[m] = c; heapq.heappush(pq, (ng + h(m), m))
+    if t not in prev and t != s:
+        return None
+    path = [t]; c = t
+    while c != s:
+        c = prev[c]; path.append(c)
+    path.reverse()
+    pts = [[ax, ay]] + [centre(c) for c in path[1:-1]] + [[bx, by]]
+    # thin collinear-ish points (keep every change of direction)
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        a, b, c = out[-1], pts[i], pts[i + 1]
+        if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) > 1.0:
+            out.append(b)
+    out.append(pts[-1])
+    return out
+
+
+def _line_mode(transport_modes) -> str:
+    try:
+        tm = set(json.loads(transport_modes) if isinstance(transport_modes, str) else (transport_modes or []))
+    except (TypeError, ValueError):
+        tm = set()
+    if tm & {7, 8}:
+        return "rail"
+    if tm & {10, 12}:
+        return "water"
+    if tm & {9, 11, 13}:
+        return "air"
+    return "road"  # bus, truck, tram (trams run on street edges)
+
+
+def predicted_routes(gid: int) -> dict:
+    """{line_id: {"mode", "legs": [{"stop": i, "edges": [ids]} | {"stop": i, "points": [[x, y], ...]}]}} for every line
+    with 2+ located stops. Cached until the geography or the set of stops changes."""
+    grow = one("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,))
+    if not grow:
+        return {}
+    stops = rows("""SELECT ls.line_id, ls.stop_index, l.transport_modes, COALESCE(s1.x, s2.x, i.x) AS x, COALESCE(s1.y, s2.y, i.y) AS y
+                    FROM line_stop ls JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    LEFT JOIN station s1 ON s1.game_id=ls.game_id AND s1.station_id=ls.station_group
+                    LEFT JOIN station s2 ON s2.game_id=ls.game_id AND s2.station_group=ls.station_group
+                        AND s2.station_id=(SELECT MIN(station_id) FROM station x WHERE x.game_id=ls.game_id AND x.station_group=ls.station_group AND x.x IS NOT NULL)
+                    LEFT JOIN industry i ON i.game_id=ls.game_id AND i.x IS NOT NULL AND s1.x IS NULL AND s2.x IS NULL
+                        AND i.industry_id=(SELECT MIN(industry_id) FROM industry y WHERE y.game_id=ls.game_id AND y.name=ls.name AND y.x IS NOT NULL)
+                    WHERE ls.game_id=? ORDER BY ls.line_id, ls.stop_index""", (gid,))
+    key = (gid, grow["geo_seq"], tuple((s["line_id"], s["stop_index"], s["x"], s["y"]) for s in stops))
+    if _route_cache["key"] == key:
+        return _route_cache["lines"]
+    geo = json.loads(grow["data"])
+    edges = geo.get("edges") or []
+    graphs = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+    by_line: dict = {}
+    for s in stops:
+        by_line.setdefault(s["line_id"], {"modes": s["transport_modes"], "stops": []})
+        if s["x"] is not None:
+            by_line[s["line_id"]]["stops"].append((s["stop_index"], s["x"], s["y"]))
+    out: dict = {}
+    t0 = time.time()
+    for lid, d in by_line.items():
+        st = d["stops"]
+        if len(st) < 2:
+            continue
+        mode = _line_mode(d["modes"])
+        legs = []
+        n = len(st)
+        for i in range(n):
+            a, b = st[i], st[(i + 1) % n]
+            if n == 2 and i == 1:
+                break  # a shuttle: one leg, the way back is the same
+            if mode in ("road", "rail"):
+                gr = graphs[mode]
+                p = _dijkstra(gr, _nearest_node(gr, a[1], a[2]), _nearest_node(gr, b[1], b[2]))
+                if p:
+                    legs.append({"stop": b[0], "edges": [e[5] for e in p if len(e) > 5]})
+                    continue
+            elif mode == "water":
+                p = _water_route(geo, a[1], a[2], b[1], b[2])
+                if p:
+                    legs.append({"stop": b[0], "points": p}); continue
+            legs.append({"stop": b[0], "points": [[a[1], a[2]], [b[1], b[2]]]})
+        out[lid] = {"mode": mode, "legs": legs}
+    console.say(f"line routes predicted for {len(out)} lines in {int((time.time() - t0) * 1000)} ms", "info")
+    _route_cache.update({"key": key, "lines": out})
+    return out
+
+
+def api_line_paths(q: dict) -> dict:
+    """Where each line runs: {line_id: {"mode", "legs": [{stop, edges: [edge entity ids]} | {stop, points}]}}.
+    Legs driven by a vehicle (mod rev 11, MOVE_PATH) are real; the others are predicted on the geography
+    (see predicted_routes) and flagged "predicted". `stamp` lets the browser skip an unchanged answer."""
+    gid = _gid()
+    try:
+        rs = rows("SELECT line_id, stop_index, edges, received_at FROM line_path WHERE game_id=? ORDER BY line_id, stop_index", (gid,))
+    except sqlite3.OperationalError:
+        rs = []
+    real: dict = {}
+    for r in rs:
+        real.setdefault(r["line_id"], {})[r["stop_index"]] = json.loads(r["edges"])
+    pred = predicted_routes(gid)
+    stamp = f"{max((r['received_at'] for r in rs), default='')}|{_route_cache['key'] and hash(_route_cache['key'])}"
+    if q.get("have", [None])[0] == stamp:
+        return {"stamp": stamp, "unchanged": True}
+    out: dict = {}
+    for lid in set(real) | set(pred):
+        legs = []
+        pl = pred.get(lid, {}).get("legs", [])
+        seen = set()
+        for leg in pl:
+            s = leg["stop"]; seen.add(s)
+            if lid in real and s in real[lid]:
+                legs.append({"stop": s, "edges": real[lid][s]})
+            else:
+                legs.append(dict(leg, predicted=True))
+        for s, e in sorted((real.get(lid) or {}).items()):
+            if s not in seen:
+                legs.append({"stop": s, "edges": e})
+        out[lid] = {"mode": pred.get(lid, {}).get("mode"), "legs": legs}
+    return {"stamp": stamp, "lines": out}
+
+
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
 RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
 
@@ -731,8 +980,22 @@ def _game_key() -> str | None:
 
 def _view_num(v, name: str) -> float:
     if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
-        raise ValueError(f"bad {name}")
+        # the camera block of the latest snapshot lacks a number: mod older than rev 7, or a snapshot written while
+        # the camera API was unavailable (loading screen) - say so instead of "bad dist"
+        raise ValueError(f"the current camera has no {name} (wait for the next snapshot, or update the mod)")
     return float(v)
+
+
+def _view_follow(cam: dict, body: dict) -> dict:
+    """A view attached to a vehicle (rev 11): when the camera was following one and the caller asked to keep it
+    (body.attach true), store the entity and its name; recalled with follow_view instead of set_camera."""
+    if not body.get("attach"):
+        return {}
+    ent = cam.get("follow")
+    if not isinstance(ent, (int, float)) or isinstance(ent, bool) or ent <= 0:
+        raise ValueError("camera is not following a vehicle")
+    r = one("SELECT name FROM vehicle WHERE vehicle_id=? ORDER BY last_seen DESC LIMIT 1", (int(ent),))
+    return {"follow": int(ent), "follow_name": (r["name"] if r else None)}
 
 
 def api_views(q: dict) -> dict:
@@ -757,12 +1020,14 @@ def edit_views(body: dict) -> dict:
             cam = body.get("camera") or {}
             name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX] or f"View {len(views) + 1}"
             views.append({"id": max([v.get("id", 0) for v in views] + [0]) + 1, "name": name,
-                          **{k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")}})
+                          **{k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")}, **_view_follow(cam, body)})
         elif idx is None:
             raise ValueError("unknown view")
         elif action == "update":  # overwrite the camera, keep the name
             cam = body.get("camera") or {}
             views[idx].update({k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")})
+            views[idx].pop("follow", None); views[idx].pop("follow_name", None)
+            views[idx].update(_view_follow(cam, body))
         elif action == "rename":
             name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX]
             if not name:
@@ -941,7 +1206,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 

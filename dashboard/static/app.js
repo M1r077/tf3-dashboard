@@ -1550,43 +1550,53 @@
   }
   // terrain bitmap at grid resolution, built once per geography: land shaded by height (dark low, lighter high,
   // with a soft hill shade from the west), water cells blue. Rows are run lengths starting with land, north first.
+  // terrain bitmap at `sub` x the grid resolution (the shore cells carry a sub x sub land/water mask: 11 m on an
+  // 11 km map), built once per geography. Land: hillshade on the theme tone, plus on the light themes a height ramp
+  // (green - ochre - grey - snow) so the mountains read as mountains. Water: theme blue.
   function terrainBitmap(g, withWater) {
     if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
-    const [nx, ny] = g.grid, c = document.createElement("canvas"); c.width = nx; c.height = ny;
-    const ctx = c.getContext("2d"), img = ctx.createImageData(nx, ny), px = img.data;
+    const [nx, ny] = g.grid, sub = g.shore_sub || 1, W = nx * sub, Hh = ny * sub;
+    const c = document.createElement("canvas"); c.width = W; c.height = Hh;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(W, Hh), px = img.data;
+    const th = mapTheme(), relief = mapPrefs().relief, light = th.land[0] > 80;
     const every = g.height_every || 4, hx = Math.ceil(nx / every), hy = Math.ceil(ny / every), H = g.heights || [];
     const [hmin, hmax] = g.height_range && g.height_range.length === 2 ? g.height_range : [0, 1];
     const hRaw = (ci, ri) => { ci = Math.max(0, Math.min(hx - 1, ci)); ri = Math.max(0, Math.min(hy - 1, ri)); const v = H[ri * hx + ci]; return v != null ? v : hmin; };
-    // bicubic-ish: bilinear on the coarse samples, then the per-cell slopes come from the smooth field, not the
-    // sample steps; `every` cells per sample so the relief reads as hills, not as blocks
     const hAt = (col, row) => { const fx = Math.max(0, col / every - 0.5), fy = Math.max(0, row / every - 0.5), ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri; const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty); return (hRaw(ci, ri) * (1 - sx) + hRaw(ci + 1, ri) * sx) * (1 - sy) + (hRaw(ci, ri + 1) * (1 - sx) + hRaw(ci + 1, ri + 1) * sx) * sy; };
-    // hillshade: light from the north-west, 45 degrees up; slopes in m/m from the cell size; vertical exaggeration
-    // so a 10 % slope is clearly visible on a flat-looking game map
-    const th = mapTheme(), relief = mapPrefs().relief;
-    const cell = (g.bounds[2] - g.bounds[0]) / nx, zx = 1.6 * relief;
-    const lx = -0.5, ly = -0.5, lz = 0.7071;  // unit light vector (x east, y south in image space)
-    const land = th.land, water = th.water;
+    // smooth height field at grid resolution (3x3 blur), slopes from it
     const hb0 = new Float32Array(nx * ny), hb = new Float32Array(nx * ny);
     for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) hb0[row * nx + col] = hAt(col, row);
-    // 3x3 box blur: takes the last steps out of the interpolated field
     for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) { let s = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const r = row + dy, q = col + dx; if (r >= 0 && r < ny && q >= 0 && q < nx) { s += hb0[r * nx + q]; n++; } } hb[row * nx + col] = s / n; }
     const hAtB = (col, row) => hb[Math.max(0, Math.min(ny - 1, row)) * nx + Math.max(0, Math.min(nx - 1, col))];
+    const cell = (g.bounds[2] - g.bounds[0]) / nx, zx = 1.6 * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    // land / water at grid resolution, then the shore masks
+    const wat = new Uint8Array(nx * ny);
+    for (let row = 0; row < ny; row++) { const runs = String(g.water_rows[row] || "").split(",").map(Number); let col = 0, on = false; for (const n of runs) { if (on) for (let k = 0; k < n && col + k < nx; k++) wat[row * nx + col + k] = 1; col += n; on = !on; } }
+    const shore = new Map(); (g.shore || []).forEach(s => shore.set(s[1] * nx + s[0], s[2]));
+    // height ramp for the light themes: [t, r, g, b]
+    const ramp = [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
+    const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
+    const water = th.water;
     for (let row = 0; row < ny; row++) {
-      const runs = String(g.water_rows[row] || "").split(",").map(Number);
-      let col = 0, on = false;
-      for (const n of runs) {
-        for (let k = 0; k < n && col < nx; k++, col++) {
-          const o = (row * nx + col) * 4;
-          if (on && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
-          const dzdx = (hAtB(col + 1, row) - hAtB(col - 1, row)) / (2 * cell) * zx, dzdy = (hAtB(col, row + 1) - hAtB(col, row - 1)) / (2 * cell) * zx;
-          const nl = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
-          const shade = Math.max(0, (-dzdx * lx - dzdy * ly + lz) * nl);  // 0.71 on flat ground
-          const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;          // flat = 0.6, lit slopes brighter, shadowed darker
-          const t = relief ? Math.max(0, Math.min(1, (hAtB(col, row) - hmin) / Math.max(1, hmax - hmin))) * 0.25 : 0;  // a hint of height
-          const bright = th.land[0] > 128 ? 1.35 : 1;  // light themes: the land tone is the lit value, not the base
-          px[o] = Math.min(255, Math.round(land[0] * (f + t) * bright)); px[o + 1] = Math.min(255, Math.round(land[1] * (f + t) * bright)); px[o + 2] = Math.min(255, Math.round(land[2] * (f + t) * bright)); px[o + 3] = 255;
+      for (let col = 0; col < nx; col++) {
+        const i = row * nx + col, mask = shore.get(i);
+        // land colour of the cell (hillshade x ramp or tone)
+        const dzdx = (hAtB(col + 1, row) - hAtB(col - 1, row)) / (2 * cell) * zx, dzdy = (hAtB(col, row + 1) - hAtB(col, row - 1)) / (2 * cell) * zx;
+        const nl = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+        const shade = Math.max(0, (-dzdx * lx - dzdy * ly + lz) * nl);
+        const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;
+        const tH = Math.max(0, Math.min(1, (hAtB(col, row) - hmin) / Math.max(1, hmax - hmin)));
+        let r, gg, b;
+        if (light) { const base = rampAt(tH); const k = 0.75 + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k; }
+        else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
+        // snow on the dark themes too: a light cap above 90 % of the range
+        if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
+        for (let sr = 0; sr < sub; sr++) for (let sc = 0; sc < sub; sc++) {
+          const isW = mask != null ? ((mask >> (sr * sub + sc)) & 1) === 1 : wat[i] === 1;
+          const o = ((row * sub + sr) * W + col * sub + sc) * 4;
+          if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; }
+          else { px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255; }
         }
-        on = !on;
       }
     }
     ctx.putImageData(img, 0, 0);
@@ -1609,11 +1619,13 @@
       else { ctx.fillStyle = `rgb(${th.land.join(",")})`; ctx.fillRect(ax, ay, bx - ax, by - ay); }
       ctx.strokeStyle = th.frame; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1);
     }
-    if (showW && g.water) {
-      ctx.fillStyle = WATER_FILL; ctx.strokeStyle = WATER_FILL; ctx.lineWidth = 1;
+    // river / lake meshes: only where the grid has no shore detail (no refined cells yet = older mod); with the
+    // refined grid the meshes would add tile-seam jaggies on top of a better picture
+    if (showW && g.water && !(g.shore && g.shore.length)) {
+      ctx.fillStyle = WATER_FILL;
       ctx.beginPath();
       g.water.forEach(c => { for (let i = 0; i < c.length; i += 2) { const [x, y] = P(c[i], c[i + 1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); } ctx.closePath(); });
-      ctx.fill("evenodd"); ctx.stroke();
+      ctx.fill("evenodd");
     }
     if (showN && g.edges) {
       // streets thin and dark, tracks lighter; bridges a shade lighter, tunnels dashed. Below ~0.05 px/m streets

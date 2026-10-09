@@ -1358,6 +1358,7 @@ local GEO_MIN_INTERVAL = 60        -- s between two collections when the network
 local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
 local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
 local GEO_HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
+local GEO_SHORE_SUB = 4            -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (11 m on an 11 km map)
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
 local geoSeq = 0
@@ -1472,7 +1473,8 @@ local function geoJobStart()
 		local w, h = geo.bounds[3] - geo.bounds[1], geo.bounds[4] - geo.bounds[2]
 		if w > 0 and h > 0 then
 			local ny = math.max(8, math.floor(n * h / math.max(w, h) + 0.5)); local nx = math.max(8, math.floor(n * w / math.max(w, h) + 0.5))
-			grid = { nx = nx, ny = ny, i = 0, rows = {}, cur = {}, run = nil, runOn = nil, heights = {}, hsum = 0, hmin = math.huge, hmax = -math.huge }
+			grid = { nx = nx, ny = ny, i = 0, rows = {}, cur = {}, run = nil, runOn = nil, heights = {}, hsum = 0, hmin = math.huge, hmax = -math.huge,
+				cells = {}, shoreList = nil, si = 0, shore = {} }
 			geo.grid = { nx, ny }
 		end
 	end
@@ -1494,6 +1496,7 @@ local function geoGridStep(job)
 		local x, y = b[1] + (col + 0.5) * cw, b[4] - (row + 0.5) * ch  -- rows from north (max y) to south
 		local p = Vec2f.new(x, y)
 		local on = api.engine.terrain.isOnWater(p) and true or false
+		g.cells[g.i] = on
 		if col == 0 then g.cur = {}; g.run = 0; g.runOn = false end
 		if on == g.runOn then g.run = g.run + 1
 		else g.cur[#g.cur + 1] = g.run; g.run = 1; g.runOn = on end
@@ -1506,6 +1509,51 @@ local function geoGridStep(job)
 			if hv > g.hmax then g.hmax = hv end
 		end
 		g.i = g.i + 1
+	end
+	return false
+end
+
+-- shore refinement: once the coarse grid is complete, list the cells whose 4-neighbourhood mixes land and water,
+-- then sample each SUBxSUB; a cell = { col, row, mask } with bit k = sub-cell k (row-major, north-west first) on water.
+-- A coast of 11 km on a 256 grid is ~1 500 boundary cells = 24 000 extra samples, a second of frames.
+local function geoShoreStep(job)
+	local g = job.grid
+	if g.shoreList == nil then
+		local list = {}
+		for row = 0, g.ny - 1 do
+			for col = 0, g.nx - 1 do
+				local i = row * g.nx + col
+				local c = g.cells[i]
+				local mixed = (col > 0 and g.cells[i - 1] ~= c) or (col < g.nx - 1 and g.cells[i + 1] ~= c)
+					or (row > 0 and g.cells[i - g.nx] ~= c) or (row < g.ny - 1 and g.cells[i + g.nx] ~= c)
+				if mixed then list[#list + 1] = i end
+			end
+		end
+		g.shoreList = list
+		g.cells = nil  -- the coarse samples are in the rows already
+		debug(string.format("geo: %d shore cells to refine (%dx%d sub-samples each)", #list, GEO_SHORE_SUB, GEO_SHORE_SUB))
+		return #list == 0
+	end
+	local b = job.geo.bounds
+	local cw, ch = (b[3] - b[1]) / g.nx, (b[4] - b[2]) / g.ny
+	local sub = GEO_SHORE_SUB
+	local Vec2f = api.type.Vec2f
+	local budgetCells = math.max(1, math.floor(GEO_GRID_BATCH / (sub * sub)))
+	for _ = 1, budgetCells do
+		g.si = g.si + 1
+		local i = g.shoreList[g.si]
+		if i == nil then return true end
+		local col, row = i % g.nx, math.floor(i / g.nx)
+		local x0, y0 = b[1] + col * cw, b[4] - row * ch
+		local mask, bit = 0, 1
+		for sr = 0, sub - 1 do
+			for sc = 0, sub - 1 do
+				local p = Vec2f.new(x0 + (sc + 0.5) * cw / sub, y0 - (sr + 0.5) * ch / sub)
+				if api.engine.terrain.isOnWater(p) then mask = mask + bit end
+				bit = bit * 2
+			end
+		end
+		g.shore[#g.shore + 1] = { col, row, mask }
 	end
 	return false
 end
@@ -1585,6 +1633,7 @@ local function geoJobRun(budget)
 		if job.wi < #job.water then geoWaterStep(job)
 		elseif job.ei < #job.edges then geoEdgeStep(job)
 		elseif job.grid and job.grid.i < job.grid.nx * job.grid.ny then geoGridStep(job)
+		elseif job.grid and not job.grid.shoreDone then job.grid.shoreDone = geoShoreStep(job)
 		else done = true end
 		if done then
 			job.geo.duration = os.clock() - job.started
@@ -1594,6 +1643,8 @@ local function geoJobRun(budget)
 				job.geo.heights = job.grid.heights
 				job.geo.height_every = GEO_HEIGHT_EVERY
 				job.geo.height_range = { job.grid.hmin, job.grid.hmax }
+				job.geo.shore = job.grid.shore
+				job.geo.shore_sub = GEO_SHORE_SUB
 			end
 			geoJob = nil
 			return job
@@ -1607,9 +1658,9 @@ local function geoWrite(job)
 	local ok, err = pcall(app.saveUserdata, DIR, GEO_FILE, job.geo)
 	if not ok then log("saveUserdata failed for geo:", tostring(err)); return false end
 	geoCache = { geo_seq = job.geo.geo_seq, edges = #job.geo.edges, water = #job.geo.water }
-	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), grid %s (%d heights), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
+	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), grid %s (%d heights, %d shore cells), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
 		#job.geo.edges, #job.geo.water, job.vertsIn, job.vertsOut, job.geo.grid and (job.geo.grid[1] .. "x" .. job.geo.grid[2]) or "none",
-		job.geo.heights and #job.geo.heights or 0, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
+		job.geo.heights and #job.geo.heights or 0, job.geo.shore and #job.geo.shore or 0, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
 	for i = 1, math.min(3, #job.geo.errors) do log("  geo error:", job.geo.errors[i].section, job.geo.errors[i].error) end
 	return true
 end

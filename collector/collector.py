@@ -242,7 +242,9 @@ class Store:
                 # land/water grid (run lengths per row, north first) + coarse heights: see the mod's geoGridStep
                 "grid": as_list(geo.get("grid")) or None, "water_rows": as_list(geo.get("water_rows")),
                 "heights": as_list(geo.get("heights")), "height_every": geo.get("height_every"),
-                "height_range": as_list(geo.get("height_range")) or None}
+                "height_range": as_list(geo.get("height_range")) or None,
+                # shore refinement: [col, row, mask] per boundary cell, mask bit k = sub-cell k on water
+                "shore": [as_list(s) for s in as_list(geo.get("shore"))], "shore_sub": geo.get("shore_sub")}
         import hashlib
         digest = hashlib.sha1(json.dumps(data, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
         row = self.con.execute("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,)).fetchone()

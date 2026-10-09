@@ -84,14 +84,14 @@
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
   $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
-  /** uPlot options for a server series: real-time x axis + where the per-minute aggregated part ends. With a
-   *  game-time range selected the axis ticks read the game month instead of the clock (xGame = month labels). */
-  const GAME_RANGE = (r) => /g[my]$/.test(r);
+  /** uPlot options for a server series: real-time x axis (even spacing, aggregate shading) whose ticks read the
+   *  GAME month, whatever the range: a player thinks in game dates, not in the clock on the wall (xGame = labels). */
   const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月` : `${MON()[s.month]} ${s.year}`;
   function tsOpts(hist, syncKey) {
     if (!hist.length || hist[0].ts == null) return {};
     let aggFrom = 0; while (aggFrom < hist.length && hist[aggFrom].agg) aggFrom++;
-    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: GAME_RANGE(settings.range) ? hist.map(monthLabel) : null };
+    const months = hist.map(monthLabel);
+    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: months.some(Boolean) ? months : null };
   }
 
   // ------------------------------------------------------------ icons

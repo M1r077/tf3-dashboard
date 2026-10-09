@@ -205,16 +205,18 @@
     const { w, h } = hostSize(canvas, host);
     const hid = hidden[key] || (hidden[key] = new Set());
     const span = timeAxis ? xs[n - 1] - xs[0] : 0;
-    const getLabel = (i) => timeAxis ? `${fmtTime(xs[i], span)}${labels && labels[i] ? " · " + labels[i] : ""}` : dateTick(labels, i) || "#" + i;
-    // game-time ranges: the axis still runs on real time underneath (even spacing, aggregate shading) but the ticks
-    // read the game date of the nearest sample, each date written once
+    const getLabel = (i) => timeAxis ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(xs[i], span)}` : fmtTime(xs[i], span)) : dateTick(labels, i) || "#" + i;
+    // game dates on the axis: it still runs on real time underneath (even spacing, aggregate shading) but the ticks
+    // read the game month, one tick where each month begins. A window inside a single month (a few real minutes)
+    // falls back to the per-sample day labels so the axis still says something.
     const gameTicks = timeAxis && opts.xGame && opts.xGame.length === n;
-    // one tick where each game month begins (the first sample carrying a new label); thinned to fit ~90 px apart
-    const monthStarts = gameTicks ? xs.filter((x, i) => opts.xGame[i] && (i === 0 || opts.xGame[i] !== opts.xGame[i - 1])) : [];
+    let monthStarts = gameTicks ? xs.filter((x, i) => opts.xGame[i] && (i === 0 || opts.xGame[i] !== opts.xGame[i - 1])) : [];
+    let tickLabels = opts.xGame;
+    if (gameTicks && monthStarts.length < 2 && labels && labels.length === n) { tickLabels = labels; monthStarts = xs.filter((x, i) => labels[i] && (i === 0 || labels[i] !== labels[i - 1])); }
     // keep a month start only when it lands >= 70 px right of the previous one kept (the latest months win, since the
     // reader looks at the right end), so labels never overlap even across a save-reload jump
     const gameSplits = (u) => { const out = []; let lastPx = Infinity; for (let i = monthStarts.length - 1; i >= 0; i--) { const px = u.valToPos(monthStarts[i], "x"); if (lastPx - px >= 70) { out.unshift(monthStarts[i]); lastPx = px; } } return out; };
-    const labelAt = new Map(); if (gameTicks) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, opts.xGame[i]); });
+    const labelAt = new Map(); if (gameTicks) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, tickLabels[i]); });
     const gameAxisValues = (u, vals) => vals.map(v => labelAt.get(v) || "");
 
     const yRange = (u, min, max, scaleKey) => {

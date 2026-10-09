@@ -729,7 +729,7 @@
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
     const keepStops = state.editStop && state.editStop.line === id && $("#line-stops-wrap tr.editing", el) ? $("#line-stops-wrap", el) : null;
     el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
-      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button>${travel.active && travel.active.kind === "line" && travel.active.id === id ? `<button class="btn" id="line-travel" data-stop="1">${ico("stop", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 ? "disabled" : ""}>${ico("follow", "sm")}${t("line_travel")}</button>`}</div>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button>${travel.active && travel.active.kind === "line" && travel.active.id === id ? `<button class="btn" id="line-travel" data-stop="1">${ico("stop", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 ? "disabled" : ""}>${ico("follow", "sm")}${t("line_travel")}</button>`}${music.el && !travel.active ? `<button class="btn" id="line-music-off">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}</div>
       <p class="muted">${l.stop_names.map(esc).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}</table>
       <h2 style="margin-top:12px">${ico("line_stations")}${t("stops_title")} <small>${(l.stop_list || []).length}</small></h2>
@@ -768,20 +768,27 @@
       { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
-    $("#line-travel").addEventListener("click", (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else lineTravelling(l); renderLineDetail(id); });
+    $("#line-travel").addEventListener("click", async (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else await lineTravelling(l); renderLineDetail(id); });
+    const mo = $("#line-music-off"); if (mo) mo.addEventListener("click", () => { musicStop(); renderLineDetail(id); });
     bindActions(el);
   }
   // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour, rev 10):
   // fly to the nearest vehicle, track it for `dwell` seconds (slow push-in, drift round it), hop to the next.
   // The dashboard only sends the parameters: duration pref = seconds per vehicle, amp = tracking distance,
   // loop = start over when every vehicle was seen. Music as for the other travellings.
-  function lineTravelling(l) {
+  async function lineTravelling(l) {
+    // the route = the stops of the line in order (map data); the mod glides along it and lingers at the vehicles
+    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { return; } }
+    const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
+    const route = ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : [];
+    if (route.length < 2) return;
     const prefs = travelPrefs();
     const nveh = (l.live && l.live.n) || 1;
     const dwell = Math.max(4, Math.min(20, prefs.dur / 2)), alt = 260 * prefs.amp;
-    const dur = nveh * (dwell + 5);  // rough: dwell + a hop per vehicle, for the music fade-out
-    sendCmd("camera_tour", { line: l.line_id, dwell, alt, loop: prefs.loop });
-    travel.active = { kind: "line", id: l.line_id, points: [], loop: prefs.loop, at: Date.now(), dur };
+    const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0);
+    const dur = nveh * dwell + len / (alt / 3);  // dwell per vehicle + the cruise over the route, for the music fade-out
+    sendCmd("camera_tour", { line: l.line_id, route, dwell, alt, loop: prefs.loop });
+    travel.active = { kind: "line", id: l.line_id, points: route.map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye on the route itself
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: nveh };
     musicStart({ ...prefs, dur });
     renderCamViews(); if (map.data) drawMap($("#map"));
@@ -1330,9 +1337,11 @@
       // "auto" (default) = a random track of the folder, so dropping files in music/ is all it takes
       row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
         <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">
-        <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("play_1", "sm")}${t("cam_music_tail")}</button>`;
+        <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("play_1", "sm")}${t("cam_music_tail")}</button>
+        ${music.el && !path ? `<button class="btn" data-tmute title="${esc(t("cam_music_off"))}">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}`;
       $$("[data-tset=music] button", row).forEach(b => b.addEventListener("click", () => { tp.music = b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
       $("[data-ttail]", row).addEventListener("click", () => { tp.tail = !tp.tail; saveTravelPrefs(tp); renderCamViews(); });
+      const mute = $("[data-tmute]", row); if (mute) mute.addEventListener("click", () => { musicStop(); renderCamViews(); });
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; saveTravelPrefs(tp); if (music.el) music.el.volume = tp.vol; });
     });
     $$(".cv", box).forEach(el => {

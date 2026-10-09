@@ -2078,6 +2078,13 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
 
+	-- line paths: a small file, only when a leg changed; its own frame
+	if linePathsDirty then
+		local okL, wrote = pcall(linePathsWrite)
+		if not okL then log("line paths write failed:", tostring(wrote)); linePathsDirty = false end
+		if wrote then return end
+	end
+
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge
 	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete
 	if geoJob == nil and now - lastGeoAt >= GEO_MIN_INTERVAL then

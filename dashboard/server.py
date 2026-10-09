@@ -624,6 +624,23 @@ def api_geo(q: dict) -> dict:
     return data
 
 
+def api_line_paths(q: dict) -> dict:
+    """Where each line runs (mod rev 11): {line_id: {stop_index: [edge entity ids]}}; the ids index geo.edges[][5].
+    Small (a few KB) and changes rarely; `stamp` = latest received_at so the browser can skip an unchanged answer."""
+    gid = _gid()
+    try:
+        rs = rows("SELECT line_id, stop_index, edges, received_at FROM line_path WHERE game_id=? ORDER BY line_id, stop_index", (gid,))
+    except sqlite3.OperationalError:
+        rs = []
+    stamp = max((r["received_at"] for r in rs), default=None)
+    if stamp and q.get("have", [None])[0] == stamp:
+        return {"stamp": stamp, "unchanged": True}
+    out: dict[int, dict] = {}
+    for r in rs:
+        out.setdefault(r["line_id"], {})[r["stop_index"]] = json.loads(r["edges"])
+    return {"stamp": stamp, "lines": out}
+
+
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
 RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
 
@@ -941,7 +958,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 

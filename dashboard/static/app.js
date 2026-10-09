@@ -1438,7 +1438,7 @@
     if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
-    await loadGeo();
+    await loadGeo(); await loadLinePaths();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1474,11 +1474,44 @@
       const g = await api("/api/geo" + (geo.seq != null ? `?have=${geo.seq}&game=${geo.game}` : ""));
       if (g.unchanged) return;
       if (!g.available) { geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; return; }
-      geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = "";
+      geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = ""; geo.edgeById = null;
       // first geography of the session: refit on the real bounds, unless the player already has a view (panned / zoomed /
       // restored from the last visit) - never move the map under their hands
       if (!geo.firstFit && !map.userView) map.fitted = false; geo.firstFit = true;
     } catch (e) { /* older server: no endpoint */ }
+  }
+  // line paths (mod rev 11): per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
+  // rebuilt when either the paths or the geography changed.
+  const linePaths = { stamp: null, lines: null, poly: {}, builtFor: "" };
+  async function loadLinePaths() {
+    try {
+      const r = await api("/api/line_paths" + (linePaths.stamp ? `?have=${encodeURIComponent(linePaths.stamp)}` : ""));
+      if (r.unchanged) return;
+      linePaths.stamp = r.stamp; linePaths.lines = r.lines || null; linePaths.builtFor = "";
+    } catch (e) { /* older server */ }
+  }
+  // one polyline per leg: each edge is a segment [x0,y0,x1,y1]; orient it to continue from the previous end
+  // (edge ids come in travel order, the segment endpoints in the network's own order)
+  function linePolylines(lineId) {
+    const g = geo.data, lp = linePaths.lines && linePaths.lines[lineId];
+    if (!g || !g.edges || !lp) return null;
+    if (linePaths.builtFor !== geo.seq + "|" + linePaths.stamp) { linePaths.poly = {}; linePaths.builtFor = geo.seq + "|" + linePaths.stamp; }
+    if (linePaths.poly[lineId] !== undefined) return linePaths.poly[lineId];
+    if (!geo.edgeById) { geo.edgeById = new Map(); g.edges.forEach(e => { if (e[5] != null) geo.edgeById.set(e[5], e); }); }
+    const legs = [];
+    Object.keys(lp).sort((a, b) => +a - +b).forEach(stop => {
+      const ids = lp[stop]; let pts = [], last = null;
+      ids.forEach(id => {
+        const e = geo.edgeById.get(id); if (!e) return;
+        let a = [e[0], e[1]], b = [e[2], e[3]];
+        if (last) { const da = Math.hypot(a[0] - last[0], a[1] - last[1]), db = Math.hypot(b[0] - last[0], b[1] - last[1]); if (db < da) { [a, b] = [b, a]; } if (Math.min(da, db) > 150) { if (pts.length > 1) legs.push(pts); pts = []; } }
+        else if (ids.length > 1) { const n = geo.edgeById.get(ids[1]); if (n) { const d = (p) => Math.min(Math.hypot(p[0] - n[0], p[1] - n[1]), Math.hypot(p[0] - n[2], p[1] - n[3])); if (d(a) < d(b)) { [a, b] = [b, a]; } } }
+        if (!pts.length) pts.push(a); pts.push(b); last = b;
+      });
+      if (pts.length > 1) legs.push(pts);
+    });
+    linePaths.poly[lineId] = legs.length ? legs : null;
+    return linePaths.poly[lineId];
   }
   // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
   // refresh: 10 000 edges + a few thousand water vertices cost ~15 ms to stroke, the blit nothing
@@ -1655,7 +1688,8 @@
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
     const gl = geoLayer(w, h, dpr); if (gl) ctx.drawImage(gl, 0, 0, w, h);
     ctx.font = "12px " + font;
-    if ($("#map-lines").checked && d.lines) d.lines.forEach(l => { if (l.points.length < 2) return; const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.globalAlpha = 1; });
+    // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
+    if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { ctx.beginPath(); legs.forEach(pts => pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;

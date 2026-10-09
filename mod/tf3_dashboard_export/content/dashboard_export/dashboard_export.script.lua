@@ -1141,14 +1141,19 @@ local function camTourBuild(args)
 	local l = num(args.line); if not l then error("camera_tour needs args.line") end
 	local raw = args.route
 	if type(raw) ~= "table" or #raw < 2 then error("camera_tour needs args.route with 2+ points") end
+	-- route = the ground track; every point is a stop unless args.stops lists which ones are (rev 11: the dashboard
+	-- sends the real path along the tracks / roads, with the stops marked, so the camera follows the rails)
+	local isStop = nil
+	if type(args.stops) == "table" then isStop = {}; for _, i in ipairs(args.stops) do local k = num(i); if k then isStop[k] = true end end end
 	local pts = {}
 	for i, p in ipairs(raw) do
 		local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
 		if not x or not y then error("route point " .. i .. ": missing x/y") end
-		pts[#pts + 1] = { x = x, y = y, stop = true }
+		local st = isStop == nil or isStop[i - 1] or isStop[i] or false  -- 0- or 1-based indices both accepted
+		pts[#pts + 1] = { x = x, y = y, stop = st and true or false }
 	end
 	local closed = args.closed ~= false and #pts > 2
-	if closed then pts[#pts + 1] = { x = pts[1].x, y = pts[1].y, stop = true } end
+	if closed then pts[#pts + 1] = { x = pts[1].x, y = pts[1].y, stop = pts[1].stop } end
 	-- cumulative length + size of the route
 	local cum, len = { 0 }, 0
 	local minx, maxx, miny, maxy = math.huge, -math.huge, math.huge, -math.huge
@@ -1163,7 +1168,8 @@ local function camTourBuild(args)
 	local alt = num(args.alt) or math.max(250, math.min(900, span * 0.15))
 	-- points of interest: stops, plus every vehicle of the line at its place along the route (now)
 	local poi = {}
-	for i, p in ipairs(pts) do poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end
+	for i, p in ipairs(pts) do if p.stop then poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end end
+	if #poi == 0 then poi[#poi + 1] = { s = 0, x = pts[1].x, y = pts[1].y, kind = "stop" } end
 	local vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(l))
 	local nv = 0
 	for _, v in ipairs(vs) do
@@ -1208,9 +1214,15 @@ local function camTourBuild(args)
 			local x, y = routeAt(q.s + gap); out[#out + 1] = { s = q.s + gap, x = x, y = y, kind = "mid", swing = SWING }
 		end
 		if nxt and nxt.s - q.s > alt * 4 then
-			local sm = (q.s + nxt.s) / 2
-			local x, y = routeAt(sm)
-			out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
+			-- long stretch: high waypoints every ~2 x alt along the route so the camera follows the track's bends
+			-- (one point in the middle used to be enough for straight stop-to-stop routes)
+			local span2 = nxt.s - q.s - 2 * gap
+			local n = math.max(1, math.floor(span2 / (alt * 2)))
+			for k = 1, n do
+				local sm = q.s + gap + span2 * k / (n + 1)
+				local x, y = routeAt(sm)
+				out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
+			end
 		end
 	end
 	-- headings: along the route (next point), bisector where the direction changes, plus the swing

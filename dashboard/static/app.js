@@ -787,20 +787,32 @@
     // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
     if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
     if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
+    // along the network when the legs are known (rev 11): the ground track = the legs' polylines chained in stop
+    // order, thinned to ~every 60 m (the mod bends through the points), with the stops marked; the mod then flies
+    // the rails / roads instead of the straight stop-to-stop route
+    const stopsAlong = findRoute();
+    let stops = null;
+    const legs = linePolylines(l.line_id);
+    if (legs && legs.length) {
+      const track = [], marks = [];
+      const push = (p) => { const q = track[track.length - 1]; if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > 60) track.push(p); };
+      legs.forEach(leg => { marks.push(track.length); leg.forEach(push); });
+      if (track.length > 2) { route = track.map(p => ({ x: p[0], y: p[1] })); stops = marks; }
+    }
     // the mod builds ONE path from the stops + the vehicles' positions at this moment and derives the altitude from
     // the size of the line; amp scales that altitude, the duration preference sets the speed (full loop in dur x 4 s
     // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it
-    const closed = route.length > 2;
+    const closed = stops ? (() => { const a = route[0], b = route[route.length - 1]; return Math.hypot(a.x - b.x, a.y - b.y) < 200; })() : route.length > 2;
     const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0) + (closed ? Math.hypot(route[0].x - route[route.length - 1].x, route[0].y - route[route.length - 1].y) : 0);
-    const xs = route.map(p => p.x), ys = route.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const xs = stopsAlong.map(p => p.x), ys = stopsAlong.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
     // altitude: 15 % of the span, 250..900 m (a 2-stop shuttle 4 km long is seen from 600 m, not 1700), x amp
     const alt = Math.max(250, Math.min(900, span * 0.15)) * prefs.amp;
     // speed = apparent motion: an eighth of the altitude per second whatever the length (10 m/s over a 4 km line
     // seen from 600 m looks frozen, 75 m/s reads as a steady helicopter); the duration preference can only speed it up
     const speed = Math.max(alt / 8, len / Math.max(20, prefs.dur * 4)), dur = len / speed;
-    sendCmd("camera_tour", { line: l.line_id, route, closed, alt, speed, loop: prefs.loop });
+    sendCmd("camera_tour", { line: l.line_id, route, stops, closed, alt, speed, loop: prefs.loop });
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: route.length };
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length };
     musicRetime(dur);
     renderCamViews(); if (map.data) drawMap($("#map"));
   }

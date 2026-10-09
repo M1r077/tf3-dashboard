@@ -49,6 +49,7 @@
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
+    const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange && RANGES.includes(urlRange)) settings.range = urlRange;  // ?range= for screenshots / links
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
@@ -83,11 +84,14 @@
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
   $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
-  /** uPlot options for a server series: real-time x axis + where the per-minute aggregated part ends */
+  /** uPlot options for a server series: real-time x axis + where the per-minute aggregated part ends. With a
+   *  game-time range selected the axis ticks read the game month instead of the clock (xGame = month labels). */
+  const GAME_RANGE = (r) => /g[my]$/.test(r);
+  const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月` : `${MON()[s.month]} ${s.year}`;
   function tsOpts(hist, syncKey) {
     if (!hist.length || hist[0].ts == null) return {};
     let aggFrom = 0; while (aggFrom < hist.length && hist[aggFrom].agg) aggFrom++;
-    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey };
+    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: GAME_RANGE(settings.range) ? hist.map(monthLabel) : null };
   }
 
   // ------------------------------------------------------------ icons

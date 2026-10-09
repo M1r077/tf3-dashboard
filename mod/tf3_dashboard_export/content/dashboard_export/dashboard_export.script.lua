@@ -392,17 +392,46 @@ local linePaths = {}      -- line id -> { [leg] = { edges = {ids}, n = count, se
 local linePathsDirty = false
 local LINE_PATH_MAX_EDGES = 3000
 
+local linePathProbe = 3  -- debug: describe the first few MOVE_PATH shapes seen (the API docs and the Lua view differ)
+-- an edge entry of MovePath.path.edges is {EdgeId, dir}; EdgeId = {entity, index}. Seen through Lua the pair may be
+-- an array {id, dir}, a record {edgeId = ..., dir = ...} or the EdgeId itself: try all of them.
+local function pathEdgeEntity(e)
+	if e == nil then return nil end
+	local ok, id = pcall(function()
+		local eid = e[1] ~= nil and e[1] or e.edgeId or e
+		return num(eid.entity) or num(eid[1])
+	end)
+	if ok and id and id > 0 then return id end
+	return nil
+end
+
 local function vehiclePathItem(v, tv)
 	local okP, mp = pcall(api.engine.getComponent, v, api.type.ComponentType.MOVE_PATH)
-	if not okP or not mp or not mp.path then return end
+	if not okP or not mp then
+		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: MOVE_PATH of vehicle " .. tostring(v) .. ": " .. (okP and "nil" or tostring(mp))) end
+		return
+	end
 	local line, leg = num(tv.line), num(tv.stopIndex)
 	if not line or line <= 0 or leg == nil then return end
+	local okE, raw = pcall(function() return arr(mp.path.edges) end)
+	if not okE or #raw == 0 then
+		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: vehicle " .. tostring(v) .. " path.edges: " .. (okE and ("empty, path=" .. tostring(mp.path)) or tostring(raw))) end
+		return
+	end
 	local edges = {}
 	local last = nil
-	for _, e in ipairs(arr(mp.path.edges)) do
-		local id = e[1] and num(e[1].entity) or nil
+	for _, e in ipairs(raw) do
+		local id = pathEdgeEntity(e)
 		if id and id ~= last then edges[#edges + 1] = id; last = id end
 		if #edges >= LINE_PATH_MAX_EDGES then break end
+	end
+	if linePathProbe > 0 then
+		linePathProbe = linePathProbe - 1
+		local e1 = raw[1]
+		local desc = type(e1)
+		pcall(function() desc = desc .. " e1[1]=" .. tostring(e1[1]) .. " e1[2]=" .. tostring(e1[2]) .. " .edgeId=" .. tostring(e1.edgeId) .. " .entity=" .. tostring(e1.entity) end)
+		pcall(function() if e1[1] ~= nil then desc = desc .. " e1[1].entity=" .. tostring(e1[1].entity) .. " e1[1].index=" .. tostring(e1[1].index) end end)
+		debug(string.format("line paths: vehicle %s line %s leg %s: %d raw edges -> %d ids; first entry: %s", tostring(v), tostring(line), tostring(leg), #raw, #edges, desc))
 	end
 	if #edges < 2 then return end
 	local legs = linePaths[line]

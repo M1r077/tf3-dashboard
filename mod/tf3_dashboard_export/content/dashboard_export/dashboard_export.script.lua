@@ -1259,7 +1259,7 @@ local function camTourBuild(args)
 	-- the route), both high; the heading swings from -SWING through the route direction to +SWING across the
 	-- three, so the camera pans across the subject as it passes (a slow look, not an orbit). Long empty
 	-- stretches get a high waypoint in the middle so the path does not cut the corner of the route.
-	local SWING = 0.5  -- ~30 degrees either side
+	local SWING = 0.3  -- ~17 degrees either side (0.5 made the camera yaw too much, motion sickness)
 	local gap = alt * 0.6
 	local out = {}
 	for i, q in ipairs(merged) do
@@ -1293,9 +1293,11 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		-- zoom profile: vehicle = 0.45 x alt, stop = 0.7 x alt, approach/exit = 1.3 x alt, mid-stretch = 1.5 x alt
-		local dist = q.kind == "vehicle" and alt * 0.45 or q.kind == "stop" and alt * 0.7 or q.swing and alt * 1.3 or alt * 1.5
-		local pitch = q.kind == "vehicle" and 0.75 or q.kind == "stop" and 0.85 or 1.05
+		-- zoom profile, kept shallow (rev 11.1): vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
+		-- mid-stretch = 1.15 x alt. The former 0.45 .. 1.5 range made the camera dive and climb by a factor of three
+		-- every few seconds, together with the pitch swinging 0.75 .. 1.05: that is what turned stomachs.
+		local dist = q.kind == "vehicle" and alt * 0.7 or q.kind == "stop" and alt * 0.8 or q.swing and alt * 1.05 or alt * 1.15
+		local pitch = q.kind == "vehicle" and 0.9 or q.kind == "stop" and 0.95 or 1.0
 		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy) + (q.swing or 0), pitch = pitch, s = q.s }
 	end
 	-- durations: constant ground speed; speed = alt/8 m/s by default

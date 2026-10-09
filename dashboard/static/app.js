@@ -807,9 +807,10 @@
     const xs = stopsAlong.map(p => p.x), ys = stopsAlong.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
     // altitude: 15 % of the span, 250..900 m (a 2-stop shuttle 4 km long is seen from 600 m, not 1700), x amp
     const alt = Math.max(250, Math.min(900, span * 0.15)) * prefs.amp;
-    // speed = apparent motion: an eighth of the altitude per second whatever the length (10 m/s over a 4 km line
-    // seen from 600 m looks frozen, 75 m/s reads as a steady helicopter); the duration preference can only speed it up
-    const speed = Math.max(alt / 8, len / Math.max(20, prefs.dur * 4)), dur = len / speed;
+    // speed = apparent motion: a sixteenth of the altitude per second whatever the length (seen from 600 m, 37 m/s
+    // reads as a calm helicopter; the former alt/8 = 75 m/s with the camera diving over every stop was nauseating);
+    // the duration preference can only speed it up, and never beyond alt/6
+    const speed = Math.min(alt / 6, Math.max(alt / 16, len / Math.max(20, prefs.dur * 4))), dur = len / speed;
     sendCmd("camera_tour", { line: l.line_id, route, stops, closed, alt, speed, loop: prefs.loop });
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length };

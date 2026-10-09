@@ -152,9 +152,16 @@ also shows the export folder, when the companion was last seen, and the current 
 collector/      collector.py (tf3dash_live.lua + tf3dash_slow_*.lua -> SQLite), luatable.py (Lua parser), tf3paths.py (folder detection), schema.sql
 dashboard/      server.py (HTTP + JSON API), extract_icons.py, static/ (index.html, app.js, i18n.js, style.css)
 mod/            the mod as published on mod.io (tf3_dashboard_export) — https://mod.io/g/transportfever3/m/second-screen-dashboard
-docs/           DETAILS.md (full technical reference), API_CATALOGUE.md (what the TF3 API allows: done / doable / never)
+docs/           see "Documentation" below
 test/           make_fake_data.py + run_dashboard_demo.cmd (developer tool: simulated data, not in the release zip), i18ncheck.js
 ```
+
+## Documentation
+
+- [docs/DETAILS.md](docs/DETAILS.md) — full technical reference: the three parts, export files and schema, retention, savegames and backups, commands, publishing on mod.io, text encoding, SQL examples, alert codes.
+- [docs/API_CATALOGUE.md](docs/API_CATALOGUE.md) — what the Transport Fever 3 modding API allows, section by section: done, doable, risky, impossible. Start here before asking for a feature.
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — the rule for other mods (read their published data freely, ask before copying or writing), licences seen, candidates.
+- [docs/TF3_SETTINGS_LUA.md](docs/TF3_SETTINGS_LUA.md) — unofficial reference of every key of the game's `settings.lua` (values, menu labels, hidden keys). Not about the dashboard; game knowledge gathered along the way.
 
 ## Translating
 

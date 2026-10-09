@@ -28,3 +28,7 @@ dashboard/static/_probe*.html
 *.ico
 Thumbs.db
 desktop.ini
+
+# your own music for the camera travelling (music/README.txt explains)
+music/*
+!music/README.txt

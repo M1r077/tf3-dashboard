@@ -30,6 +30,10 @@ import tf3paths  # noqa: E402
 
 DEFAULT_DB = tf3paths.DEFAULT_DB
 STATIC = HERE / "static"
+# music for the camera travelling: the player drops files in <companion>/music/, the browser plays them (the game
+# has no "play this file" API). Served under /music/<name>; listed by /api/music.
+MUSIC_DIR = tf3paths.ROOT / "music"
+MUSIC_EXT = {".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".wav": "audio/wav", ".flac": "audio/flac"}
 
 _local = threading.local()
 DB_PATH: Path = DEFAULT_DB
@@ -879,6 +883,14 @@ def restore_backup(body: dict) -> dict:
     return res
 
 
+def api_music(q: dict) -> dict:
+    """Audio files in <companion>/music/ (not recursive), for the camera travelling."""
+    tracks = []
+    if MUSIC_DIR.is_dir():
+        tracks = sorted(p.name for p in MUSIC_DIR.iterdir() if p.is_file() and p.suffix.lower() in MUSIC_EXT)
+    return {"dir": str(MUSIC_DIR), "tracks": tracks}
+
+
 def api_diag(q: dict) -> dict:
     """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
     is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
@@ -906,7 +918,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
-    "/api/games": api_games,
+    "/api/games": api_games, "/api/music": api_music,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -946,6 +958,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(503, json.dumps({"error": str(e)}).encode(), "application/json")
             except Exception as e:  # noqa: BLE001
                 self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+            return
+        if u.path.startswith("/music/"):
+            # audio for the travelling, whole file (browsers cope without range requests for local files)
+            from urllib.parse import unquote
+            f = (MUSIC_DIR / unquote(u.path[7:])).resolve()
+            if MUSIC_DIR.resolve() not in f.parents or not f.is_file() or f.suffix.lower() not in MUSIC_EXT:
+                self._send(404, b"not found", "text/plain")
+                return
+            self._send(200, f.read_bytes(), MUSIC_EXT[f.suffix.lower()])
             return
         path = "index.html" if u.path in ("/", "") else u.path.lstrip("/")
         f = (STATIC / path).resolve()

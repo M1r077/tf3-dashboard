@@ -1179,9 +1179,59 @@
   const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
   const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
   function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
-  // travelling preferences (seconds per leg, loop), this browser only
-  const travelPrefs = () => { try { return Object.assign({ dur: 10, loop: false }, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { dur: 10, loop: false }; } };
+  // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
+  const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "", vol: 0.6 };
+  const travelPrefs = () => { try { return Object.assign({}, TRAVEL_DEFAULTS, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { ...TRAVEL_DEFAULTS }; } };
   const saveTravelPrefs = (p) => localStorage.setItem("tf3.travel", JSON.stringify(p));
+  // Movements around ONE view (the view is the subject; the game's orbit camera is centre + distance + heading +
+  // pitch, so a travelling is a curve in those four numbers). Each returns the camera_path points + whether the
+  // mod should ease every leg (no: the generated points are dense, easing is baked into the sampling).
+  const TRAVEL_MOVES = {
+    // full turn around the centre, distance and pitch kept; amp = fraction of a turn (1 = 360°)
+    orbit: (v, p) => { const n = Math.max(8, Math.round(36 * p.amp)); const pts = []; for (let i = 0; i <= n; i++) { const a = v.angle + p.dir * 2 * Math.PI * p.amp * i / n; pts.push({ x: v.x, y: v.y, dist: v.dist, angle: a, pitch: v.pitch }); } return pts; },
+    // dolly: from far (amp × dist) down to the view (dir = 1) or away from it (dir = -1), eased
+    dolly: (v, p) => { const n = 24, far = v.dist * (1 + 2 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; t = t * t * (3 - 2 * t); const d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle, pitch: v.pitch }); } return pts; },
+    // flyover: arrive from high and far, slowly turning, levelling to the view's pitch (dir = -1 leaves instead)
+    flyover: (v, p) => { const n = 30, far = v.dist * (1 + 3 * p.amp), hi = Math.min(1.45, v.pitch + 0.6); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; if (p.dir < 0) t = 1 - t; t = t * t * (3 - 2 * t); pts.push({ x: v.x, y: v.y, dist: far + (v.dist - far) * t, angle: v.angle - 0.6 * (1 - t), pitch: hi + (v.pitch - hi) * t }); } return pts; },
+    // sweep: back and forth ±(45° × amp) around the heading, eased at the ends
+    sweep: (v, p) => { const n = 32, w = Math.PI / 4 * p.amp; const pts = []; for (let i = 0; i <= n; i++) { const t = i / n; const a = v.angle + p.dir * w * Math.sin(2 * Math.PI * t); pts.push({ x: v.x, y: v.y, dist: v.dist, angle: a, pitch: v.pitch }); } return pts; },
+    // spiral: orbit while coming closer (dir = 1) or drifting away
+    spiral: (v, p) => { const n = 40, far = v.dist * (1 + 1.5 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { const t = i / n; const d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle + 2 * Math.PI * t, pitch: v.pitch }); } return pts; },
+  };
+  const TRAVEL_MOVE_ICON = { orbit: "reset", dolly: "speed", flyover: "follow", sweep: "reverse", spiral: "line" };
+  const travel = { active: null, sel: null };  // { kind: "view"|"chain", id, points } = what we asked the mod to play
+  function playTravelling(kind, points, prefs) {
+    const loop = prefs.loop && kind !== "dolly" && kind !== "flyover";
+    // duration = total, spread over the legs
+    const legs = points.length - 1 + (loop ? 1 : 0);
+    sendCmd("camera_path", { points: points.map(pt => ({ ...pt, duration: prefs.dur / legs })), loop, ease: false });
+    travel.active = { kind, points, loop, at: Date.now(), dur: prefs.dur };
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop, n: points.length };
+    musicStart(prefs);
+    renderCamViews(); if (map.data) drawMap($("#map"));
+  }
+  function stopTravelling() {
+    sendCmd("camera_stop", {}); travel.active = null; if (camViews.cur) camViews.cur.path = null; musicStop(); renderCamViews(); if (map.data) drawMap($("#map"));
+  }
+  // music on the dashboard side (the game has no "play this file" API): tracks served from <companion>/music/,
+  // fade in over 2 s and out over the last 3 s of the travelling; stops with it
+  const music = { el: null, timer: null, list: null };
+  async function musicTracks() { if (music.list) return music.list; try { music.list = (await api("/api/music")).tracks || []; } catch (e) { music.list = []; } return music.list; }
+  function musicStart(prefs) {
+    musicStop();
+    if (!prefs.music) return;
+    const el = new Audio("music/" + encodeURIComponent(prefs.music)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
+    el.play().catch(() => {});
+    const vol = prefs.vol ?? 0.6, t0 = Date.now(), total = prefs.dur * 1000;
+    music.timer = setInterval(() => {
+      const e = Date.now() - t0;
+      let v = Math.min(1, e / 2000);
+      if (!prefs.loop) v = Math.min(v, Math.max(0, (total - e) / 3000));
+      el.volume = Math.max(0, Math.min(1, v * vol));
+      if (!prefs.loop && e > total) musicStop();
+    }, 100);
+  }
+  function musicStop() { if (music.timer) clearInterval(music.timer); music.timer = null; if (music.el) { music.el.pause(); music.el = null; } }
   async function editViews(body) {
     const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
@@ -1198,47 +1248,67 @@
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
       <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
       <span class="cv-tools">
+        <button class="btn" data-act="travel" title="${esc(t("cam_travel_here"))}" ${off ? "disabled" : ""}>${ico("follow", "sm")}</button>
         <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("star_outline", "sm")}</button>
         <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">${ico("edit", "sm")}</button>
         <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>▲</button>
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === views.length - 1 ? "disabled" : ""}>▼</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
       </span></div>`;
-    // travelling (mod rev 10+): play the saved views in order as one smooth camera path; the mod interpolates per
-    // frame. cur.path is present while it plays (progress 0..1). Older mods ignore the command: the block is still
-    // shown but says what revision it needs once the first answer comes back as "unknown command".
-    const path = cur.path, tp = travelPrefs();
-    const travel = views.length >= 2 ? `<div class="cv-travel">
-        <span class="lbl">${ico("follow", "sm")}${t("cam_travel")}</span>
-        <span class="seg" data-travel="dur">${[5, 10, 20, 40].map(d => `<button data-v="${d}" class="${tp.dur === d ? "active" : ""}" title="${esc(t("cam_travel_dur_tip"))}">${d} s</button>`).join("")}</span>
-        <button class="btn tgl ${tp.loop ? "active" : ""}" data-travel="loop" title="${esc(t("cam_travel_loop"))}">${ico("reset", "sm")}</button>
-        ${path ? `<button class="btn primary" data-travel="stop" ${off ? "disabled" : ""}>${ico("play_pause", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn primary" data-travel="play" ${off ? "disabled" : ""}>${ico("play_1", "sm")}${t("cam_travel_play")}</button>`}
-        ${path ? `<span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span>` : ""}
+    // travelling (mod rev 10+). Two modes: a movement around ONE view (button on the view's row, or the
+    // selected view here), or the chain of all views in order. The settings row (movement, duration, direction,
+    // amplitude, loop, music) applies to both. cur.path is present while the mod plays (progress 0..1).
+    const path = cur.path, tp = travelPrefs(), sel = travel.sel && views.find(v => v.id === travel.sel) || null;
+    const seg = (name, opts, val, fmt) => `<span class="seg" data-tset="${name}">${opts.map(o => `<button data-v="${o}" class="${String(val) === String(o) ? "active" : ""}">${fmt ? fmt(o) : o}</button>`).join("")}</span>`;
+    const travelBlock = views.length ? `<div class="cv-travel">
+        <div class="tr-row"><span class="lbl">${ico("follow", "sm")}${t("cam_travel")}</span>
+          ${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico(TRAVEL_MOVE_ICON[m], "sm")}</span>`)}
+          <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("reverse", "sm")}</button>
+          <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("reset", "sm")}</button></div>
+        <div class="tr-row"><span class="muted small tr-desc">${t("cam_move_" + tp.move)}</span></div>
+        <div class="tr-row"><span class="lbl">${t("cam_travel_dur")}</span>${seg("dur", [10, 20, 40, 90], tp.dur, d => d + " s")}
+          <span class="lbl">${t("cam_travel_amp")}</span>${seg("amp", [0.5, 1, 2], tp.amp, a => "×" + a)}</div>
+        <div class="tr-row" id="tr-music"></div>
+        <div class="tr-row">
+          ${path ? `<button class="btn primary" data-travel="stop">${ico("play_pause", "sm")}${t("cam_travel_stop")}</button><span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span>`
+                 : `<button class="btn primary" data-travel="view" ${off || !sel ? "disabled" : ""} title="${sel ? esc(sel.name) : esc(t("cam_travel_pick"))}">${ico("play_1", "sm")}${sel ? t("cam_travel_around", { name: sel.name }) : t("cam_travel_pick")}</button>
+                    ${views.length >= 2 ? `<button class="btn" data-travel="chain" ${off ? "disabled" : ""}>${ico("line", "sm")}${t("cam_travel_chain")}</button>` : ""}`}
+        </div>
       </div>` : "";
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
-      (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) + travel +
+      (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) + travelBlock +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
       const name = await modal.prompt(t("cam_name_prompt"), { value: t("cam_default_name", { n: views.length + 1 }), ok: t("cam_save_ok") });
       if (name) editViews({ action: "add", name, camera: camViews.cur });
     });
+    // settings: segments and toggles
+    $$("[data-tset] button, .btn[data-tset]", box).forEach(b => b.addEventListener("click", () => {
+      const k = b.dataset.tset || b.closest("[data-tset]").dataset.tset;
+      if (k === "dir") tp.dir = -tp.dir; else if (k === "loop") tp.loop = !tp.loop; else tp[k] = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+      saveTravelPrefs(tp); renderCamViews();
+    }));
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.travel;
-      if (a === "dur") return;
-      if (a === "loop") { tp.loop = !tp.loop; saveTravelPrefs(tp); renderCamViews(); return; }
-      if (a === "stop") { sendCmd("camera_stop", {}); camViews.cur.path = null; renderCamViews(); return; }
-      if (a === "play") {
-        const points = views.map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }));
-        sendCmd("camera_path", { points, duration: tp.dur, loop: tp.loop, ease: true });
-        camViews.cur.path = { playing: true, progress: 0, loop: tp.loop, n: points.length }; renderCamViews();
-      }
+      if (a === "stop") return stopTravelling();
+      if (a === "view" && sel) return playTravelling(tp.move, TRAVEL_MOVES[tp.move](sel, tp), tp);
+      if (a === "chain") { const pts = views.map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); return playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, views.length - 1) / 2 }); }
     }));
-    $$('[data-travel="dur"] button', box).forEach(b => b.addEventListener("click", () => { tp.dur = +b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
+    // music row (async: the track list comes from the server)
+    musicTracks().then(tracks => {
+      const row = $("#tr-music", box); if (!row) return;
+      if (!tracks.length) { row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
+      row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
+        <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">`;
+      $$("[data-tset=music] button", row).forEach(b => b.addEventListener("click", () => { tp.music = b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
+      $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; saveTravelPrefs(tp); if (music.el) music.el.volume = tp.vol; });
+    });
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, v = views.find(x => x.id === id); if (!v) return;
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
-        if (a === "go") gotoView(v);
+        if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); }
+        else if (a === "travel") { travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](v, tp2), tp2); }
         else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur }); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
@@ -1403,16 +1473,14 @@
     // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
     // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
     const act = activeView();
-    // the travelling path through the saved views (same Catmull-Rom as the mod), dashed; solid while it plays
-    if (camViews.list.length >= 2) {
-      const pts = camViews.list.slice(); if (travelPrefs().loop) pts.push(pts[0]);
-      const cr = (p0, p1, p2, p3, t) => 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
-      ctx.save(); ctx.strokeStyle = camViews.cur && camViews.cur.path ? "#e8b04b" : "rgba(232,176,75,.45)"; ctx.lineWidth = 2; if (!(camViews.cur && camViews.cur.path)) ctx.setLineDash([6, 6]);
+    // the travelling being played (orbit circle, dolly segment, chain curve...): the points we sent, drawn where the
+    // camera EYE is on the ground (centre pushed back along the heading by dist*cos(pitch)); dashed preview of the
+    // selected movement when idle. The current camera itself is the view cone drawn just below.
+    const tv = travel.active || (travel.sel && camViews.list.find(v => v.id === travel.sel) ? (() => { const tp = travelPrefs(), v = camViews.list.find(x => x.id === travel.sel); return { points: TRAVEL_MOVES[tp.move](v, tp), preview: true }; })() : null);
+    if (tv && tv.points.length > 1) {
+      ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
-      for (let i = 0; i < pts.length - 1; i++) {
-        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
-        for (let s = 0; s <= 12; s++) { const tt = s / 12; const [x, y] = P(cr(p0.x, p1.x, p2.x, p3.x, tt), cr(p0.y, p1.y, p2.y, p3.y, tt)); if (i === 0 && s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
-      }
+      tv.points.forEach((pt, i) => { const a = CAM_ANGLE_SIGN * pt.angle + CAM_ANGLE_OFFSET, back = pt.dist * Math.cos(Math.abs(pt.pitch)); const ex = pt.x + Math.sin(a) * back, ey = pt.y - Math.cos(a) * back; const [x, y] = P(ex, ey); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
       ctx.stroke(); ctx.restore();
     }
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : "#e6edf3");

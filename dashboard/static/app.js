@@ -202,7 +202,7 @@
     return {
       confirm(text, o = {}) {
         return open(`${head(o.title || t("confirm_title"))}<p class="md-text">${esc(text)}</p>
-          <div class="md-foot"><button class="btn md-cancel">${t("cancel")}</button><button class="btn primary md-ok ${o.danger ? "danger" : ""}">${o.danger ? "" : ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
+          <div class="md-foot"><button class="btn md-cancel">${esc(o.cancel || t("cancel"))}</button><button class="btn primary md-ok ${o.danger ? "danger" : ""}">${o.danger ? "" : ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
           (finish) => { const ok = $(".md-ok", dlg); ok.addEventListener("click", () => finish(true)); setTimeout(() => ok.focus(), 0); }).then(v => v === true);
       },
       prompt(text, o = {}) {
@@ -1225,8 +1225,9 @@
   // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
   const angDiff = (a, b) => { let d = Math.abs(a - b) % (2 * Math.PI); return d > Math.PI ? 2 * Math.PI - d : d; };
   const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
-  const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
-  function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
+  // a view attached to a vehicle is "active" while the camera follows that vehicle (its position moves)
+  const activeView = () => camViews.list.find(v => v.follow ? (camViews.cur && camViews.cur.follow === v.follow) : sameView(camViews.cur, v)) || null;
+  function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
   const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "auto", vol: 0.6 };
   const travelPrefs = () => { try { return Object.assign({}, TRAVEL_DEFAULTS, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { ...TRAVEL_DEFAULTS }; } };
@@ -1304,9 +1305,12 @@
     const fade = setInterval(() => { k--; el.volume = Math.max(0, v0 * k / 10); if (k <= 0) { clearInterval(fade); el.pause(); } }, 100);
   }
   async function editViews(body) {
-    const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = await r.json();
-    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return false; }
+    let j;
+    try {
+      const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      j = await r.json(); if (!j.ok && !j.error) j.error = String(r.status);
+    } catch (e) { j = { ok: false, error: e.message }; }  // server down / non-JSON reply used to throw out of the click handler
+    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error }); $("#cmd-status").className = "cmdstatus bad"; return false; }
     camViews.list = j.views || []; renderCamViews(); if (map.data) drawMap($("#map")); return true;
   }
   async function loadViews() { try { const j = await api("/api/views"); camViews.list = j.views || []; camViews.game = j.game || null; } catch (e) { camViews.list = []; } camViews.loaded = true; }
@@ -1317,7 +1321,7 @@
     const views = camViews.list, act = activeView();
     const row = (v, i) => `<div class="cv ${act && act.id === v.id ? "on" : ""}" data-id="${v.id}">
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
-      <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${fmtCam(v)}" ${off ? "disabled" : ""}>${esc(v.name)}</button>
+      <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${v.follow ? esc(t("cam_follow_view", { v: v.follow_name || v.follow })) : fmtCam(v)}" ${off ? "disabled" : ""}>${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</button>
       <span class="cv-tools">
         <button class="btn" data-act="travel" title="${esc(t("cam_travel_here"))}" ${off ? "disabled" : ""}>${ico("follow", "sm")}</button>
         <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("star_outline", "sm")}</button>
@@ -1350,8 +1354,11 @@
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) + travelBlock +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
+      const cur = camViews.cur; if (!cur) return;
+      // following a vehicle: offer to attach the view to it (recalled = follow it again with this framing)
+      const attach = cur.follow ? await modal.confirm(t("cam_attach_confirm"), { title: t("cam_attach_title"), ok: t("cam_attach_yes"), cancel: t("cam_attach_no") }) : false;
       const name = await modal.prompt(t("cam_name_prompt"), { value: t("cam_default_name", { n: views.length + 1 }), ok: t("cam_save_ok") });
-      if (name) editViews({ action: "add", name, camera: camViews.cur });
+      if (name) editViews({ action: "add", name, camera: cur, attach });
     });
     // settings: segments and toggles
     $$("[data-tset] button, .btn[data-tset]", box).forEach(b => b.addEventListener("click", () => {
@@ -1385,7 +1392,7 @@
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); }
         else if (a === "travel") { travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](v, tp2), tp2); }
-        else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur }); }
+        else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur, attach: !!(camViews.cur && camViews.cur.follow && v.follow) }); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: v.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) editViews({ action: "delete", id }); }
@@ -1447,7 +1454,8 @@
     // views belong to a savegame: reload the list when the game changed (another save loaded while the page stayed open)
     const gameKey = o && o.game && o.game.key;
     map.gameKey = gameKey || map.gameKey;
-    if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
+    // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
+    if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths();

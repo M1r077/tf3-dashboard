@@ -1110,6 +1110,7 @@ camPathProgress = function()
 	return math.max(0, math.min(1, e / camPath.total))
 end
 
+local followFrame = nil  -- { entity, dist, angle, pitch, left }: framing to apply over a follow camera (follow_view)
 local function camPathStop(reason)
 	if camPath then debug("camera path stopped: " .. tostring(reason)); camPath = nil end
 end
@@ -1839,6 +1840,17 @@ local COMMANDS = {
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
 		return true
 	end,
+	-- a view attached to a vehicle (rev 11): follow it, then apply the saved framing (distance, heading, pitch) on
+	-- top of the follow camera, which owns the position. The framing is re-applied for a few frames because the
+	-- follow camera slides to the vehicle first (see followFrame in guiUpdate).
+	follow_view = function(args)
+		local e = num(args and args.entity); if not e then error("missing args.entity") end
+		if not api.engine.entityExists(e) then return false, "vehicle no longer exists" end
+		camPathStop("follow_view")
+		api.gui.camera.followEntity(e, args.jump ~= false)
+		followFrame = { entity = e, dist = num(args.dist), angle = num(args.angle), pitch = num(args.pitch), left = 12 }
+		return true
+	end,
 	-- camera travelling: args = { points = { {x, y, dist, angle, pitch, duration?}, ... }, duration?, loop?, ease? }
 	-- (duration = seconds per leg when a point has none; ease defaults to true). Played by the mod frame by frame.
 	camera_path = function(args) camPathStop("new path"); return camPathStart(args) end,
@@ -2106,6 +2118,16 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if camPath then  -- camera travelling: one interpolation + setCameraData per frame, a few microseconds
 		local okT, errT = pcall(camPathTick)
 		if not okT then log("camera path tick failed:", tostring(errT)); camPath = nil end
+	end
+	if followFrame then  -- follow_view: keep the saved distance / heading / pitch while the follow camera settles
+		local ff = followFrame
+		local okF, errF = pcall(function()
+			local c = api.gui.camera.getCameraData()
+			api.gui.camera.setCameraData(api.type.Vec5f.new(c.x, c.y, ff.dist or c.z, ff.angle or c.w, ff.pitch or c.q))
+		end)
+		ff.left = ff.left - 1
+		if not okF then log("follow framing failed:", tostring(errF)); followFrame = nil
+		elseif ff.left <= 0 then followFrame = nil end
 	end
 	if now - lastPoll >= 0.25 then
 		lastPoll = now

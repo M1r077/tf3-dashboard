@@ -50,7 +50,7 @@ ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "set_camera": ("x", "y", "dist"),  # mod rev 7+
-    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",),  # mod rev 10+: travelling
+    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # mod rev 10+: travelling
     "horn": (),  # mod rev 8+: args.vehicle or args.line
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
@@ -980,8 +980,22 @@ def _game_key() -> str | None:
 
 def _view_num(v, name: str) -> float:
     if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
-        raise ValueError(f"bad {name}")
+        # the camera block of the latest snapshot lacks a number: mod older than rev 7, or a snapshot written while
+        # the camera API was unavailable (loading screen) - say so instead of "bad dist"
+        raise ValueError(f"the current camera has no {name} (wait for the next snapshot, or update the mod)")
     return float(v)
+
+
+def _view_follow(cam: dict, body: dict) -> dict:
+    """A view attached to a vehicle (rev 11): when the camera was following one and the caller asked to keep it
+    (body.attach true), store the entity and its name; recalled with follow_view instead of set_camera."""
+    if not body.get("attach"):
+        return {}
+    ent = cam.get("follow")
+    if not isinstance(ent, (int, float)) or isinstance(ent, bool) or ent <= 0:
+        raise ValueError("camera is not following a vehicle")
+    r = one("SELECT name FROM vehicle WHERE vehicle_id=? ORDER BY last_seen DESC LIMIT 1", (int(ent),))
+    return {"follow": int(ent), "follow_name": (r["name"] if r else None)}
 
 
 def api_views(q: dict) -> dict:
@@ -1006,12 +1020,14 @@ def edit_views(body: dict) -> dict:
             cam = body.get("camera") or {}
             name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX] or f"View {len(views) + 1}"
             views.append({"id": max([v.get("id", 0) for v in views] + [0]) + 1, "name": name,
-                          **{k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")}})
+                          **{k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")}, **_view_follow(cam, body)})
         elif idx is None:
             raise ValueError("unknown view")
         elif action == "update":  # overwrite the camera, keep the name
             cam = body.get("camera") or {}
             views[idx].update({k: _view_num(cam.get(k), k) for k in ("x", "y", "dist", "angle", "pitch")})
+            views[idx].pop("follow", None); views[idx].pop("follow_name", None)
+            views[idx].update(_view_follow(cam, body))
         elif action == "rename":
             name = str(body.get("name") or "").strip()[:VIEWS_NAME_MAX]
             if not name:

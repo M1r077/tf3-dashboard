@@ -1340,9 +1340,9 @@
     // music row (async: the track list comes from the server)
     musicTracks().then(tracks => {
       const row = $("#tr-music", box); if (!row) return;
-      if (!tracks.length) { row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
+      if (!tracks.length) { row.innerHTML = `<span class="lbl">${ico("noise", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
       // "auto" (default) = a random track of the folder, so dropping files in music/ is all it takes
-      row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
+      row.innerHTML = `<span class="lbl">${ico("noise", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
         <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">
         <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("play_1", "sm")}${t("cam_music_tail")}</button>
         ${music.el && !path ? `<button class="btn" data-tmute title="${esc(t("cam_music_off"))}">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}`;

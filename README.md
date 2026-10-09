@@ -106,8 +106,10 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
   per savegame in `db\camera_views.json`. **Travelling** (mod revision 10): smooth camera movements around a view
   (orbit, dolly, flyover, sweep, spiral), the chain of all views, and on each line's sheet a **line tour** - one
-  flight over the line, its stops and where its vehicles are at that moment. Drop music files in `music\` and
-  they play with the travellings (in the browser; never part of the release).
+  flight over the line, its stops and where its vehicles are at that moment. The **Travellings** card keeps your
+  favourite ones per savegame (subject + settings, up to 20), editable and replayable with one click. Drop music
+  files in `music\` and they play with the travellings (in the browser; never part of the release); the game's own
+  soundtrack is offered too, read straight from the game's `music.zip`.
 - **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
   satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
 - **Finances** — balance, yearly result, transported, network size and company value over time.

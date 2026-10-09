@@ -780,41 +780,50 @@
     const pts = ml ? ml.points : [];
     if (pts.length < 2) return;
     const prefs = travelPrefs();
-    // Zoom rhythm: close and steep at each stop (the station is the subject), then climb to a high, flatter
-    // point halfway along the leg (the leg is the subject), and dive again. amp scales the whole range.
-    const near = 150 * prefs.amp, nearPitch = 1.0, farPitch = 0.85, points = [];
+    // Design: one steady helicopter flight, not a zoom per stop. The altitude comes from the size of the line
+    // (a 1 km tram loop is flown low, a 10 km railway from high) and barely changes along the way (+20 % mid-leg
+    // so a stop reads as a slight descent). The heading always follows the direction of flight; at a stop it is
+    // the bisector of the incoming and outgoing legs, so the camera turns gently through the stop instead of
+    // snapping. No per-leg easing: constant ground speed, the mod's Catmull-Rom rounds the corners.
+    // Vehicles of the line on a leg pull the mid-leg point over them (same altitude) so the flight passes above
+    // the traffic rather than over empty track. amp scales the altitude (x0.5 lower, x2 higher).
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) || 500;
+    const alt = Math.min(1200, Math.max(220, span * 0.14)) * prefs.amp, pitch = 0.9;
     // closing the loop back to the first stop (the game's lines are circuits) unless the line is a shuttle A-B
     const ring = pts.length > 2 ? pts.concat([pts[0]]) : pts;
     // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
-    const headTo = (x, y, to) => (Math.atan2(-(to[0] - x), to[1] - y) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
-    // vehicles of the line (last known positions): the mid-leg point goes over the vehicle travelling that leg,
-    // nearer the ground, so the travelling shows the traffic and not only empty track
+    const headOf = (dx, dy) => (Math.atan2(-dx, dy) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
+    const dirs = ring.slice(1).map((p, i) => { const dx = p[0] - ring[i][0], dy = p[1] - ring[i][1], n = Math.hypot(dx, dy) || 1; return [dx / n, dy / n, n]; });
     const vehs = (map.data.vehicles || []).filter(v => v.line_id === l.line_id && v.x != null);
-    const onLeg = (a, b) => {
-      const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1;
+    const onLeg = (a, d) => {  // the vehicle most centred on leg a -> a + d, within a corridor around the straight line
       let best = null;
       for (const v of vehs) {
-        const t = ((v.x - a[0]) * dx + (v.y - a[1]) * dy) / len2; if (t < 0.12 || t > 0.88) continue;  // near a stop = the stop shot covers it
-        const off = Math.abs((v.x - a[0]) * dy - (v.y - a[1]) * dx) / Math.sqrt(len2); if (off > 400) continue;  // too far off the straight line (detour)
+        const t = ((v.x - a[0]) * d[0] + (v.y - a[1]) * d[1]) / d[2]; if (t < 0.2 || t > 0.8) continue;
+        const off = Math.abs((v.x - a[0]) * d[1] - (v.y - a[1]) * d[0]); if (off > Math.min(400, d[2] * 0.3)) continue;
         const score = Math.abs(t - 0.5); if (!best || score < best.score) best = { v, score };
       }
       return best ? best.v : null;
     };
+    const points = [];
     for (let i = 0; i < ring.length; i++) {
-      const [x, y] = ring[i], nx = ring[(i + 1) % ring.length], px = ring[(i - 1 + ring.length) % ring.length];
-      const to = i < ring.length - 1 ? nx : px;  // last point: keep the previous heading (look back along the leg)
-      points.push({ x, y, dist: near, angle: headTo(x, y, to), pitch: nearPitch });
-      if (i < ring.length - 1) {
-        const leg = Math.hypot(nx[0] - x, nx[1] - y), v = onLeg(ring[i], nx);
-        if (v) points.push({ x: v.x, y: v.y, dist: near * 1.3, angle: headTo(x, y, nx), pitch: 0.95 });
-        else points.push({ x: (x + nx[0]) / 2, y: (y + nx[1]) / 2, dist: Math.max(near * 2, near + leg * 0.35), angle: headTo(x, y, nx), pitch: farPitch });
+      const [x, y] = ring[i], dIn = dirs[i - 1], dOut = dirs[i];
+      let hx, hy;
+      if (dIn && dOut && pts.length > 2) { hx = dIn[0] + dOut[0]; hy = dIn[1] + dOut[1]; if (Math.hypot(hx, hy) < 0.05) { hx = dOut[0]; hy = dOut[1]; } }  // bisector (U-turn: outgoing)
+      else { const d = dOut || dIn; hx = d[0]; hy = d[1]; }
+      points.push({ x, y, dist: alt, angle: headOf(hx, hy), pitch });
+      if (dOut && dOut[2] > alt) {  // legs shorter than the altitude need no intermediate point
+        const v = onLeg(ring[i], dOut);
+        points.push(v ? { x: v.x, y: v.y, dist: alt, angle: headOf(dOut[0], dOut[1]), pitch }
+          : { x: x + dOut[0] * dOut[2] / 2, y: y + dOut[1] * dOut[2] / 2, dist: alt * 1.2, angle: headOf(dOut[0], dOut[1]), pitch });
       }
     }
-    // stop-to-stop duration proportional to leg length so the speed over the ground is roughly constant
+    // constant ground speed: leg durations proportional to length; total = the preference, stretched so the
+    // speed stays below ~1/4 of the altitude per second (a low flight is slow, a high one may be fast)
     const legLen = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
     const total = legLen.reduce((a, b) => a + b, 0) || 1;
-    const dur = Math.max(prefs.dur, (ring.length - 1) * 5);  // at least 5 s per stop-to-stop leg (dive + climb), else it is a slideshow
-    sendCmd("camera_path", { points: points.map((p, i) => ({ ...p, duration: i < legLen.length ? dur * legLen[i] / total : 0 })), loop: prefs.loop, ease: true });
+    const dur = Math.max(prefs.dur, total / (alt * 0.25));
+    sendCmd("camera_path", { points: points.map((p, i) => ({ ...p, duration: i < legLen.length ? dur * legLen[i] / total : 0 })), loop: prefs.loop, ease: false });
     travel.active = { kind: "line", id: l.line_id, points, loop: prefs.loop, at: Date.now(), dur };
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: points.length };
     musicStart({ ...prefs, dur });

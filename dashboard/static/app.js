@@ -1877,10 +1877,16 @@
         const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
         if (dz > 0.5) lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * dz) }));
       }
-      // label beside the midpoint, pushed off the segment
+      // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
+      // over the relief)
       const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / len, ny = (bx - ax) / len;
-      ctx.font = "600 12px " + font; ctx.textAlign = nx >= 0 ? "left" : "right"; ctx.textBaseline = "middle";
-      lines.forEach((s, i) => { const x = mx + nx * 14, y = my + ny * 14 + (i - (lines.length - 1) / 2) * 15; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, x, y); ctx.fillStyle = i ? ink : "#e8b04b"; ctx.fillText(s, x, y); });
+      ctx.font = "600 13px " + font; ctx.textBaseline = "middle";
+      const tw = Math.max(...lines.map(s => ctx.measureText(s).width)), lh = 17, pw = tw + 16, ph = lines.length * lh + 8;
+      const px = mx + nx * 16 - (nx >= 0 ? 0 : pw), py = my + ny * 16 - ph / 2;
+      ctx.fillStyle = "rgba(11,16,21,.88)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, pw, ph, 6) : ctx.rect(px, py, pw, ph); ctx.fill(); ctx.stroke();
+      ctx.textAlign = "left";
+      lines.forEach((s, i) => { ctx.fillStyle = i ? "#c9d1d9" : "#ffffff"; ctx.fillText(s, px + 8, py + 4 + lh * (i + 0.5)); });
       ctx.textBaseline = "alphabetic";
     } else {
       ctx.font = "12px " + font; ctx.textAlign = "left"; const s = t(a ? "ruler_hint_b" : "ruler_hint_a"); ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, 16, 20); ctx.fillStyle = ink; ctx.fillText(s, 16, 20);

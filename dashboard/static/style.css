@@ -551,7 +551,7 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 .mapstyle { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 6px 0 2px; }
 .mapstyle label { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .mapstyle label:first-child { margin-left: 0; }
-#map-style-btn.active { border-color: var(--accent); color: var(--accent); }
+#map-style-btn.active, #map-ruler-btn.active { border-color: var(--accent); color: var(--accent); }
 .mapstyle[hidden] { display: none; }  /* the class sets display:flex, which would beat the hidden attribute */
 
 /* travellings panel: second music group (game soundtrack) gets its own label inside the segment */

@@ -780,7 +780,7 @@
     const prefs = travelPrefs();
     // audio may only start inside the click (no await before play): the music starts first, with a provisional
     // duration, and is dropped again if the line turns out to have no route
-    musicStart({ ...prefs, dur: 120 });
+    musicStart({ ...prefs, dur: 120 });  // provisional; the real duration is set by musicRetime below
     // the route = the stops of the line in order (map data)
     if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { musicStop(); return; } }
     const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
@@ -1255,6 +1255,9 @@
   // Must stay synchronous up to el.play(): browsers only allow audio to start inside the user's click. "auto"
   // therefore picks from the list already fetched (the panel loads it; the line sheet prefetches it below).
   function musicStart(prefs) {
+    // a track already playing (e.g. left to finish after the previous travelling) is kept: just retime its end
+    if (music.el && !music.el.ended && !music.el.paused) { music.total = Math.max(music.total || 0, (Date.now() - music.t0) + prefs.dur * 1000); music.kept = true; return; }
+    music.kept = false;
     musicStop();
     if (!prefs.music) return;  // "" = off; "auto" = any track of the folder (none there = silence); else a file name
     let file = prefs.music;
@@ -1264,7 +1267,7 @@
     const vol = prefs.vol ?? 0.6, t0 = Date.now();
     // tail = let the track play to its end after the travelling (no fade-out at `total`); a manual stop still fades
     const tail = !!prefs.tail;
-    music.total = prefs.dur * 1000;
+    music.total = prefs.dur * 1000; music.t0 = t0;
     music.timer = setInterval(() => {
       const e = Date.now() - t0, total = music.total;
       let v = Math.min(1, e / 2000);
@@ -1275,7 +1278,11 @@
     }, 100);
   }
   // the travelling's real duration is known a moment after the music had to start: adjust the fade-out point
-  function musicRetime(durS) { if (music.el) music.total = durS * 1000; }
+  function musicRetime(durS) {
+    if (!music.el) return;
+    const end = (Date.now() - music.t0) + durS * 1000;
+    music.total = music.kept ? Math.max(music.total || 0, end) : end;  // a kept track is never shortened
+  }
   // stop: quick 1 s fade so a manual stop does not cut the music dead
   function musicStop() {
     if (music.timer) clearInterval(music.timer); music.timer = null;

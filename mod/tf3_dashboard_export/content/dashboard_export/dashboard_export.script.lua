@@ -1130,19 +1130,29 @@ local function camTourBuild(args)
 			if q.kind == "vehicle" then last.x, last.y, last.kind = q.x, q.y, "vehicle" end
 		else merged[#merged + 1] = { s = q.s, x = q.x, y = q.y, kind = q.kind } end
 	end
-	-- a long empty stretch gets a high waypoint in its middle so the path does not cut the corner of the route
+	-- point of the route at s
+	local function routeAt(sm)
+		local j = 2
+		while j < #pts and cum[j] < sm do j = j + 1 end
+		local a, b = pts[j - 1], pts[j]
+		local seg = cum[j] - cum[j - 1]
+		local t = seg > 0 and (sm - cum[j - 1]) / seg or 0
+		return a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t
+	end
+	-- a long empty stretch gets a high waypoint in its middle so the path does not cut the corner of the route;
+	-- a vehicle gets a "high" point shortly before it, so the dip onto it is a visible descent and not a slow drift
 	local out = {}
 	for i, q in ipairs(merged) do
+		local prv = merged[i - 1]
+		if q.kind == "vehicle" and prv and q.s - prv.s > alt * 1.2 then
+			local x, y = routeAt(q.s - alt * 0.6); out[#out + 1] = { s = q.s - alt * 0.6, x = x, y = y, kind = "mid" }
+		end
 		out[#out + 1] = q
 		local nxt = merged[i + 1]
 		if nxt and nxt.s - q.s > alt * 3 then
 			local sm = (q.s + nxt.s) / 2
-			local j = 2
-			while j < #pts and cum[j] < sm do j = j + 1 end
-			local a, b = pts[j - 1], pts[j]
-			local seg = cum[j] - cum[j - 1]
-			local t = seg > 0 and (sm - cum[j - 1]) / seg or 0
-			out[#out + 1] = { s = sm, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, kind = "mid" }
+			local x, y = routeAt(sm)
+			out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
 		end
 	end
 	-- headings: along the route (next point), bisector where the direction changes
@@ -1155,8 +1165,9 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		local dist = q.kind == "vehicle" and alt * 0.65 or q.kind == "stop" and alt or alt * 1.4
-		local pitch = q.kind == "vehicle" and 0.8 or q.kind == "stop" and 0.95 or 1.05
+		-- zoom profile: vehicle = half the altitude (clearly closer), stop = altitude, in between = 1.5x
+		local dist = q.kind == "vehicle" and alt * 0.5 or q.kind == "stop" and alt or alt * 1.5
+		local pitch = q.kind == "vehicle" and 0.75 or q.kind == "stop" and 0.95 or 1.05
 		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy), pitch = pitch, s = q.s }
 	end
 	-- durations: constant ground speed; speed = alt/8 m/s by default

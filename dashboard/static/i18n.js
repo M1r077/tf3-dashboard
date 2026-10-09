@@ -543,7 +543,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   veh_and_pax: "载具与在车乘客", service_quality: "服务质量", see_on_map: "在地图上查看",
   // map
   map_style: "地图样式", map_theme: "外观", map_theme_dark: "深色", map_theme_night: "夜间", map_theme_atlas: "地图集", map_theme_paper: "纸质", map_relief: "地形", map_off: "关", map_low: "淡", map_mid: "正常", map_high: "强", map_max: "最强", map_water: "水域", map_network: "道路与轨道", legend_track: "轨道", legend_street: "道路", legend_water: "水域", legend_no_geo: "水域和路网需要模组第 11 版", map_lines: "线路", map_vehicles: "载具", map_stations: "车站", map_industries: "产业", map_towns: "城镇", map_alerts: "警告", map_labels: "载具名称", map_hq: "总部",
-  all_lines: "所有线路", recenter: "重新居中", map_hint: "滚轮：缩放 · 拖动：平移 · 悬停：信息 · 点击：游戏内镜头",
+  all_lines: "所有线路", recenter: "重新居中", map_hint: "滚轮：缩放 · 拖动：平移 · 悬停：信息 · 点击：游戏内镜头（载具：跟随，Shift+点击：仅查看）",
   legend_vehicle: "载具（颜色 = 线路）", legend_stopped: "途中停止", legend_pax_station: "客运站", legend_cargo_station: "货运站", legend_industry: "产业",
   legend_counts: "{v} 载具 · {s} 车站 · {i} 产业", station_pax: "客运站", station_cargo: "货运站", industry: "产业", capacity_n: "容量 {n}", load_n: "装载 {a}/{b}",
   cam_travel: "镜头运动", cam_travel_play: "播放", cam_travel_stop: "停止", cam_travel_loop: "循环", cam_travel_dur: "时长", cam_travel_amp: "幅度", cam_music: "音乐", cam_music_vol: "音量",

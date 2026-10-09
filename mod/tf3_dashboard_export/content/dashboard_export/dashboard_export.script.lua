@@ -1024,6 +1024,7 @@ end
 
 camPathProgress = function()
 	if not camPath then return 0 end
+	if camPath.tour then local n = #camPath.tour.vehs; return n > 0 and math.min(1, camPath.tour.idx / n) or 0 end
 	local e = os.clock() - camPath.t0
 	if camPath.loop and camPath.total > 0 then e = e % camPath.total end
 	return math.max(0, math.min(1, e / camPath.total))
@@ -1044,11 +1045,107 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
+local function camSet(x, y, dist, angle, pitch)
+	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
+	if not ok then camPathStop("setCameraData failed: " .. tostring(err)); return false end
+	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
+	camPath.tick = camPath.tick + 1
+	return true
+end
+local function smooth(t) return t * t * (3 - 2 * t) end
+-- heading that looks along (dx, dy): the eye sits at centre + (sin a, -cos a) * back
+local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
+local function headingOf(dx, dy) return atan2(-dx, dy) end
+
+-- Line tour (rev 10): the camera visits the vehicles of a line one after the other, with LIVE positions.
+-- Per vehicle: "fly" = leave the current shot, climb (the hump is higher for a longer hop) and come down on
+-- the vehicle, turning onto its direction of travel; "track" = stay on it for `dwell` seconds, slowly pushing
+-- in and drifting round it, centre following the vehicle every frame. Then the next vehicle (nearest first,
+-- so the hops stay short). Nothing is precomputed; a vehicle that disappears is skipped.
+local function camTourPos(v)
+	local ok, p = pcall(api.engine.util.vehicle.getPosition, v)
+	if not ok or not p then return nil end
+	local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
+	if not x or not y then return nil end
+	return x, y
+end
+local function camTourNext(tour)
+	-- pick the vehicle nearest to the camera among those not yet visited in this round
+	local cx, cy = camPath.lastSet and camPath.lastSet.x or 0, camPath.lastSet and camPath.lastSet.y or 0
+	local best, bd
+	for _, v in ipairs(tour.vehs) do
+		if not tour.seen[v] then
+			local x, y = camTourPos(v)
+			if x then
+				local d = (x - cx) ^ 2 + (y - cy) ^ 2
+				if not best or d < bd then best, bd = v, d end
+			end
+		end
+	end
+	if not best then
+		-- every vehicle visited (or none has a position): loop = start a new round, else the tour is over
+		if not tour.loop or next(tour.seen) == nil then return nil end
+		tour.seen = {}
+		return camTourNext(tour)
+	end
+	tour.seen[best] = true
+	return best
+end
+local function camTourTick()
+	local tour = camPath.tour
+	local now = os.clock()
+	if not tour.cur then
+		local v = camTourNext(tour)
+		if not v then return camPathStop("tour finished") end
+		local x, y = camTourPos(v)
+		tour.cur = v; tour.phase = "fly"; tour.t0 = now; tour.px, tour.py, tour.pt = x, y, now; tour.vh = nil
+		tour.from = camPath.lastSet or { x = x, y = y, dist = tour.alt * 2, angle = 0, pitch = 0.9 }
+		local hop = math.sqrt((x - tour.from.x) ^ 2 + (y - tour.from.y) ^ 2)
+		tour.flyDur = math.max(2.5, math.min(9, hop / (tour.alt * 0.5)))
+		tour.hump = math.min(tour.alt * 2.5, hop * 0.4)
+		tour.idx = tour.idx + 1
+	end
+	local x, y = camTourPos(tour.cur)
+	if not x then tour.cur = nil; return end  -- vehicle gone (sold, in depot): next one
+	-- live heading of the vehicle from its movement (smoothed), kept when it stands still
+	if now - tour.pt > 0.25 then
+		local dx, dy = x - tour.px, y - tour.py
+		if dx * dx + dy * dy > 1 then
+			local h = headingOf(dx, dy)
+			tour.vh = tour.vh and angLerp(tour.vh, h, 0.3) or h
+		end
+		tour.px, tour.py, tour.pt = x, y, now
+	end
+	local vh = tour.vh or (camPath.lastSet and camPath.lastSet.angle) or 0
+	local e = now - tour.t0
+	if tour.phase == "fly" then
+		local s = smooth(math.min(1, e / tour.flyDur))
+		local f = tour.from
+		local cx, cy = lerp(f.x, x, s), lerp(f.y, y, s)
+		local dist = lerp(f.dist, tour.alt, s) + tour.hump * math.sin(math.pi * s)
+		-- look along the hop while high, then onto the vehicle's heading when coming down
+		local hopH = headingOf(x - f.x, y - f.y)
+		local ang = s < 0.5 and angLerp(f.angle, hopH, smooth(s * 2)) or angLerp(hopH, vh, smooth((s - 0.5) * 2))
+		local pitch = lerp(f.pitch, 0.75, math.sin(math.pi * s)) * (1 - s) + (0.9 - 0.15 * math.sin(math.pi * s)) * s
+		if not camSet(cx, cy, dist, ang, pitch) then return end
+		if e >= tour.flyDur then tour.phase = "track"; tour.t0 = now end
+	else
+		local s = math.min(1, e / tour.dwell)
+		-- slow push-in from alt to 55 % of it, and a gentle drift round the vehicle (a third of a turn over the dwell)
+		local dist = lerp(tour.alt, tour.alt * 0.55, smooth(s))
+		local ang = vh + 0.35 + 2.1 * s  -- start a little behind-left of the vehicle, drift round to the other side
+		local pitch = lerp(0.9, 0.7, smooth(s))
+		if not camSet(x, y, dist, ang, pitch) then return end
+		if e >= tour.dwell then tour.cur = nil end
+	end
+end
+
 local function camPathTick()
 	if not camPath then return end
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then return camPathStop("follow camera active") end
 	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera") end
+	if camPath.tour then return camTourTick() end
 	local e = os.clock() - camPath.t0
 	if e >= camPath.total then
 		if camPath.loop then e = e % camPath.total else e = camPath.total end
@@ -1067,10 +1164,7 @@ local function camPathTick()
 	local dist = math.max(10, catmull(p0.dist, p1.dist, p2.dist, p3.dist, t))
 	local angle = angLerp(p1.angle, p2.angle, t)
 	local pitch = lerp(p1.pitch, p2.pitch, t)
-	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
-	if not ok then return camPathStop("setCameraData failed: " .. tostring(err)) end
-	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
-	camPath.tick = camPath.tick + 1
+	if not camSet(x, y, dist, angle, pitch) then return end
 	if e >= camPath.total and not camPath.loop then camPathStop("finished") end
 end
 
@@ -1101,6 +1195,31 @@ local function camPathStart(args)
 	camPath = { pts = pts, legs = legs, total = total, loop = args.loop == true, ease = args.ease ~= false, t0 = os.clock(), tick = 0, lastSet = nil }
 	camPathTick()
 	debug(string.format("camera path started: %d points, %.1fs%s", #pts, total, camPath.loop and ", loop" or ""))
+	return true
+end
+
+-- camera_tour: args = { line = id, dwell = seconds per vehicle (default 8), alt = tracking distance (default 260),
+-- loop = bool, vehicles = { ids } (optional: tour these instead of the line's) }
+local function camTourStart(args)
+	local vs
+	if type(args.vehicles) == "table" and #args.vehicles > 0 then
+		vs = {}
+		for _, v in ipairs(args.vehicles) do local n = num(v); if n then vs[#vs + 1] = n end end
+	else
+		local l = num(args.line); if not l then error("camera_tour needs args.line or args.vehicles") end
+		vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(l))
+	end
+	if #vs == 0 then error("line has no vehicle") end
+	local okF, f = pcall(api.gui.camera.getFollowEntity)
+	local okC, c = pcall(api.gui.camera.getCameraData)
+	local last = okC and c and { x = num(c.x) or 0, y = num(c.y) or 0, dist = num(c.z) or 600, angle = num(c.w) or 0, pitch = num(c.q) or 0.9 } or nil
+	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 and last then
+		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(last.x, last.y, 0), last.dist)
+	end
+	camPath = { tour = { vehs = vs, seen = {}, idx = 0, loop = args.loop == true, dwell = math.max(3, num(args.dwell) or 8), alt = math.max(60, num(args.alt) or 260) },
+		legs = {}, total = 0, loop = args.loop == true, t0 = os.clock(), tick = 0, lastSet = last }
+	camPathTick()
+	debug(string.format("camera tour started: %d vehicles, %.0fs each%s", #vs, camPath.tour.dwell, camPath.loop and ", loop" or ""))
 	return true
 end
 
@@ -1266,6 +1385,8 @@ local COMMANDS = {
 	-- (duration = seconds per leg when a point has none; ease defaults to true). Played by the mod frame by frame.
 	camera_path = function(args) camPathStop("new path"); return camPathStart(args) end,
 	camera_stop = function() camPathStop("camera_stop"); return true end,
+	-- line tour: visit the vehicles of a line one by one with live positions (see camTourTick)
+	camera_tour = function(args) camPathStop("new tour"); return camTourStart(args or {}) end,
 	-- experiment (rev 10): play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
 	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts
 	-- it outside a mission / from userdata is what this command is here to find out. Answer carries the API result.

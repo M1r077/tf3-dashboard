@@ -439,7 +439,7 @@
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
-    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; musicStop(); }
+    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); }
     return o;
   }
 
@@ -771,61 +771,18 @@
     $("#line-travel").addEventListener("click", (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else lineTravelling(l); renderLineDetail(id); });
     bindActions(el);
   }
-  // Travelling along a line: fly from stop to stop over the station positions, heading towards the next stop,
-  // at a height that scales with the leg length (a short tram hop stays low, a long rail leg is seen from higher).
-  // Uses the travelling preferences (duration, loop, music) but not the movement, the line is the path.
-  async function lineTravelling(l) {
-    try { map.data = await api("/api/map"); } catch (e) { if (!map.data) return; }  // fresh vehicle positions
-    const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
-    const pts = ml ? ml.points : [];
-    if (pts.length < 2) return;
+  // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour, rev 10):
+  // fly to the nearest vehicle, track it for `dwell` seconds (slow push-in, drift round it), hop to the next.
+  // The dashboard only sends the parameters: duration pref = seconds per vehicle, amp = tracking distance,
+  // loop = start over when every vehicle was seen. Music as for the other travellings.
+  function lineTravelling(l) {
     const prefs = travelPrefs();
-    // Design: one steady helicopter flight, not a zoom per stop. The altitude comes from the size of the line
-    // (a 1 km tram loop is flown low, a 10 km railway from high) and barely changes along the way (+20 % mid-leg
-    // so a stop reads as a slight descent). The heading always follows the direction of flight; at a stop it is
-    // the bisector of the incoming and outgoing legs, so the camera turns gently through the stop instead of
-    // snapping. No per-leg easing: constant ground speed, the mod's Catmull-Rom rounds the corners.
-    // Vehicles of the line on a leg pull the mid-leg point over them (same altitude) so the flight passes above
-    // the traffic rather than over empty track. amp scales the altitude (x0.5 lower, x2 higher).
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    const span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) || 500;
-    const alt = Math.min(1200, Math.max(220, span * 0.14)) * prefs.amp, pitch = 0.9;
-    // closing the loop back to the first stop (the game's lines are circuits) unless the line is a shuttle A-B
-    const ring = pts.length > 2 ? pts.concat([pts[0]]) : pts;
-    // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
-    const headOf = (dx, dy) => (Math.atan2(-dx, dy) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
-    const dirs = ring.slice(1).map((p, i) => { const dx = p[0] - ring[i][0], dy = p[1] - ring[i][1], n = Math.hypot(dx, dy) || 1; return [dx / n, dy / n, n]; });
-    const vehs = (map.data.vehicles || []).filter(v => v.line_id === l.line_id && v.x != null);
-    const onLeg = (a, d) => {  // the vehicle most centred on leg a -> a + d, within a corridor around the straight line
-      let best = null;
-      for (const v of vehs) {
-        const t = ((v.x - a[0]) * d[0] + (v.y - a[1]) * d[1]) / d[2]; if (t < 0.2 || t > 0.8) continue;
-        const off = Math.abs((v.x - a[0]) * d[1] - (v.y - a[1]) * d[0]); if (off > Math.min(400, d[2] * 0.3)) continue;
-        const score = Math.abs(t - 0.5); if (!best || score < best.score) best = { v, score };
-      }
-      return best ? best.v : null;
-    };
-    const points = [];
-    for (let i = 0; i < ring.length; i++) {
-      const [x, y] = ring[i], dIn = dirs[i - 1], dOut = dirs[i];
-      let hx, hy;
-      if (dIn && dOut && pts.length > 2) { hx = dIn[0] + dOut[0]; hy = dIn[1] + dOut[1]; if (Math.hypot(hx, hy) < 0.05) { hx = dOut[0]; hy = dOut[1]; } }  // bisector (U-turn: outgoing)
-      else { const d = dOut || dIn; hx = d[0]; hy = d[1]; }
-      points.push({ x, y, dist: alt, angle: headOf(hx, hy), pitch });
-      if (dOut && dOut[2] > alt) {  // legs shorter than the altitude need no intermediate point
-        const v = onLeg(ring[i], dOut);
-        points.push(v ? { x: v.x, y: v.y, dist: alt, angle: headOf(dOut[0], dOut[1]), pitch }
-          : { x: x + dOut[0] * dOut[2] / 2, y: y + dOut[1] * dOut[2] / 2, dist: alt * 1.2, angle: headOf(dOut[0], dOut[1]), pitch });
-      }
-    }
-    // constant ground speed: leg durations proportional to length; total = the preference, stretched so the
-    // speed stays below ~1/4 of the altitude per second (a low flight is slow, a high one may be fast)
-    const legLen = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
-    const total = legLen.reduce((a, b) => a + b, 0) || 1;
-    const dur = Math.max(prefs.dur, total / (alt * 0.25));
-    sendCmd("camera_path", { points: points.map((p, i) => ({ ...p, duration: i < legLen.length ? dur * legLen[i] / total : 0 })), loop: prefs.loop, ease: false });
-    travel.active = { kind: "line", id: l.line_id, points, loop: prefs.loop, at: Date.now(), dur };
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: points.length };
+    const nveh = (l.live && l.live.n) || 1;
+    const dwell = Math.max(4, Math.min(20, prefs.dur / 2)), alt = 260 * prefs.amp;
+    const dur = nveh * (dwell + 5);  // rough: dwell + a hop per vehicle, for the music fade-out
+    sendCmd("camera_tour", { line: l.line_id, dwell, alt, loop: prefs.loop });
+    travel.active = { kind: "line", id: l.line_id, points: [], loop: prefs.loop, at: Date.now(), dur };
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: nveh };
     musicStart({ ...prefs, dur });
     renderCamViews(); if (map.data) drawMap($("#map"));
   }
@@ -1286,15 +1243,24 @@
     const el = new Audio("music/" + encodeURIComponent(file)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
     el.play().catch(() => {});
     const vol = prefs.vol ?? 0.6, t0 = Date.now(), total = prefs.dur * 1000;
+    // tail = let the track play to its end after the travelling (no fade-out at `total`); a manual stop still fades
+    const tail = !!prefs.tail;
     music.timer = setInterval(() => {
       const e = Date.now() - t0;
       let v = Math.min(1, e / 2000);
-      if (!prefs.loop) v = Math.min(v, Math.max(0, (total - e) / 3000));
+      if (!prefs.loop && !tail) v = Math.min(v, Math.max(0, (total - e) / 3000));
       el.volume = Math.max(0, Math.min(1, v * vol));
-      if (!prefs.loop && e > total) musicStop();
+      if (!prefs.loop && !tail && e > total) musicStop();
+      if (tail && el.ended) musicStop();
     }, 100);
   }
-  function musicStop() { if (music.timer) clearInterval(music.timer); music.timer = null; if (music.el) { music.el.pause(); music.el = null; } }
+  // stop: quick 1 s fade so a manual stop does not cut the music dead
+  function musicStop() {
+    if (music.timer) clearInterval(music.timer); music.timer = null;
+    const el = music.el; music.el = null; if (!el) return;
+    const v0 = el.volume; let k = 10;
+    const fade = setInterval(() => { k--; el.volume = Math.max(0, v0 * k / 10); if (k <= 0) { clearInterval(fade); el.pause(); } }, 100);
+  }
   async function editViews(body) {
     const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
@@ -1363,8 +1329,10 @@
       if (!tracks.length) { row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
       // "auto" (default) = a random track of the folder, so dropping files in music/ is all it takes
       row.innerHTML = `<span class="lbl">${ico("horn", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${tracks.map(x => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(x)}">${esc(x.replace(/\.[^.]+$/, "").slice(0, 18))}</button>`).join("")}</span>
-        <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">`;
+        <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">
+        <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("play_1", "sm")}${t("cam_music_tail")}</button>`;
       $$("[data-tset=music] button", row).forEach(b => b.addEventListener("click", () => { tp.music = b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
+      $("[data-ttail]", row).addEventListener("click", () => { tp.tail = !tp.tail; saveTravelPrefs(tp); renderCamViews(); });
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; saveTravelPrefs(tp); if (music.el) music.el.volume = tp.vol; });
     });
     $$(".cv", box).forEach(el => {

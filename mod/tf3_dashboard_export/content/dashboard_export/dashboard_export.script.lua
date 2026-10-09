@@ -1024,7 +1024,6 @@ end
 
 camPathProgress = function()
 	if not camPath then return 0 end
-	if camPath.tour then local n = #camPath.tour.vehs; return n > 0 and math.min(1, camPath.tour.visited / n) or 0 end
 	local e = os.clock() - camPath.t0
 	if camPath.loop and camPath.total > 0 then e = e % camPath.total end
 	return math.max(0, math.min(1, e / camPath.total))
@@ -1057,12 +1056,12 @@ local function smooth(t) return t * t * (3 - 2 * t) end
 local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
 local function headingOf(dx, dy) return atan2(-dx, dy) end
 
--- Line tour (rev 10): the camera glides ALONG THE LINE (the polyline of its stops, sent by the dashboard) and
--- lingers where the vehicles are. A cursor s (metres along the polyline) advances at cruise speed; when a vehicle
--- of the line is ahead on the route, the cursor eases to that vehicle's projection and follows it for `dwell`
--- seconds, then cruises on to the next one. The camera pose is low-pass filtered towards its target (the
--- vehicle positions only change on simulation ticks, the filter is what keeps the picture smooth). Heading =
--- direction of the route at the cursor, pitch/distance breathe a little between cruise and dwell.
+-- Line tour (rev 10): ONE camera path built when the command arrives, from the points of interest of the line =
+-- its stops (route sent by the dashboard, in order) + the positions of its vehicles AT THAT MOMENT, inserted at
+-- their place along the route. Then it is played exactly like camera_path (Catmull-Rom, constant ground speed).
+-- Altitude: high enough to read the line (derived from the size of the route, never a ground-level shot);
+-- the camera dips a little over a vehicle and over a stop, flies higher in between. Heading = direction of
+-- travel along the route, bisector at the corners so the turns are gentle.
 local function camTourPos(v)
 	local ok, p = pcall(api.engine.util.vehicle.getPosition, v)
 	if not ok or not p then return nil end
@@ -1070,109 +1069,105 @@ local function camTourPos(v)
 	if not x or not y then return nil end
 	return x, y
 end
--- polyline helpers: cumulative lengths, point + direction at s, projection of a point onto the route
-local function routeBuild(pts, closed)
-	local r = { pts = {}, cum = { 0 }, len = 0, closed = closed }
-	for i, p in ipairs(pts) do r.pts[i] = { x = p.x, y = p.y } end
-	if closed and #r.pts > 2 then r.pts[#r.pts + 1] = { x = r.pts[1].x, y = r.pts[1].y } end
-	for i = 2, #r.pts do
-		local a, b = r.pts[i - 1], r.pts[i]
-		r.len = r.len + math.sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2); r.cum[i] = r.len
-	end
-	return r
-end
-local function routeAt(r, s)
-	if r.closed then s = s % r.len elseif s > r.len then s = r.len elseif s < 0 then s = 0 end
-	local i = 2
-	while i < #r.pts and r.cum[i] < s do i = i + 1 end
-	local a, b = r.pts[i - 1], r.pts[i]
-	local seg = r.cum[i] - r.cum[i - 1]
-	local t = seg > 0 and (s - r.cum[i - 1]) / seg or 0
-	local dx, dy = b.x - a.x, b.y - a.y
-	return a.x + dx * t, a.y + dy * t, dx, dy
-end
-local function routeProject(r, x, y)
-	local bs, bd, boff = 0, math.huge, 0
-	for i = 2, #r.pts do
-		local a, b = r.pts[i - 1], r.pts[i]
+-- projection of (x,y) on the polyline: s along it, lateral offset
+local function routeProject(pts, cum, x, y)
+	local bs, bd = 0, math.huge
+	for i = 2, #pts do
+		local a, b = pts[i - 1], pts[i]
 		local dx, dy = b.x - a.x, b.y - a.y
 		local l2 = dx * dx + dy * dy
 		local t = l2 > 0 and math.max(0, math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / l2)) or 0
 		local px, py = a.x + dx * t, a.y + dy * t
 		local d = (x - px) ^ 2 + (y - py) ^ 2
-		if d < bd then bd = d; bs = r.cum[i - 1] + math.sqrt(l2) * t; boff = math.sqrt(d) end
+		if d < bd then bd = d; bs = cum[i - 1] + math.sqrt(l2) * t end
 	end
-	return bs, boff
+	return bs, math.sqrt(bd)
 end
--- distance forward along the route from s0 to s1
-local function routeAhead(r, s0, s1)
-	local d = s1 - s0
-	if r.closed then d = d % r.len elseif d < 0 then d = math.huge end
-	return d
-end
-local function bd_or(v) return v or math.huge end
-local function camTourTick()
-	local tour = camPath.tour
-	local now = os.clock()
-	local dt = math.min(0.1, math.max(0.001, now - (tour.last or now)))
-	tour.last = now
-	-- vehicles on the route: projection s and lateral offset (a vehicle far off the route = detour, ignored)
-	if now - (tour.scanAt or -1) > 0.5 then
-		tour.scanAt = now; tour.onRoute = {}
-		for _, v in ipairs(tour.vehs) do
-			local x, y = camTourPos(v)
-			if x then
-				local sv, off = routeProject(tour.route, x, y)
-				if off < tour.corridor then tour.onRoute[v] = sv end
-			end
-		end
-		if tour.target and not tour.onRoute[tour.target] then tour.target = nil; tour.mode = "cruise" end
+-- camera_tour args: { line = id, route = { {x, y}, ... } (stops in order), closed = bool (default: 3+ points),
+-- alt = flying distance in m (optional; default from the size of the route), speed = m/s (optional), loop = bool }
+local function camTourBuild(args)
+	local l = num(args.line); if not l then error("camera_tour needs args.line") end
+	local raw = args.route
+	if type(raw) ~= "table" or #raw < 2 then error("camera_tour needs args.route with 2+ points") end
+	local pts = {}
+	for i, p in ipairs(raw) do
+		local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
+		if not x or not y then error("route point " .. i .. ": missing x/y") end
+		pts[#pts + 1] = { x = x, y = y, stop = true }
 	end
-	if tour.mode == "cruise" then
-		-- nearest vehicle ahead on the route becomes the target when within reach; else keep cruising
-		local best, bd
-		for v, sv in pairs(tour.onRoute) do
-			local d = routeAhead(tour.route, tour.s, sv)
-			if d < bd_or(bd) and not tour.recent[v] then best, bd = v, d end
-		end
-		if best and bd < tour.route.len then tour.target = best; tour.mode = "approach" end
-		tour.s = tour.s + tour.cruise * dt
-	elseif tour.mode == "approach" then
-		-- close in on the target's projection: faster than cruise, easing as the gap shrinks
-		local sv = tour.onRoute[tour.target]
-		local gap = routeAhead(tour.route, tour.s, sv)
-		if gap == math.huge or gap > tour.route.len * 0.9 then tour.mode = "cruise"; tour.target = nil
-		else
-			local v = math.min(tour.cruise * 2, math.max(tour.cruise * 0.6, gap * 0.5))
-			tour.s = tour.s + v * dt
-			if gap < 15 then tour.mode = "dwell"; tour.t0 = now end
-		end
-	else -- dwell: ride with the vehicle (its projection moves along the route)
-		local sv = tour.onRoute[tour.target]
-		if sv then tour.s = tour.s + (routeAhead(tour.route, tour.s, sv) < tour.route.len / 2 and 1 or -1) * math.min(60 * dt, math.abs(sv - tour.s)) end
-		if now - tour.t0 > tour.dwell then
-			tour.recent[tour.target] = now; tour.visited = tour.visited + 1
-			tour.target = nil; tour.mode = "cruise"
-			if not tour.loop and tour.visited >= #tour.vehs then return camPathStop("tour finished") end
+	local closed = args.closed ~= false and #pts > 2
+	if closed then pts[#pts + 1] = { x = pts[1].x, y = pts[1].y, stop = true } end
+	-- cumulative length + size of the route
+	local cum, len = { 0 }, 0
+	local minx, maxx, miny, maxy = math.huge, -math.huge, math.huge, -math.huge
+	for i, p in ipairs(pts) do
+		if i > 1 then len = len + math.sqrt((p.x - pts[i - 1].x) ^ 2 + (p.y - pts[i - 1].y) ^ 2) end
+		cum[i] = len
+		minx, maxx, miny, maxy = math.min(minx, p.x), math.max(maxx, p.x), math.min(miny, p.y), math.max(maxy, p.y)
+	end
+	if len < 1 then error("route has no length") end
+	local span = math.sqrt((maxx - minx) ^ 2 + (maxy - miny) ^ 2)
+	-- altitude: a line is read from a height comparable to its spacing between stops, never below 350 m
+	local alt = num(args.alt) or math.max(350, math.min(1500, span * 0.22))
+	-- points of interest: stops, plus every vehicle of the line at its place along the route (now)
+	local poi = {}
+	for i, p in ipairs(pts) do poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end
+	local vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(l))
+	local nv = 0
+	for _, v in ipairs(vs) do
+		local x, y = camTourPos(v)
+		if x then
+			local sv, off = routeProject(pts, cum, x, y)
+			if off < math.max(300, alt) then poi[#poi + 1] = { s = sv, x = x, y = y, kind = "vehicle" }; nv = nv + 1 end
 		end
 	end
-	-- forget "recent" after a while so a loop can come back to the same vehicle
-	for v, t in pairs(tour.recent) do if now - t > tour.dwell * 2 + 20 then tour.recent[v] = nil end end
-	if not tour.route.closed and tour.s >= tour.route.len then
-		if tour.loop then tour.s = 0 else return camPathStop("tour finished") end
+	table.sort(poi, function(a, b) return a.s < b.s end)
+	-- merge points closer than alt/2 along the route (a vehicle standing in a station = one point)
+	local merged = {}
+	for _, q in ipairs(poi) do
+		local last = merged[#merged]
+		if last and q.s - last.s < alt * 0.5 then
+			if q.kind == "vehicle" then last.x, last.y, last.kind = q.x, q.y, "vehicle" end
+		else merged[#merged + 1] = { s = q.s, x = q.x, y = q.y, kind = q.kind } end
 	end
-	-- target pose
-	local x, y, dx, dy = routeAt(tour.route, tour.s)
-	local tgt = { x = x, y = y, angle = headingOf(dx, dy),
-		dist = tour.mode == "dwell" and tour.alt * 0.75 or tour.alt,
-		pitch = tour.mode == "dwell" and 0.8 or 0.9 }
-	-- low-pass towards the target (time constant ~0.8 s for the ground point, 1.5 s for distance/angle/pitch)
-	local f = tour.pose or tgt
-	local k1, k2 = 1 - math.exp(-dt / 0.8), 1 - math.exp(-dt / 1.5)
-	f = { x = lerp(f.x, tgt.x, k1), y = lerp(f.y, tgt.y, k1), dist = lerp(f.dist, tgt.dist, k2),
-		angle = angLerp(f.angle, tgt.angle, k2), pitch = lerp(f.pitch, tgt.pitch, k2) }
-	tour.pose = f
-	camSet(f.x, f.y, f.dist, f.angle, f.pitch)
+	-- a long empty stretch gets a high waypoint in its middle so the path does not cut the corner of the route
+	local out = {}
+	for i, q in ipairs(merged) do
+		out[#out + 1] = q
+		local nxt = merged[i + 1]
+		if nxt and nxt.s - q.s > alt * 3 then
+			local sm = (q.s + nxt.s) / 2
+			local j = 2
+			while j < #pts and cum[j] < sm do j = j + 1 end
+			local a, b = pts[j - 1], pts[j]
+			local seg = cum[j] - cum[j - 1]
+			local t = seg > 0 and (sm - cum[j - 1]) / seg or 0
+			out[#out + 1] = { s = sm, x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t, kind = "mid" }
+		end
+	end
+	-- headings: along the route (next point), bisector where the direction changes
+	local path = {}
+	for i, q in ipairs(out) do
+		local prv, nxt = out[i - 1], out[i + 1]
+		if closed and not nxt then nxt = out[2] end
+		if closed and not prv then prv = out[#out - 1] end
+		local hx, hy = 0, 0
+		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
+		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
+		if hx == 0 and hy == 0 then hy = 1 end
+		local dist = q.kind == "vehicle" and alt * 0.8 or q.kind == "stop" and alt or alt * 1.3
+		local pitch = q.kind == "vehicle" and 0.85 or 0.95
+		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy), pitch = pitch, s = q.s }
+	end
+	-- durations: constant ground speed; speed = alt/7 m/s by default (a 800 m flight pans at ~115 m/s)
+	local speed = math.max(10, num(args.speed) or alt / 7)
+	local raw2 = {}
+	for i, q in ipairs(path) do
+		local d = i > 1 and (q.s - path[i - 1].s) / speed or nil
+		raw2[#raw2 + 1] = { x = q.x, y = q.y, dist = q.dist, angle = q.angle, pitch = q.pitch, duration = d and math.max(1.5, d) or nil }
+	end
+	-- the leg duration belongs to the leg ENDING at a point in camPathStart (point i>1 carries legs[i-1]) - ok as built
+	return raw2, nv, alt, len
 end
 
 local function camPathTick()
@@ -1180,7 +1175,6 @@ local function camPathTick()
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then return camPathStop("follow camera active") end
 	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera") end
-	if camPath.tour then return camTourTick() end
 	local e = os.clock() - camPath.t0
 	if e >= camPath.total then
 		if camPath.loop then e = e % camPath.total else e = camPath.total end
@@ -1233,37 +1227,10 @@ local function camPathStart(args)
 	return true
 end
 
--- camera_tour: args = { line = id, route = { {x, y}, ... } (the stops of the line, in order), closed = bool
--- (default true when 3+ points: lines are circuits), dwell = seconds per vehicle (default 8), alt = flying
--- distance (default 260), speed = cruise m/s (default alt/3), loop = bool }
 local function camTourStart(args)
-	local l = num(args.line); if not l then error("camera_tour needs args.line") end
-	local raw = args.route
-	if type(raw) ~= "table" or #raw < 2 then error("camera_tour needs args.route with 2+ points") end
-	local pts = {}
-	for i, p in ipairs(raw) do
-		local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
-		if not x or not y then error("route point " .. i .. ": missing x/y") end
-		pts[#pts + 1] = { x = x, y = y }
-	end
-	local vs = arr(api.engine.system.transportVehicleSystem.getLineVehicles(l))
-	local closed = args.closed ~= false and #pts > 2
-	local route = routeBuild(pts, closed)
-	if route.len < 1 then error("route has no length") end
-	local alt = math.max(60, num(args.alt) or 260)
-	local okF, f = pcall(api.gui.camera.getFollowEntity)
-	local okC, c = pcall(api.gui.camera.getCameraData)
-	local last = okC and c and { x = num(c.x) or 0, y = num(c.y) or 0, dist = num(c.z) or 600, angle = num(c.w) or 0, pitch = num(c.q) or 0.9 } or nil
-	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 and last then
-		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(last.x, last.y, 0), last.dist)
-	end
-	-- start at the first stop; the pose filter starts from where the camera is, so the first move is a glide
-	camPath = { tour = { vehs = vs, route = route, s = 0, mode = "cruise", onRoute = {}, recent = {}, visited = 0,
-			loop = args.loop == true, dwell = math.max(3, num(args.dwell) or 8), alt = alt, cruise = math.max(5, num(args.speed) or alt / 3),
-			corridor = math.max(150, alt), pose = last },
-		legs = {}, total = 0, loop = args.loop == true, t0 = os.clock(), tick = 0, lastSet = last }
-	camPathTick()
-	debug(string.format("camera tour started: %d vehicles, route %.0f m%s, %.0fs each%s", #vs, route.len, closed and " (loop)" or "", camPath.tour.dwell, camPath.loop and ", loop" or ""))
+	local points, nv, alt, len = camTourBuild(args)
+	camPathStart({ points = points, loop = args.loop == true, ease = false })
+	debug(string.format("camera tour: %d points (%d vehicles), route %.0f m, alt %.0f m", #points, nv, len, alt))
 	return true
 end
 
@@ -1429,7 +1396,7 @@ local COMMANDS = {
 	-- (duration = seconds per leg when a point has none; ease defaults to true). Played by the mod frame by frame.
 	camera_path = function(args) camPathStop("new path"); return camPathStart(args) end,
 	camera_stop = function() camPathStop("camera_stop"); return true end,
-	-- line tour: visit the vehicles of a line one by one with live positions (see camTourTick)
+	-- line tour: one path over the stops of a line + its vehicles' positions at this moment (see camTourBuild)
 	camera_tour = function(args) camPathStop("new tour"); return camTourStart(args or {}) end,
 	-- experiment (rev 10): play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
 	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts

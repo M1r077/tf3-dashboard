@@ -783,12 +783,16 @@
     const route = ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : [];
     if (route.length < 2) return;
     const prefs = travelPrefs();
-    const nveh = (l.live && l.live.n) || 1;
-    const dwell = Math.max(4, Math.min(20, prefs.dur / 2)), alt = 260 * prefs.amp;
-    const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0);
-    const dur = nveh * dwell + len / (alt / 3);  // dwell per vehicle + the cruise over the route, for the music fade-out
-    sendCmd("camera_tour", { line: l.line_id, route, dwell, alt, loop: prefs.loop });
-    travel.active = { kind: "line", id: l.line_id, points: route.map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye on the route itself
+    // the mod builds ONE path from the stops + the vehicles' positions at this moment and derives the altitude from
+    // the size of the line; amp scales that altitude, the duration preference sets the speed (full loop in dur x 4 s
+    // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it
+    const closed = route.length > 2;
+    const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0) + (closed ? Math.hypot(route[0].x - route[route.length - 1].x, route[0].y - route[route.length - 1].y) : 0);
+    const dur = Math.max(20, prefs.dur * 4), speed = len / dur;
+    const xs = route.map(p => p.x), ys = route.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+    const alt = Math.max(350, Math.min(1500, span * 0.22)) * prefs.amp;
+    sendCmd("camera_tour", { line: l.line_id, route, closed, alt, speed, loop: prefs.loop });
+    travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: nveh };
     musicStart({ ...prefs, dur });
     renderCamViews(); if (map.data) drawMap($("#map"));

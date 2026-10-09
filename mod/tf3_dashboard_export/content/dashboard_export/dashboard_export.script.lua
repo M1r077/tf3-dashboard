@@ -380,7 +380,58 @@ local function collectVehicles()
 	return out
 end
 
+-- ---------------------------------------------------------------- line paths (rev 11)
+-- Where a line really runs: the game keeps, for every vehicle, the series of network edges it is following to its
+-- next stop (MOVE_PATH.path.edges = {{EdgeId{entity, index}, dir}}). Collected with the slow vehicles section (one
+-- vehicle per step, a table of ids, no geometry); the edges' entities are the BASE_EDGE segments exported in the
+-- geography, so the dashboard draws the line along them. Per (line, leg = stop the vehicle is heading to) the
+-- longest sequence seen is kept (a vehicle just departed holds the whole leg; later it holds the remainder), and a
+-- leg is replaced only by a sequence that starts and ends elsewhere (the player rerouted). Legs survive across cycles,
+-- so a few minutes of game give the whole line once each leg was driven once; written in slow_line_paths.lua.
+local linePaths = {}      -- line id -> { [leg] = { edges = {ids}, n = count, seen = os.time() } }
+local linePathsDirty = false
+local LINE_PATH_MAX_EDGES = 3000
+
+local function vehiclePathItem(v, tv)
+	local okP, mp = pcall(api.engine.getComponent, v, api.type.ComponentType.MOVE_PATH)
+	if not okP or not mp or not mp.path then return end
+	local line, leg = num(tv.line), num(tv.stopIndex)
+	if not line or line <= 0 or leg == nil then return end
+	local edges = {}
+	local last = nil
+	for _, e in ipairs(arr(mp.path.edges)) do
+		local id = e[1] and num(e[1].entity) or nil
+		if id and id ~= last then edges[#edges + 1] = id; last = id end
+		if #edges >= LINE_PATH_MAX_EDGES then break end
+	end
+	if #edges < 2 then return end
+	local legs = linePaths[line]
+	if not legs then legs = {}; linePaths[line] = legs end
+	local cur = legs[leg]
+	-- keep the longest; a sequence whose last edge differs from the stored one means the leg changed (new route)
+	if cur == nil or #edges > cur.n or cur.edges[cur.n] ~= edges[#edges] then
+		legs[leg] = { edges = edges, n = #edges, seen = os.time() }
+		linePathsDirty = true
+	end
+end
+
+-- the file: one record per line, legs in stop order, each a flat list of edge entity ids
+local function linePathsExport()
+	local out = {}
+	for line, legs in pairs(linePaths) do
+		local rec = { line = line, legs = {} }
+		for leg, d in pairs(legs) do rec.legs[#rec.legs + 1] = { stop = leg, edges = d.edges } end
+		table.sort(rec.legs, function(a, b) return a.stop < b.stop end)
+		out[#out + 1] = rec
+	end
+	return out
+end
+
 local function vehiclesBegin()
+	-- forget the legs of lines that no longer exist
+	local alive = {}
+	for _, l in ipairs(arr(api.engine.system.lineSystem.getLines())) do alive[num(l)] = true end
+	for line in pairs(linePaths) do if not alive[line] then linePaths[line] = nil; linePathsDirty = true end end
 	return arr(api.engine.util.vehicle.getVehicles()), {}
 end
 
@@ -388,6 +439,7 @@ local function vehicleStaticItem(v)
 	local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 	if not tv then return nil end
 	local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
+	pcall(vehiclePathItem, v, tv)
 	pcall(function() rec.icon_type = vehicleIconType(v) end)
 	pcall(function()
 		-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
@@ -1471,7 +1523,8 @@ local function geoEdgeStep(job)
 			if enumName("RoadType", { "STREET", "TRACK" }, be.roadType) == "TRACK" then kind = 1 end
 			local et = enumName("BaseEdgeType", { "NORMAL", "BRIDGE", "TUNNEL" }, be.type)
 			if et == "BRIDGE" then kind = kind + 2 elseif et == "TUNNEL" then kind = kind + 4 end
-			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind }
+			-- the entity id lets the line paths (vehicle MOVE_PATH edge ids) refer to this segment
+			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind, num(e) }
 		end)
 		if not ok then job.geo.errors[#job.geo.errors + 1] = { section = "edges", error = tostring(err) } end
 	end
@@ -1578,6 +1631,22 @@ local function slowWriteNext()
 		local dt = os.clock() - t0
 		if dt > 0.01 then log(string.format("slow file %s written in %.0fms", name, dt * 1000)) end
 	end
+	return true
+end
+
+-- line paths: their own file (tf3dash_line_paths.lua), outside the slow_seq set, rewritten only when a leg changed
+-- (typically a few times after loading, then rarely); the collector re-reads it on mtime change
+local LINE_PATHS_FILE = PREFIX .. "line_paths"
+local function linePathsWrite()
+	if not linePathsDirty then return false end
+	linePathsDirty = false
+	local items = linePathsExport()
+	local t0 = os.clock()
+	local ok, err = pcall(app.saveUserdata, DIR, LINE_PATHS_FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), items = items })
+	if not ok then log("saveUserdata failed for line_paths:", tostring(err)); return false end
+	local legs = 0
+	for _, r in ipairs(items) do legs = legs + #r.legs end
+	debug(string.format("line paths written: %d lines, %d legs, %.0fms", #items, legs, (os.clock() - t0) * 1000))
 	return true
 end
 

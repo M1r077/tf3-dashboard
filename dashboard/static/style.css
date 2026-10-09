@@ -549,3 +549,4 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 .mapstyle label { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .mapstyle label:first-child { margin-left: 0; }
 #map-style-btn.active { border-color: var(--accent); color: var(--accent); }
+.mapstyle[hidden] { display: none; }  /* the class sets display:flex, which would beat the hidden attribute */

@@ -1461,7 +1461,7 @@
     $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
-    $("#map-style-btn").addEventListener("click", () => { const b = $("#map-style"); b.hidden = !b.hidden; $("#map-style-btn").classList.toggle("active", !b.hidden); if (!b.hidden) renderMapStyle(); });
+    $("#map-style-btn").addEventListener("click", (e) => { e.preventDefault(); const b = $("#map-style"); const open = b.hidden; b.hidden = !open; $("#map-style-btn").classList.toggle("active", open); if (open) renderMapStyle(); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
@@ -1720,11 +1720,14 @@
   let busy = false, again = false;
   // A pointer button held down = the user is mid-click. Re-rendering now would swap the element under
   // the pointer between mousedown and mouseup and the browser would drop the click (one had to click twice).
-  let pointerDown = false;
-  document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
-  const pointerUp = () => { if (!pointerDown) return; pointerDown = false; if (again) { again = false; setTimeout(refresh, 0); } };
+  // The guard is released on pointerup / cancel / click / blur, and after 1.5 s whatever happened: a pointerup lost
+  // to a disabled control or to an element replaced mid-click must never leave the refresh loop stalled.
+  let pointerDown = false, pointerTimer = null;
+  const pointerUp = () => { if (pointerTimer) { clearTimeout(pointerTimer); pointerTimer = null; } if (!pointerDown) return; pointerDown = false; if (again) { again = false; setTimeout(refresh, 0); } };
+  document.addEventListener("pointerdown", () => { pointerDown = true; if (pointerTimer) clearTimeout(pointerTimer); pointerTimer = setTimeout(pointerUp, 1500); }, true);
   document.addEventListener("pointerup", pointerUp, true);
   document.addEventListener("pointercancel", pointerUp, true);
+  document.addEventListener("click", pointerUp, true);
   window.addEventListener("blur", pointerUp);
   async function refresh() {
     if (busy || pointerDown) { again = true; return; } busy = true;

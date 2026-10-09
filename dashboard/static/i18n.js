@@ -114,7 +114,7 @@ window.I18N = {
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 month", "6gm": "6 months", "1gy": "1 year", "5gy": "5 years", all: "all" }, range_title: "Time range of the charts: real minutes, or in-game months and years",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 month", "6gm": "6 months", "1gy": "1 year", "5gy": "5 years", all: "all" }, range_title: "Time range of the charts: real minutes, or months and years of the game calendar (the date shown in the game, which drives vehicle availability; it can run slower than the simulation or be paused, the range then covers everything that happened while the date did not move)",
     samples_range: "{n} points · {r}", chart_agg: "1-min average", chart_one_point: "1 point — the curve appears with the next sample", no_data_yet: "no data yet",
     chart_hint: "drag: zoom · double-click: reset · click a legend entry: hide/show",
     network_growth: "Network", company_growth: "Company value",
@@ -236,7 +236,7 @@ window.I18N = {
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mois", "6gm": "6 mois", "1gy": "1 an", "5gy": "5 ans", all: "tout" }, range_title: "Plage de temps des graphiques : minutes réelles, ou mois et années de jeu",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mois", "6gm": "6 mois", "1gy": "1 an", "5gy": "5 ans", all: "tout" }, range_title: "Plage de temps des graphiques : minutes réelles, ou mois et années du calendrier du jeu (la date affichée en jeu, celle des sorties de véhicules ; elle peut tourner moins vite que la simulation ou être en pause, la plage couvre alors tout ce qui s'est passé pendant que la date ne bougeait pas)",
     samples_range: "{n} points · {r}", chart_agg: "moyenne 1 min", chart_one_point: "1 point — la courbe apparaît au prochain relevé", no_data_yet: "pas encore de données",
     chart_hint: "glisser : zoom · double-clic : réinitialiser · clic sur la légende : masquer/afficher",
     network_growth: "Réseau", company_growth: "Valeur de la compagnie",
@@ -357,7 +357,7 @@ window.I18N = {
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", "1gm": "1 Monat", "6gm": "6 Monate", "1gy": "1 Jahr", "5gy": "5 Jahre", all: "alles" }, range_title: "Zeitbereich der Diagramme: echte Minuten oder Spielmonate und -jahre",
+    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", "1gm": "1 Monat", "6gm": "6 Monate", "1gy": "1 Jahr", "5gy": "5 Jahre", all: "alles" }, range_title: "Zeitbereich der Diagramme: echte Minuten oder Monate und Jahre des Spielkalenders (das im Spiel angezeigte Datum, das die Fahrzeugverfügbarkeit steuert; es kann langsamer als die Simulation laufen oder pausiert sein, der Bereich umfasst dann alles, was geschah, während das Datum stillstand)",
     samples_range: "{n} Punkte · {r}", chart_agg: "1-Min-Mittel", chart_one_point: "1 Punkt — die Kurve erscheint mit der nächsten Messung", no_data_yet: "noch keine Daten",
     chart_hint: "Ziehen: Zoom · Doppelklick: zurücksetzen · Klick auf Legende: ein-/ausblenden",
     network_growth: "Netz", company_growth: "Unternehmenswert",
@@ -493,7 +493,7 @@ window.I18N = {
     saves_note: "Um histórico por jogo salvo (o jogo reutiliza a mesma chave a cada carregamento desse jogo). Backups são arquivos zip na pasta acima: banco de dados + visões de câmera; copie-os para onde quiser.",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mês", "6gm": "6 meses", "1gy": "1 ano", "5gy": "5 anos", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos: minutos reais, ou meses e anos do jogo",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mês", "6gm": "6 meses", "1gy": "1 ano", "5gy": "5 anos", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos: minutos reais, ou meses e anos do calendário do jogo (a data mostrada no jogo, que define a disponibilidade dos veículos; ela pode correr mais devagar que a simulação ou estar pausada, e o intervalo então cobre tudo o que aconteceu enquanto a data não mudou)",
     samples_range: "{n} pontos · {r}", chart_agg: "média de 1 min", chart_one_point: "1 ponto — a curva aparece com a próxima amostra", no_data_yet: "ainda sem dados",
     chart_hint: "arrastar: zoom · clique duplo: redefinir · clique em um item da legenda: ocultar/mostrar",
     network_growth: "Rede", company_growth: "Valor da empresa",

@@ -1434,6 +1434,7 @@
     camViews.cur = (o && o.camera) || null;
     // views belong to a savegame: reload the list when the game changed (another save loaded while the page stayed open)
     const gameKey = o && o.game && o.game.key;
+    map.gameKey = gameKey || map.gameKey;
     if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
@@ -1446,9 +1447,9 @@
     drawMap(canvas);
   }
   function initMap(canvas) {
-    canvas.addEventListener("wheel", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; map.ox = mx - (mx - map.ox) * f; map.oy = my - (my - map.oy) * f; map.scale *= f; drawMap(canvas); }, { passive: false });
+    canvas.addEventListener("wheel", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; map.ox = mx - (mx - map.ox) * f; map.oy = my - (my - map.oy) * f; map.scale *= f; saveView(); drawMap(canvas); }, { passive: false });
     canvas.addEventListener("mousedown", e => { map.drag = { x: e.clientX, y: e.clientY, ox: map.ox, oy: map.oy, moved: false }; canvas.style.cursor = "grabbing"; });
-    window.addEventListener("mouseup", () => { map.drag = null; canvas.style.cursor = "grab"; });
+    window.addEventListener("mouseup", () => { if (map.drag && map.drag.moved) saveView(); map.drag = null; canvas.style.cursor = "grab"; });
     canvas.addEventListener("mousemove", e => { if (map.drag) { if (Math.abs(e.clientX - map.drag.x) + Math.abs(e.clientY - map.drag.y) > 3) map.drag.moved = true; map.ox = map.drag.ox + e.clientX - map.drag.x; map.oy = map.drag.oy + e.clientY - map.drag.y; drawMap(canvas); } else hoverMap(canvas, e); });
     canvas.addEventListener("click", e => {
       const hit = pickMap(canvas, e); if (!hit || map.lastDragMoved) return;
@@ -1459,7 +1460,7 @@
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });
     $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
-    $("#map-fit").addEventListener("click", () => { map.fitted = false; drawMap(canvas); });
+    $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
     $("#map-style-btn").addEventListener("click", () => { const b = $("#map-style"); b.hidden = !b.hidden; $("#map-style-btn").classList.toggle("active", !b.hidden); if (!b.hidden) renderMapStyle(); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
@@ -1474,7 +1475,9 @@
       if (g.unchanged) return;
       if (!g.available) { geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; return; }
       geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = "";
-      map.fitted = map.fitted && !geo.firstFit; geo.firstFit = true;  // first geography: refit on the real bounds
+      // first geography of the session: refit on the real bounds, unless the player already has a view (panned / zoomed /
+      // restored from the last visit) - never move the map under their hands
+      if (!geo.firstFit && !map.userView) map.fitted = false; geo.firstFit = true;
     } catch (e) { /* older server: no endpoint */ }
   }
   // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
@@ -1593,6 +1596,19 @@
     map.ox = w / 2 - ((minx + maxx) / 2) * map.scale; map.oy = h / 2 + ((miny + maxy) / 2) * map.scale;
     map.fitted = true;
   }
+  // the view (scale / offset) is remembered per savegame and restored on the next visit; set from wheel / drag / recentre
+  const viewKey = () => "tf3.mapview." + (map.gameKey || "default");
+  function saveView() { map.userView = true; try { localStorage.setItem(viewKey(), JSON.stringify({ s: map.scale, x: map.ox, y: map.oy, w: $("#map").clientWidth, h: $("#map").clientHeight })); } catch (e) { /* ignore */ } }
+  function restoreView(canvas) {
+    try {
+      const v = JSON.parse(localStorage.getItem(viewKey()) || "null"); if (!v || !(v.s > 0)) return false;
+      // the canvas may have another size now: keep the same world point in the centre
+      const cx = (canvas.clientWidth / 2 - v.x) / v.s, cy = -(canvas.clientHeight / 2 - v.y) / v.s;
+      const cx0 = (v.w / 2 - v.x) / v.s, cy0 = -(v.h / 2 - v.y) / v.s;
+      map.scale = v.s; map.ox = canvas.clientWidth / 2 - cx0 * v.s; map.oy = canvas.clientHeight / 2 + cy0 * v.s;
+      map.fitted = true; map.userView = true; return true;
+    } catch (e) { return false; }
+  }
   const P = (x, y) => [map.ox + x * map.scale, map.oy - y * map.scale]; // game y up
   function drawIcon(ctx, name, x, y, size, color) {
     const im = mapIcon(name); if (!im.complete || !im.naturalWidth) return false;
@@ -1630,7 +1646,7 @@
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (!map.fitted) fitMap(canvas);
+    if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
     const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
     const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015";

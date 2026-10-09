@@ -86,7 +86,9 @@
   $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
   /** uPlot options for a server series: real-time x axis (even spacing, aggregate shading) whose ticks read the
    *  GAME month, whatever the range: a player thinks in game dates, not in the clock on the wall (xGame = labels). */
-  const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月` : `${MON()[s.month]} ${s.year}`;
+  // month only, no year: the year boundary shows by itself (the year-to-date result drops to zero), and a month label
+  // per tick stays short enough to read on a small chart
+  const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.month}月` : MON()[s.month] || "";
   function tsOpts(hist, syncKey) {
     if (!hist.length || hist[0].ts == null) return {};
     let aggFrom = 0; while (aggFrom < hist.length && hist[aggFrom].agg) aggFrom++;

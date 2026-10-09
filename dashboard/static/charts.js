@@ -215,7 +215,8 @@
     if (gameTicks && monthStarts.length < 2 && labels && labels.length === n) { tickLabels = labels; monthStarts = xs.filter((x, i) => labels[i] && (i === 0 || labels[i] !== labels[i - 1])); }
     // keep a month start only when it lands >= 70 px right of the previous one kept (the latest months win, since the
     // reader looks at the right end), so labels never overlap even across a save-reload jump
-    const gameSplits = (u) => { const out = []; let lastPx = Infinity; for (let i = monthStarts.length - 1; i >= 0; i--) { const px = u.valToPos(monthStarts[i], "x"); if (lastPx - px >= 70) { out.unshift(monthStarts[i]); lastPx = px; } } return out; };
+    const minGap = tickLabels === opts.xGame ? 44 : 70;  // month names are short
+    const gameSplits = (u) => { const out = []; let lastPx = Infinity; for (let i = monthStarts.length - 1; i >= 0; i--) { const px = u.valToPos(monthStarts[i], "x"); if (lastPx - px >= minGap) { out.unshift(monthStarts[i]); lastPx = px; } } return out; };
     const labelAt = new Map(); if (gameTicks) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, tickLabels[i]); });
     const gameAxisValues = (u, vals) => vals.map(v => labelAt.get(v) || "");
 

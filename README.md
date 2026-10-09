@@ -102,8 +102,11 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   **stop editor**: load mode, min/max waiting time, cargo filter (game icons), preferred and alternative terminals,
   whole-line actions (including the horn of every vehicle).
 - **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on
-  the object. **Camera views**
-  (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
+  the object (a vehicle: follow it). With mod revision 11 the map draws the savegame's **geography**: shaded relief,
+  sea, lakes and rivers, every road and track (bridges, tunnels), four map styles (gear button), and lines are drawn
+  **along the network** (the real path of each vehicle, a predicted route until one has driven it). **Camera views**
+  (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9; a view can be
+  attached to a vehicle (revision 11: recalled = follow it again with the same framing). Views are kept
   per savegame in `db\camera_views.json`. **Travelling** (mod revision 10): smooth camera movements around a view
   (orbit, dolly, flyover, sweep, spiral), the chain of all views, and on each line's sheet a **line tour** - one
   flight over the line, its stops and where its vehicles are at that moment. The **Travellings** card keeps your

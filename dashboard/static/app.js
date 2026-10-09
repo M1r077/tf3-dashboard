@@ -768,21 +768,24 @@
       { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
+    musicTracks();  // prefetch, so "Any" can pick a track synchronously inside the click
     $("#line-travel").addEventListener("click", async (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else await lineTravelling(l); renderLineDetail(id); });
     const mo = $("#line-music-off"); if (mo) mo.addEventListener("click", () => { musicStop(); renderLineDetail(id); });
     bindActions(el);
   }
   // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour, rev 10):
-  // fly to the nearest vehicle, track it for `dwell` seconds (slow push-in, drift round it), hop to the next.
-  // The dashboard only sends the parameters: duration pref = seconds per vehicle, amp = tracking distance,
-  // loop = start over when every vehicle was seen. Music as for the other travellings.
+  // one path built by the mod from the stops (route sent here) + the vehicles' positions at that moment; the
+  // dashboard derives altitude and speed from the size of the line and the travelling preferences.
   async function lineTravelling(l) {
-    // the route = the stops of the line in order (map data); the mod glides along it and lingers at the vehicles
-    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { return; } }
+    const prefs = travelPrefs();
+    // audio may only start inside the click (no await before play): the music starts first, with a provisional
+    // duration, and is dropped again if the line turns out to have no route
+    musicStart({ ...prefs, dur: 120 });
+    // the route = the stops of the line in order (map data)
+    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { musicStop(); return; } }
     const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
     const route = ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : [];
-    if (route.length < 2) return;
-    const prefs = travelPrefs();
+    if (route.length < 2) { musicStop(); return; }
     // the mod builds ONE path from the stops + the vehicles' positions at this moment and derives the altitude from
     // the size of the line; amp scales that altitude, the duration preference sets the speed (full loop in dur x 4 s
     // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it
@@ -796,8 +799,8 @@
     const speed = Math.max(alt / 8, len / Math.max(20, prefs.dur * 4)), dur = len / speed;
     sendCmd("camera_tour", { line: l.line_id, route, closed, alt, speed, loop: prefs.loop });
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: nveh };
-    musicStart({ ...prefs, dur });
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: route.length };
+    musicRetime(dur);
     renderCamViews(); if (map.data) drawMap($("#map"));
   }
 
@@ -1248,19 +1251,22 @@
   // music on the dashboard side (the game has no "play this file" API): tracks served from <companion>/music/,
   // fade in over 2 s and out over the last 3 s of the travelling; stops with it
   const music = { el: null, timer: null, list: null };
-  async function musicTracks() { if (music.list) return music.list; try { music.list = (await api("/api/music")).tracks || []; } catch (e) { music.list = []; } return music.list; }
-  async function musicStart(prefs) {
+  async function musicTracks() { if (music.list) return music.list; try { music.list = (await api("/api/music")).tracks || []; } catch (e) { return []; } return music.list; }
+  // Must stay synchronous up to el.play(): browsers only allow audio to start inside the user's click. "auto"
+  // therefore picks from the list already fetched (the panel loads it; the line sheet prefetches it below).
+  function musicStart(prefs) {
     musicStop();
     if (!prefs.music) return;  // "" = off; "auto" = any track of the folder (none there = silence); else a file name
     let file = prefs.music;
-    if (file === "auto") { const tracks = await musicTracks(); if (!tracks.length) return; file = tracks[Math.floor(Math.random() * tracks.length)]; }
+    if (file === "auto") { const tracks = music.list || []; if (!tracks.length) { musicTracks(); return; } file = tracks[Math.floor(Math.random() * tracks.length)]; }
     const el = new Audio("music/" + encodeURIComponent(file)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
-    el.play().catch(() => {});
-    const vol = prefs.vol ?? 0.6, t0 = Date.now(), total = prefs.dur * 1000;
+    el.play().catch(e => { $("#cmd-status").textContent = t("cam_music_blocked"); $("#cmd-status").className = "cmdstatus bad"; console.warn("music", e); });
+    const vol = prefs.vol ?? 0.6, t0 = Date.now();
     // tail = let the track play to its end after the travelling (no fade-out at `total`); a manual stop still fades
     const tail = !!prefs.tail;
+    music.total = prefs.dur * 1000;
     music.timer = setInterval(() => {
-      const e = Date.now() - t0;
+      const e = Date.now() - t0, total = music.total;
       let v = Math.min(1, e / 2000);
       if (!prefs.loop && !tail) v = Math.min(v, Math.max(0, (total - e) / 3000));
       el.volume = Math.max(0, Math.min(1, v * vol));
@@ -1268,6 +1274,8 @@
       if (tail && el.ended) musicStop();
     }, 100);
   }
+  // the travelling's real duration is known a moment after the music had to start: adjust the fade-out point
+  function musicRetime(durS) { if (music.el) music.total = durS * 1000; }
   // stop: quick 1 s fade so a manual stop does not cut the music dead
   function musicStop() {
     if (music.timer) clearInterval(music.timer); music.timer = null;

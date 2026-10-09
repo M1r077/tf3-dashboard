@@ -1590,10 +1590,12 @@
   function initMap(canvas) {
     canvas.addEventListener("wheel", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top; const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; map.ox = mx - (mx - map.ox) * f; map.oy = my - (my - map.oy) * f; map.scale *= f; saveView(); drawMap(canvas); }, { passive: false });
     canvas.addEventListener("mousedown", e => { map.drag = { x: e.clientX, y: e.clientY, ox: map.ox, oy: map.oy, moved: false }; canvas.style.cursor = "grabbing"; });
-    window.addEventListener("mouseup", () => { if (map.drag && map.drag.moved) saveView(); map.drag = null; canvas.style.cursor = "grab"; });
+    window.addEventListener("mouseup", () => { if (map.drag && map.drag.moved) saveView(); map.drag = null; canvas.style.cursor = ruler.on ? "crosshair" : "grab"; });
     canvas.addEventListener("mousemove", e => { if (map.drag) { if (Math.abs(e.clientX - map.drag.x) + Math.abs(e.clientY - map.drag.y) > 3) map.drag.moved = true; map.ox = map.drag.ox + e.clientX - map.drag.x; map.oy = map.drag.oy + e.clientY - map.drag.y; drawMap(canvas); } else hoverMap(canvas, e); });
     canvas.addEventListener("click", e => {
-      const hit = pickMap(canvas, e); if (!hit || map.lastDragMoved) return;
+      if (map.lastDragMoved) return;
+      if (ruler.on) { rulerClick(canvas, e); return; }
+      const hit = pickMap(canvas, e); if (!hit) return;
       if (hit.kind === "view") gotoView(hit.view);
       // a vehicle: follow it (Shift+click = just look at it); anything else: look at it
       else if (hit.entity != null) sendCmd(hit.kind === "vehicle" && !e.shiftKey ? "follow_entity" : "focus_entity", { entity: hit.entity });
@@ -1604,6 +1606,8 @@
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
     $("#map-style-btn").addEventListener("click", (e) => { e.preventDefault(); const b = $("#map-style"); const open = b.hidden; b.hidden = !open; $("#map-style-btn").classList.toggle("active", open); if (open) renderMapStyle(); });
+    $("#map-ruler-btn").addEventListener("click", (e) => { e.preventDefault(); rulerSet(!ruler.on); });
+    document.addEventListener("keydown", (e) => { if (e.code === "Escape" && ruler.on && state.tab === "map") rulerSet(false); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
@@ -1829,6 +1833,67 @@
     if (!drawIcon(ctx, "camera", px, py, 12, color)) { ctx.fillStyle = color; ctx.fillRect(px - 3, py - 3, 6, 6); }
     ctx.restore();
   }
+  // ---- ruler. The game pays by the straight line between pickup and dropoff, never by the length of track
+  // (base/content/economy.zip, economy/cargo_income.script.lua: distance = |AB| + 8 * max(dz, 0)), so a ruler as the
+  // crow flies IS the planning figure. Click A, click B: the segment, its length, the height difference from the
+  // terrain grid when the geography is known, and the "paid" distance when B is higher. A third click starts over,
+  // the button or Escape leaves. Companion only, nothing sent to the game.
+  const ruler = { on: false, a: null, b: null, hover: null };
+  function rulerSet(on) {
+    ruler.on = on; ruler.a = ruler.b = ruler.hover = null;
+    $("#map-ruler-btn").classList.toggle("active", on);
+    const c = $("#map"); c.style.cursor = on ? "crosshair" : "grab"; $("#map-tip").style.display = "none"; drawMap(c);
+  }
+  const worldAt = (canvas, e) => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left - map.ox) / map.scale, y: -(e.clientY - r.top - map.oy) / map.scale }; };
+  function rulerClick(canvas, e) {
+    const p = worldAt(canvas, e);
+    if (!ruler.a || ruler.b) { ruler.a = p; ruler.b = null; } else ruler.b = p;
+    drawMap(canvas);
+  }
+  // terrain height at a world point, from the coarse height grid of the geography (bilinear); null without geography
+  function heightAt(x, y) {
+    const g = geo.data; if (!g || !g.heights || !g.grid || !g.bounds) return null;
+    const [nx, ny] = g.grid, every = g.height_every || 4, hx = Math.ceil(nx / every), hy = Math.ceil(ny / every);
+    const fx = (x - g.bounds[0]) / (g.bounds[2] - g.bounds[0]) * nx / every - 0.5, fy = (g.bounds[3] - y) / (g.bounds[3] - g.bounds[1]) * ny / every - 0.5;  // row 0 = north
+    const ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri;
+    const H = (c, r) => { c = Math.max(0, Math.min(hx - 1, c)); r = Math.max(0, Math.min(hy - 1, r)); const v = g.heights[r * hx + c]; return v != null ? v : 0; };
+    return (H(ci, ri) * (1 - tx) + H(ci + 1, ri) * tx) * (1 - ty) + (H(ci, ri + 1) * (1 - tx) + H(ci + 1, ri + 1) * tx) * ty;
+  }
+  const fmtDist = (m) => m >= 1000 ? (m / 1000).toFixed(2) + " km" : Math.round(m) + " m";
+  function drawRuler(ctx, w, h, font, ink, halo) {
+    if (!ruler.on) return;
+    const a = ruler.a, b = ruler.b || ruler.hover;
+    ctx.save(); ctx.strokeStyle = "#e8b04b"; ctx.fillStyle = "#e8b04b"; ctx.lineWidth = 2;
+    const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
+    if (a) dot(a);
+    if (a && b) {
+      const [ax, ay] = P(a.x, a.y), [bx, by] = P(b.x, b.y);
+      if (!ruler.b) ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+      if (ruler.b) dot(b);
+      const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
+      const lines = [fmtDist(dist)];
+      if (ha != null && hb != null) {
+        // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
+        const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
+        lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * Math.max(0, dz)) }));
+      }
+      // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
+      // over the relief)
+      const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / len, ny = (bx - ax) / len;
+      ctx.font = "600 13px " + font; ctx.textBaseline = "middle";
+      const tw = Math.max(...lines.map(s => ctx.measureText(s).width)), lh = 17, pw = tw + 16, ph = lines.length * lh + 8;
+      const px = mx + nx * 16 - (nx >= 0 ? 0 : pw), py = my + ny * 16 - ph / 2;
+      ctx.fillStyle = "rgba(11,16,21,.88)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, pw, ph, 6) : ctx.rect(px, py, pw, ph); ctx.fill(); ctx.stroke();
+      ctx.textAlign = "left";
+      lines.forEach((s, i) => { ctx.fillStyle = i ? "#c9d1d9" : "#ffffff"; ctx.fillText(s, px + 8, py + 4 + lh * (i + 0.5)); });
+      ctx.textBaseline = "alphabetic";
+    } else {
+      ctx.font = "12px " + font; ctx.textAlign = "left"; const s = t(a ? "ruler_hint_b" : "ruler_hint_a"); ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, 16, 20); ctx.fillStyle = ink; ctx.fillText(s, 16, 20);
+    }
+    ctx.restore();
+  }
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
@@ -1884,6 +1949,7 @@
       ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
+    drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
   }
@@ -1901,7 +1967,9 @@
     return best ? { ...best, mx, my } : null;
   }
   function hoverMap(canvas, e) {
-    const tip = $("#map-tip"); const hit = pickMap(canvas, e);
+    const tip = $("#map-tip");
+    if (ruler.on) { tip.style.display = "none"; if (ruler.a && !ruler.b) { ruler.hover = worldAt(canvas, e); drawMap(canvas); } return; }
+    const hit = pickMap(canvas, e);
     canvas.style.cursor = hit ? "pointer" : "grab";
     if (hit) { tip.style.display = "block"; tip.style.left = (hit.mx + 14) + "px"; tip.style.top = (hit.my + 14) + "px"; tip.innerHTML = hit.txt; } else tip.style.display = "none";
   }

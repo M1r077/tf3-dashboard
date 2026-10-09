@@ -583,14 +583,19 @@ def api_map(q: dict) -> dict:
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
     al = rows("SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot) AND x IS NOT NULL")
-    # line paths: stops -> station group -> station position (first station of the group with coordinates)
+    # line paths: stops -> station group -> station position (first station of the group with coordinates).
+    # Stops at an industry (fishing zone, oil platform, mine, sawmill...) have no station row: the game's industry
+    # stations are not player stations and the mod does not export them; the stop carries the industry's name, so
+    # the industry's position stands in (ships, trucks and buses serving an industry would otherwise have no route).
     paths = rows("""SELECT ls.line_id, ls.stop_index, l.name, l.color_r, l.color_g, l.color_b,
-                           COALESCE(s1.x, s2.x) AS x, COALESCE(s1.y, s2.y) AS y
+                           COALESCE(s1.x, s2.x, i.x) AS x, COALESCE(s1.y, s2.y, i.y) AS y
                     FROM line_stop ls
                     JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
                     LEFT JOIN station s1 ON s1.game_id=ls.game_id AND s1.station_id=ls.station_group
                     LEFT JOIN station s2 ON s2.game_id=ls.game_id AND s2.station_group=ls.station_group
                         AND s2.station_id=(SELECT MIN(station_id) FROM station x WHERE x.game_id=ls.game_id AND x.station_group=ls.station_group AND x.x IS NOT NULL)
+                    LEFT JOIN industry i ON i.game_id=ls.game_id AND i.x IS NOT NULL AND s1.x IS NULL AND s2.x IS NULL
+                        AND i.industry_id=(SELECT MIN(industry_id) FROM industry y WHERE y.game_id=ls.game_id AND y.name=ls.name AND y.x IS NOT NULL)
                     WHERE ls.game_id=? ORDER BY ls.line_id, ls.stop_index""", (gid,))
     lines: dict[int, dict] = {}
     for p in paths:

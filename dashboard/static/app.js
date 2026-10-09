@@ -782,10 +782,11 @@
     // duration, and is dropped again if the line turns out to have no route
     musicStart({ ...prefs, dur: 120 });  // provisional; the real duration is set by musicRetime below
     // the route = the stops of the line in order (map data)
-    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { musicStop(); return; } }
-    const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
-    const route = ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : [];
-    if (route.length < 2) { musicStop(); return; }
+    const findRoute = () => { const ml = map.data && (map.data.lines || []).find(x => x.line_id === l.line_id); return ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : []; };
+    let route = findRoute();
+    // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
+    if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
+    if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
     // the mod builds ONE path from the stops + the vehicles' positions at this moment and derives the altitude from
     // the size of the line; amp scales that altitude, the duration preference sets the speed (full loop in dur x 4 s
     // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it

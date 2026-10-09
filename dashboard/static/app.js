@@ -1487,11 +1487,19 @@
     const every = g.height_every || 4, hx = Math.ceil(nx / every), hy = Math.ceil(ny / every), H = g.heights || [];
     const [hmin, hmax] = g.height_range && g.height_range.length === 2 ? g.height_range : [0, 1];
     const hRaw = (ci, ri) => { ci = Math.max(0, Math.min(hx - 1, ci)); ri = Math.max(0, Math.min(hy - 1, ri)); const v = H[ri * hx + ci]; return v != null ? v : hmin; };
-    // bilinear between the coarse samples (one every `every` cells) so the relief reads as slopes, not as blocks
-    const hAt = (col, row) => { const fx = Math.max(0, col / every - 0.5), fy = Math.max(0, row / every - 0.5), ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri; return (hRaw(ci, ri) * (1 - tx) + hRaw(ci + 1, ri) * tx) * (1 - ty) + (hRaw(ci, ri + 1) * (1 - tx) + hRaw(ci + 1, ri + 1) * tx) * ty; };
-    const span = Math.max(1, hmax - hmin);
-    const land0 = [19, 28, 37], land1 = [40, 52, 58];   // low -> high (kept close: the relief is a hint, not a hillshade poster)
-    const water = [16, 41, 74];
+    // bicubic-ish: bilinear on the coarse samples, then the per-cell slopes come from the smooth field, not the
+    // sample steps; `every` cells per sample so the relief reads as hills, not as blocks
+    const hAt = (col, row) => { const fx = Math.max(0, col / every - 0.5), fy = Math.max(0, row / every - 0.5), ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri; const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty); return (hRaw(ci, ri) * (1 - sx) + hRaw(ci + 1, ri) * sx) * (1 - sy) + (hRaw(ci, ri + 1) * (1 - sx) + hRaw(ci + 1, ri + 1) * sx) * sy; };
+    // hillshade: light from the north-west, 45 degrees up; slopes in m/m from the cell size; vertical exaggeration
+    // so a 10 % slope is clearly visible on a flat-looking game map
+    const cell = (g.bounds[2] - g.bounds[0]) / nx, zx = 1.6;
+    const lx = -0.5, ly = -0.5, lz = 0.7071;  // unit light vector (x east, y south in image space)
+    const land = [30, 40, 48], water = [16, 41, 74];
+    const hb0 = new Float32Array(nx * ny), hb = new Float32Array(nx * ny);
+    for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) hb0[row * nx + col] = hAt(col, row);
+    // 3x3 box blur: takes the last steps out of the interpolated field
+    for (let row = 0; row < ny; row++) for (let col = 0; col < nx; col++) { let s = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const r = row + dy, q = col + dx; if (r >= 0 && r < ny && q >= 0 && q < nx) { s += hb0[r * nx + q]; n++; } } hb[row * nx + col] = s / n; }
+    const hAtB = (col, row) => hb[Math.max(0, Math.min(ny - 1, row)) * nx + Math.max(0, Math.min(nx - 1, col))];
     for (let row = 0; row < ny; row++) {
       const runs = String(g.water_rows[row] || "").split(",").map(Number);
       let col = 0, on = false;
@@ -1499,19 +1507,19 @@
         for (let k = 0; k < n && col < nx; k++, col++) {
           const o = (row * nx + col) * 4;
           if (on && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
-          const hgt = hAt(col, row), t = (hgt - hmin) / span;
-          // hill shade: slope towards the east sampled on the coarse height grid (one coarse cell apart)
-          const sh = (hAt(col + every, row) - hAt(col - every, row)) / (2 * every * ((g.bounds[2] - g.bounds[0]) / nx));
-          const light = Math.max(-0.25, Math.min(0.25, -sh * 2));
-          px[o] = Math.round((land0[0] + (land1[0] - land0[0]) * t) * (1 + light)); px[o + 1] = Math.round((land0[1] + (land1[1] - land0[1]) * t) * (1 + light)); px[o + 2] = Math.round((land0[2] + (land1[2] - land0[2]) * t) * (1 + light)); px[o + 3] = 255;
+          const dzdx = (hAtB(col + 1, row) - hAtB(col - 1, row)) / (2 * cell) * zx, dzdy = (hAtB(col, row + 1) - hAtB(col, row - 1)) / (2 * cell) * zx;
+          const nl = 1 / Math.sqrt(dzdx * dzdx + dzdy * dzdy + 1);
+          const shade = Math.max(0, (-dzdx * lx - dzdy * ly + lz) * nl);  // 0.71 on flat ground
+          const f = 0.6 + 0.6 * (shade - 0.7071);                         // flat = 0.6, lit slopes brighter, shadowed darker
+          const t = Math.max(0, Math.min(1, (hAtB(col, row) - hmin) / Math.max(1, hmax - hmin))) * 0.25;  // a hint of height
+          px[o] = Math.round(land[0] * (f + t)); px[o + 1] = Math.round(land[1] * (f + t)); px[o + 2] = Math.round(land[2] * (f + t)); px[o + 3] = 255;
         }
         on = !on;
       }
     }
     ctx.putImageData(img, 0, 0);
     return c;
-  }
-  function geoLayer(w, h, dpr) {
+  }  function geoLayer(w, h, dpr) {
     const g = geo.data; if (!g) return null;
     const showW = $("#map-water").checked, showN = $("#map-net").checked;
     const key = [w, h, dpr, map.scale.toFixed(5), Math.round(map.ox), Math.round(map.oy), showW, showN, geo.seq].join("|");

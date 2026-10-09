@@ -11,10 +11,12 @@ import datetime
 import json
 import math
 import os
+import shutil
 import sqlite3
 import sys
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -210,6 +212,11 @@ def api_overview(q: dict) -> dict:
             camera = json.loads(snap["camera"])
         except ValueError:
             camera = None
+    if game and game.get("reloads"):
+        try:
+            game["reloads"] = json.loads(game["reloads"])
+        except ValueError:
+            game["reloads"] = []
     return {"snapshot": snap, "finance": fin, "company": comp, "vehicles": veh, "alerts": alerts, "errors": errors,
             "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION, "camera": camera,
             "commands": {"enabled": not CMD_DISABLED, "accepted": snap.get("accept_commands"), "ack": ack, "pending": pending}}
@@ -745,6 +752,132 @@ def edit_views(body: dict) -> dict:
     return {"game": key, "views": views, "max": VIEWS_MAX}
 
 
+# ---------------------------------------------------------------- savegames: list, backup, restore
+# db/backups/tf3-dashboard-<label>-<stamp>.zip = { tf3_dashboard.db (consistent copy via the SQLite backup API),
+# camera_views.json, manifest.json }. Restore: the camera views are merged at once (per game key); the database copy
+# is written to db/restore_pending.db and swapped in by the collector at its next start (it owns the live file).
+BACKUP_DIR_NAME = "backups"
+RESTORE_PENDING = "restore_pending.db"
+_backup_lock = threading.Lock()
+
+
+def _backup_dir() -> Path:
+    return DB_PATH.parent / BACKUP_DIR_NAME
+
+
+def _safe_name(s: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in s)[:40].strip("_") or "game"
+
+
+def api_games(q: dict) -> dict:
+    """Savegames known to the database (label, dates seen, game date, reloads) and the backups on disk."""
+    games = []
+    if DB_PATH.exists():
+        try:
+            # the three last columns are added by the collector (migration); an older database has none of them
+            have = {r["name"] for r in rows("PRAGMA table_info(game)")}
+            opt = ", ".join(f"g.{c}" if c in have else f"NULL AS {c}" for c in ("label", "last_game_day", "reloads"))
+            games = rows(f"""SELECT g.game_id, g.key, g.first_seen, g.last_seen, g.lang, {opt},
+                                   (SELECT COUNT(*) FROM snapshot s WHERE s.game_id=g.game_id) snapshots,
+                                   (SELECT MIN(real_time) FROM snapshot s WHERE s.game_id=g.game_id) oldest,
+                                   (SELECT COUNT(*) FROM vehicle v WHERE v.game_id=g.game_id) vehicles,
+                                   (SELECT COUNT(*) FROM line l WHERE l.game_id=g.game_id) lines
+                            FROM game g ORDER BY g.last_seen DESC""")
+        except sqlite3.Error:
+            games = []
+    views = _views_load()
+    for gm in games:
+        try:
+            gm["reloads"] = json.loads(gm["reloads"]) if gm.get("reloads") else []
+        except ValueError:
+            gm["reloads"] = []
+        gm["views"] = len(views.get(gm["key"], []))
+    cur = _game_key()
+    backups = []
+    bd = _backup_dir()
+    if bd.is_dir():
+        for p in sorted(bd.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True):
+            item = {"file": p.name, "size": p.stat().st_size, "time": datetime.datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")}
+            try:
+                with zipfile.ZipFile(p) as z:
+                    item.update(json.loads(z.read("manifest.json").decode("utf-8")))
+            except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+                item["bad"] = True
+            backups.append(item)
+    pending = (DB_PATH.parent / RESTORE_PENDING).exists()
+    return {"current": cur, "games": games, "backups": backups, "dir": str(bd), "restore_pending": pending}
+
+
+def make_backup(body: dict) -> dict:
+    """POST /api/backup: zip the database (consistent copy) and the camera views into db/backups/."""
+    if not DB_PATH.exists():
+        raise ValueError("no database yet")
+    with _backup_lock:
+        bd = _backup_dir()
+        bd.mkdir(parents=True, exist_ok=True)
+        games = api_games({})["games"]
+        cur = next((gm for gm in games if gm["key"] == _game_key()), None)
+        label = str(body.get("label") or (cur or {}).get("label") or (cur or {}).get("key") or "game")
+        stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        out = bd / f"tf3-dashboard-{_safe_name(label)}-{stamp}.zip"
+        tmp_db = bd / f".backup-{stamp}.db"
+        src = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+        try:
+            dst = sqlite3.connect(tmp_db)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        manifest = {"label": label, "created": datetime.datetime.now().isoformat(timespec="seconds"), "version": VERSION,
+                    "games": [{"key": gm["key"], "label": gm.get("label"), "snapshots": gm["snapshots"], "last_seen": gm["last_seen"],
+                               "last_game_day": gm.get("last_game_day")} for gm in games]}
+        try:
+            with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+                z.write(tmp_db, "tf3_dashboard.db")
+                vp = _views_path()
+                if vp.exists():
+                    z.write(vp, "camera_views.json")
+                z.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
+        finally:
+            tmp_db.unlink(missing_ok=True)
+        console.say(f"backup written: {out.name} ({out.stat().st_size // 1024} KB)", "info")
+        return {"file": out.name, "size": out.stat().st_size, **manifest}
+
+
+def restore_backup(body: dict) -> dict:
+    """POST /api/restore {file, what: views|all}: merge the camera views now; with what=all also stage the database
+    copy for the collector to swap in at its next start (it must not be replaced under a running collector)."""
+    name = str(body.get("file") or "")
+    p = (_backup_dir() / name).resolve()
+    if not name or p.parent != _backup_dir().resolve() or not p.is_file():
+        raise ValueError("unknown backup")
+    what = str(body.get("what") or "views")
+    res = {"views_merged": 0, "db_staged": False}
+    with _backup_lock, zipfile.ZipFile(p) as z:
+        names = set(z.namelist())
+        if "camera_views.json" in names:
+            try:
+                old = json.loads(z.read("camera_views.json").decode("utf-8"))
+            except ValueError:
+                old = {}
+            with _views_lock:
+                store = _views_load()
+                for key, views in (old.items() if isinstance(old, dict) else []):
+                    if isinstance(views, list) and views and not store.get(key):
+                        store[key] = views[:VIEWS_MAX]
+                        res["views_merged"] += len(store[key])
+                _views_save(store)
+        if what == "all" and "tf3_dashboard.db" in names:
+            target = DB_PATH.parent / RESTORE_PENDING
+            with z.open("tf3_dashboard.db") as src, open(target, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            res["db_staged"] = True
+            console.say(f"database from {p.name} staged: the collector swaps it in at its next start (restart run_dashboard.cmd)", "warn")
+    return res
+
+
 def api_diag(q: dict) -> dict:
     """Why is the dashboard empty? Where the game's export is looked for, whether live.lua is there and how old it
     is, what the database holds. Shown by the dashboard on its empty screen; also handy to paste in a bug report."""
@@ -772,6 +905,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/games": api_games,
 }
 
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -821,7 +955,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/backup", "/api/restore"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
@@ -842,10 +976,15 @@ class Handler(BaseHTTPRequestHandler):
                 res = edit_views(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
+            if u.path in ("/api/backup", "/api/restore"):
+                fn = make_backup if u.path == "/api/backup" else restore_backup
+                res = fn(body if isinstance(body, dict) else {})
+                self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+                return
             res = write_command(str(body.get("cmd", "")), body.get("args") or {})
             console.say(f"command -> game: {body.get('cmd')} {json.dumps(body.get('args') or {})}", "info")
             self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, zipfile.BadZipFile) as e:
             self._send(400, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
         except OSError as e:
             self._send(500, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
@@ -861,6 +1000,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-cmd", action="store_true", help="disable dashboard -> game commands")
     args = ap.parse_args(argv)
     DB_PATH = tf3paths.db_path(args.db)
+    tf3paths.apply_pending_restore(DB_PATH, say=lambda m: console.say(m, "warn"))  # whichever of collector/server starts first does it
     port = tf3paths.port(args.port)
     CMD_DISABLED = bool(args.no_cmd)
     CMD_DIR_FIXED = bool(args.cmd_dir or tf3paths.load_config().get("export_dir") or os.environ.get("TF3_EXPORT_DIR"))

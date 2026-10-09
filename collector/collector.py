@@ -152,6 +152,9 @@ class Store:
         ("snapshot", "camera", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
+        ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
+        ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot: detects a reload of an older save
+        ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day}]: each time the game date went backwards
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -194,6 +197,37 @@ class Store:
         self._game_cache[key] = gid
         return gid
 
+    def _track_game_day(self, gid: int, t: dict, now: str) -> None:
+        """Remember the game date of the last snapshot. When it goes backwards by more than a day for the same
+        save, the player reloaded an older savegame: log it in game.reloads (the history is kept, the dashboard
+        shows a marker). The same key (player entity) is reused by the game for every load of that save."""
+        y, m, d = t.get("year"), t.get("month"), t.get("day")
+        if not all(isinstance(v, (int, float)) for v in (y, m, d)):
+            return
+        day = int(y) * 10000 + int(m) * 100 + int(d)
+        row = self.con.execute("SELECT last_game_day, reloads FROM game WHERE game_id=?", (gid,)).fetchone()
+        last = row["last_game_day"] if row else None
+        if last is not None and day < last - 1:
+            try:
+                reloads = json.loads(row["reloads"]) if row["reloads"] else []
+            except ValueError:
+                reloads = []
+            reloads.append({"at": now, "from_day": last, "to_day": day})
+            reloads = reloads[-20:]
+            self.con.execute("UPDATE game SET reloads=? WHERE game_id=?", (json.dumps(reloads), gid))
+        if last != day:
+            self.con.execute("UPDATE game SET last_game_day=? WHERE game_id=?", (day, gid))
+
+    def _label_game(self, gid: int, towns: Any) -> None:
+        """game.label = '<first town> · <first seen year>' once towns are known (slow section)."""
+        if self.con.execute("SELECT label FROM game WHERE game_id=?", (gid,)).fetchone()["label"]:
+            return
+        names = [g(x, "name") for x in as_list(towns) if isinstance(g(x, "name"), str)]
+        if not names:
+            return
+        row = self.con.execute("SELECT first_seen FROM game WHERE game_id=?", (gid,)).fetchone()
+        self.con.execute("UPDATE game SET label=? WHERE game_id=?", (f"{sorted(names)[0]} · {row['first_seen'][:10]}", gid))
+
     # ------------------------------------------------------------ ingest
     def ingest(self, snap: dict) -> int | None:
         now = iso()
@@ -224,6 +258,7 @@ class Store:
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:
             self.con.execute("UPDATE game SET lang=? WHERE game_id=? AND (lang IS NULL OR lang<>?)", (t["lang"], gid, t["lang"]))
+        self._track_game_day(gid, t, now)
         for e in as_list(snap.get("errors")):
             self.con.execute("INSERT INTO snapshot_error(snapshot_id, section, error) VALUES (?,?,?)",
                              (sid, g(e, "section"), g(e, "error")))
@@ -241,6 +276,7 @@ class Store:
             self._lines(sid, gid, now, slow_seq, snap.get("lines"))
             self._stations(sid, gid, now, snap.get("stations"))
             self._towns(sid, gid, now, snap.get("towns"))
+            self._label_game(gid, snap.get("towns"))
             self._industries(sid, gid, now, snap.get("industries"))
             self._depots(sid, gid, now, snap.get("depots"))
         self.con.commit()
@@ -729,6 +765,9 @@ def main(argv: list[str] | None = None) -> int:
     # auto mode (no --live, no config.json/env): the collector may switch to another export folder later
     args.live_auto = args.live is None and not tf3paths.load_config().get("export_dir") and not os.environ.get("TF3_EXPORT_DIR")
     args.live = tf3paths.live_path(args.live)
+
+    # a restore requested from the dashboard (db/restore_pending.db staged by server.py): swap it in before opening
+    tf3paths.apply_pending_restore(args.db)
 
     store = Store(args.db)
     if args.status:

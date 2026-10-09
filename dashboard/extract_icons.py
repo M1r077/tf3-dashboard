@@ -252,6 +252,9 @@ ICONS: dict[str, tuple[str, str]] = {
     "play_4": (GUI, "gui/game_bar/icons/playback_play_4@2x.tga"),
     "camera": (GUI, "gui/game_bar/icons/symbol_camera@2x.tga"),
     "follow": (GUI, "gui/camera_tool/icons/camera@2x.tga"),
+    # savegames / backups (settings panel)
+    "save": (GUI, "gui/main/icons/symbol_save_floppy_42@2x.tga"),
+    "load_game": (GUI, "gui/menu/icons/load_game@2x.tga"),
     "reverse": (GUI, "gui/entity_window/icons/symbol_arrow_reverse@2x.tga"),
     "depart": (GUI, "gui/line_vehicle_mgmt/icons/symbol_arrow_circle_dot@2x.tga"),
     "to_depot": (GUI, "gui/entity_window/icons/building_depot_arrow@2x.tga"),

@@ -200,6 +200,35 @@ def db_path(explicit: str | os.PathLike | None = None) -> Path:
     return p if p.is_absolute() else ROOT / p
 
 
+def apply_pending_restore(db: Path, say=print) -> bool:
+    """A restore requested from the dashboard (server.py staged <db dir>/restore_pending.db): swap it in. Called by
+    the collector and the server at start, before either opens the database; the first one does it, the other finds
+    nothing to do. The replaced database is kept next to it as a dated safety copy. Returns True when swapped."""
+    pending = db.parent / "restore_pending.db"
+    if not pending.exists():
+        return False
+    keep = db.with_name(f"{db.stem}.before-restore-{time.strftime('%Y%m%d-%H%M%S')}.db")
+    try:
+        if db.exists():
+            try:  # fold the WAL into the main file so the copy is self-contained
+                import sqlite3
+                c = sqlite3.connect(str(db)); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
+            except Exception:  # noqa: BLE001
+                pass
+            db.replace(keep)
+            for suffix in ("-wal", "-shm"):
+                p = db.with_name(db.name + suffix)
+                if p.exists():
+                    p.unlink()
+        pending.replace(db)
+        say(f"database restored from the dashboard backup; the previous one is kept as {keep.name}")
+        return True
+    except OSError as e:
+        # Windows: still open by a running collector/server -> next full restart
+        say(f"restore postponed ({e}): close the collector and the server, then start run_dashboard.cmd again")
+        return False
+
+
 def port(explicit: int | None = None) -> int:
     if explicit:
         return int(explicit)

@@ -56,6 +56,7 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Stations / depots | `station.calculateStationUsage/isStationOfType`, `VEHICLE_DEPOT`, `CONSTRUCTION` |
 | Finances | `ACCOUNT`, `finance.getPlayersBalance/calculateEarnings`, `headquarters.getTransportedData/getCompaniesValue` |
 | Repositories | `api.res.cargoTypeRep`, `api.res.modelRep` |
+| Geography (rev 11, `tf3dash_geo.lua`, static) | `api.engine.terrain.getBoundingBox`, component `TERRAIN` (size, waterLevel), `riverSystem.getWaterMeshEntities` + component `WATER_MESH` (contours), `getEntitiesWithComponent(BASE_EDGE)` + component `BASE_EDGE` (position0/1, roadType, type). Not used yet: `terrain.getHeightAt/isOnWater`, `getHeightmapEntity`, `makeMapFromGame`, `BASE_EDGE.tangent0/1` (curves), `app.writeHeightmap` (PNG into `heightmaps/`, a writable folder) |
 
 ### 2.2 Available, not exported yet
 

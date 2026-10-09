@@ -1251,6 +1251,197 @@ local function camTourStart(args)
 	return true
 end
 
+-- ---------------------------------------------------------------- geography (rev 11)
+-- Static picture of the map for the dashboard's map tab: the terrain bounds, the water (contours of the water
+-- meshes: sea, lakes, rivers) and the network (every street and track edge as a segment with its type). Written to
+-- tf3dash_geo.lua once after the first slow cycle, then again only when the number of edges changed (the player
+-- built or removed something) and at most once a minute. Collected one tile / one batch of edges per step with the
+-- slow budget, so a 10 000-edge map costs a few ms per frame for a couple of seconds, never a stall. Everything is
+-- rounded to the metre and contours are simplified (Douglas-Peucker) so the file stays a few hundred KB.
+local GEO_FILE = PREFIX .. "geo"
+local GEO_EDGE_BATCH = 40          -- edges per step (~1 ms measured target)
+local GEO_WATER_EPS = 6            -- m: contour simplification tolerance (the map shows 1 px = 5..50 m)
+local GEO_MIN_INTERVAL = 60        -- s between two collections when the network keeps changing
+local geoJob = nil
+local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
+local geoSeq = 0
+local lastGeoAt = -1e9
+local lastGeoEdgeCount = nil
+
+local function round(x) return math.floor(x + 0.5) end
+
+-- Douglas-Peucker on a closed/open ring of {x, y}; keeps the shape within eps metres
+local function simplify(pts, eps)
+	local n = #pts
+	if n <= 3 then return pts end
+	local keep = {}
+	keep[1], keep[n] = true, true
+	local stack = { { 1, n } }
+	local eps2 = eps * eps
+	while #stack > 0 do
+		local seg = table.remove(stack)
+		local a, b = seg[1], seg[2]
+		if b - a >= 2 then
+			local ax, ay, bx, by = pts[a][1], pts[a][2], pts[b][1], pts[b][2]
+			local dx, dy = bx - ax, by - ay
+			local len2 = dx * dx + dy * dy
+			local best, bi = 0, nil
+			for i = a + 1, b - 1 do
+				local px, py = pts[i][1] - ax, pts[i][2] - ay
+				local d2
+				if len2 == 0 then d2 = px * px + py * py
+				else
+					local t = (px * dx + py * dy) / len2
+					if t < 0 then t = 0 elseif t > 1 then t = 1 end
+					local ex, ey = px - t * dx, py - t * dy
+					d2 = ex * ex + ey * ey
+				end
+				if d2 > best then best, bi = d2, i end
+			end
+			if bi and best > eps2 then
+				keep[bi] = true
+				stack[#stack + 1] = { a, bi }
+				stack[#stack + 1] = { bi, b }
+			end
+		end
+	end
+	local out = {}
+	for i = 1, n do if keep[i] then out[#out + 1] = pts[i] end end
+	return out
+end
+
+local function geoEdgeCount()
+	local ok, list = pcall(api.engine.getEntitiesWithComponent, api.type.ComponentType.BASE_EDGE)
+	if ok and type(list) == "table" then return #list end
+	return nil
+end
+
+local function geoJobStart()
+	local geo = { schema = SCHEMA, mod = MOD_ID, errors = {}, water = {}, edges = {} }
+	-- bounds + water level: one call each
+	local okB, box = pcall(api.engine.terrain.getBoundingBox)
+	if okB and box then
+		local mn, mx = vec2(box.min), vec2(box.max)
+		if mn and mx then geo.bounds = { round(mn.x), round(mn.y), round(mx.x), round(mx.y) } end
+	else geo.errors[#geo.errors + 1] = { section = "bounds", error = tostring(box) } end
+	local tiles = nil
+	pcall(function()
+		local world = api.engine.util.getWorld()
+		local tr = api.engine.getComponent(world, api.type.ComponentType.TERRAIN)
+		if tr then
+			geo.water_level = num(tr.waterLevel)
+			local sz = vec2(tr.size)
+			if sz then tiles = { x = sz.x, y = sz.y }; geo.tiles = { sz.x, sz.y } end
+		end
+	end)
+	-- water meshes: all entities in the tile range (tile indices start at 0)
+	local waterEntities = {}
+	if tiles then
+		local okW, list = pcall(api.engine.system.riverSystem.getWaterMeshEntities, api.type.Vec2i.new(0, 0), api.type.Vec2i.new(tiles.x, tiles.y))
+		if okW and type(list) == "table" then for _, e in pairs(list) do waterEntities[#waterEntities + 1] = e end
+		else geo.errors[#geo.errors + 1] = { section = "water", error = tostring(list) } end
+	end
+	local edges = {}
+	local okE, list = pcall(api.engine.getEntitiesWithComponent, api.type.ComponentType.BASE_EDGE)
+	if okE and type(list) == "table" then for _, e in pairs(list) do edges[#edges + 1] = e end
+	else geo.errors[#geo.errors + 1] = { section = "edges", error = tostring(list) } end
+	geoSeq = geoSeq + 1
+	geo.geo_seq = geoSeq
+	geoJob = { geo = geo, water = waterEntities, wi = 0, edges = edges, ei = 0, started = os.clock(), steps = 0,
+		vertsIn = 0, vertsOut = 0 }
+end
+
+-- one water mesh: its contours, simplified; coordinates rounded to the metre
+local function geoWaterStep(job)
+	job.wi = job.wi + 1
+	local e = job.water[job.wi]
+	if e == nil then return true end
+	local ok, err = pcall(function()
+		local wm = api.engine.getComponent(e, api.type.ComponentType.WATER_MESH)
+		if not wm or not wm.contours then return end
+		for _, c in pairs(wm.contours) do
+			local pts = {}
+			for _, v in pairs(c.vertices) do
+				local p = vec2(v)
+				if p then pts[#pts + 1] = { p.x, p.y } end
+			end
+			job.vertsIn = job.vertsIn + #pts
+			if #pts >= 3 then
+				local s = simplify(pts, GEO_WATER_EPS)
+				if #s >= 3 then
+					local flat = {}
+					for _, p in ipairs(s) do flat[#flat + 1] = round(p[1]); flat[#flat + 1] = round(p[2]) end
+					job.vertsOut = job.vertsOut + #s
+					job.geo.water[#job.geo.water + 1] = flat
+				end
+			end
+		end
+	end)
+	if not ok then job.geo.errors[#job.geo.errors + 1] = { section = "water", error = tostring(err) } end
+	return false
+end
+
+-- a batch of edges: {x0, y0, x1, y1, kind} with kind 0 street, 1 track, +2 bridge, +4 tunnel
+local function geoEdgeStep(job)
+	local out = job.geo.edges
+	for _ = 1, GEO_EDGE_BATCH do
+		job.ei = job.ei + 1
+		local e = job.edges[job.ei]
+		if e == nil then return true end
+		local ok, err = pcall(function()
+			local be = api.engine.getComponent(e, api.type.ComponentType.BASE_EDGE)
+			if not be then return end
+			local p0, p1 = vec2(be.position0), vec2(be.position1)
+			if not (p0 and p1) then
+				-- older builds: positions only on the nodes
+				local n0 = api.engine.getComponent(be.node0, api.type.ComponentType.BASE_NODE)
+				local n1 = api.engine.getComponent(be.node1, api.type.ComponentType.BASE_NODE)
+				p0, p1 = n0 and vec2(n0.position), n1 and vec2(n1.position)
+			end
+			if not (p0 and p1) then return end
+			local kind = 0
+			if enumName("RoadType", { "STREET", "TRACK" }, be.roadType) == "TRACK" then kind = 1 end
+			local et = enumName("BaseEdgeType", { "NORMAL", "BRIDGE", "TUNNEL" }, be.type)
+			if et == "BRIDGE" then kind = kind + 2 elseif et == "TUNNEL" then kind = kind + 4 end
+			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind }
+		end)
+		if not ok then job.geo.errors[#job.geo.errors + 1] = { section = "edges", error = tostring(err) } end
+	end
+	return false
+end
+
+-- run steps until the budget is spent; returns the finished geo table or nil
+local function geoJobRun(budget)
+	if geoJob == nil then return nil end
+	local t0 = os.clock()
+	local job = geoJob
+	repeat
+		job.steps = job.steps + 1
+		local done
+		if job.wi < #job.water then done = false; geoWaterStep(job)
+		elseif job.ei < #job.edges then done = geoEdgeStep(job)
+		else done = true end
+		if done then
+			job.geo.duration = os.clock() - job.started
+			job.geo.edge_count = #job.edges
+			geoJob = nil
+			return job
+		end
+	until os.clock() - t0 >= budget
+	return nil
+end
+
+local function geoWrite(job)
+	local t0 = os.clock()
+	local ok, err = pcall(app.saveUserdata, DIR, GEO_FILE, job.geo)
+	if not ok then log("saveUserdata failed for geo:", tostring(err)); return false end
+	geoCache = { geo_seq = job.geo.geo_seq, edges = #job.geo.edges, water = #job.geo.water }
+	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
+		#job.geo.edges, #job.geo.water, job.vertsIn, job.vertsOut, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
+	for i = 1, math.min(3, #job.geo.errors) do log("  geo error:", job.geo.errors[i].section, job.geo.errors[i].error) end
+	return true
+end
+
 local function buildSnapshot(player, names)
 	seq = seq + 1
 	local snap = { schema = SCHEMA, mod = MOD_ID, seq = seq, real_time = os.time(), errors = {} }
@@ -1739,6 +1930,23 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		if slowPending ~= nil then return end  -- do not write live.lua in the same frame as a slow file
 	end
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
+
+	-- geography: first collection right after the first slow cycle, then again when the network changed (edge
+	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete
+	if geoJob == nil and now - lastGeoAt >= GEO_MIN_INTERVAL then
+		lastGeoAt = now
+		local n = geoEdgeCount()
+		if geoCache == nil or (n ~= nil and n ~= lastGeoEdgeCount) then
+			lastGeoEdgeCount = n
+			local okG, errG = pcall(geoJobStart)
+			if not okG then log("geo collection failed to start:", tostring(errG)); geoJob = nil end
+		end
+	end
+	if geoJob ~= nil then
+		local okG, done = pcall(geoJobRun, active and ACTIVITY_BUDGET or SLOW_BUDGET)
+		if not okG then log("geo collection failed:", tostring(done)); geoJob = nil
+		elseif done then pcall(geoWrite, done); return end  -- not in the same frame as live.lua (a big write)
+	end
 
 	if now - lastFast < o.interval_fast then return end
 	local tb = os.clock()

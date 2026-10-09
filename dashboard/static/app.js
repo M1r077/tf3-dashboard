@@ -1437,6 +1437,7 @@
     if (!camViews.loaded || (gameKey && camViews.game && gameKey !== camViews.game)) await loadViews();
     renderCamViews();
     map.data = await api("/api/map");
+    await loadGeo();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1462,13 +1463,60 @@
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
   }
+  // ---- geography (mod rev 11): terrain bounds, water contours, street/track network. Static per savegame: fetched
+  // with the geo_seq we already have, the server answers "unchanged" unless the mod rewrote its file (network edit).
+  const geo = { data: null, seq: null, game: null, layer: null, key: "" };
+  async function loadGeo() {
+    try {
+      const g = await api("/api/geo" + (geo.seq != null ? `?have=${geo.seq}&game=${geo.game}` : ""));
+      if (g.unchanged) return;
+      if (!g.available) { geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; return; }
+      geo.data = g; geo.seq = g.geo_seq; geo.game = g.game_id; geo.layer = null; geo.key = "";
+      map.fitted = map.fitted && !geo.firstFit; geo.firstFit = true;  // first geography: refit on the real bounds
+    } catch (e) { /* older server: no endpoint */ }
+  }
+  // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
+  // refresh: 10 000 edges + a few thousand water vertices cost ~15 ms to stroke, the blit nothing
+  const EDGE_STREET = "#3a4858", EDGE_TRACK = "#8a98a8", EDGE_BRIDGE = "#b8c4d0", WATER_FILL = "#10294a", WATER_EDGE = "#2a5a8a";
+  function geoLayer(w, h, dpr) {
+    const g = geo.data; if (!g) return null;
+    const showW = $("#map-water").checked, showN = $("#map-net").checked;
+    const key = [w, h, dpr, map.scale.toFixed(5), Math.round(map.ox), Math.round(map.oy), showW, showN, geo.seq].join("|");
+    if (geo.layer && geo.key === key) return geo.layer;
+    const oc = geo.layer || document.createElement("canvas"); oc.width = w * dpr; oc.height = h * dpr;
+    const ctx = oc.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    // the terrain: a slightly lighter land rectangle so the map's edge is visible, the rest stays the page background
+    if (g.bounds) { const [ax, ay] = P(g.bounds[0], g.bounds[3]), [bx, by] = P(g.bounds[2], g.bounds[1]); ctx.fillStyle = "#121b24"; ctx.fillRect(ax, ay, bx - ax, by - ay); ctx.strokeStyle = "#2c3a4a"; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1); }
+    if (showW && g.water) {
+      ctx.fillStyle = WATER_FILL; ctx.strokeStyle = WATER_EDGE; ctx.lineWidth = 1;
+      ctx.beginPath();
+      g.water.forEach(c => { for (let i = 0; i < c.length; i += 2) { const [x, y] = P(c[i], c[i + 1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); } ctx.closePath(); });
+      ctx.fill("evenodd"); ctx.stroke();
+    }
+    if (showN && g.edges) {
+      // streets thin and dark, tracks lighter; bridges a shade lighter, tunnels dashed. Below ~0.05 px/m streets
+      // would only grey the map: skip them, keep tracks.
+      const streets = map.scale >= 0.03;
+      const pass = (kindTest, color, width, dash) => { ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.beginPath(); g.edges.forEach(e => { if (!kindTest(e[4])) return; const [x0, y0] = P(e[0], e[1]), [x1, y1] = P(e[2], e[3]); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); }); ctx.stroke(); ctx.setLineDash([]); };
+      if (streets) { pass(k => (k & 1) === 0 && !(k & 4), EDGE_STREET, Math.max(1, Math.min(3, map.scale * 8))); pass(k => (k & 1) === 0 && (k & 4), EDGE_STREET, 1, [3, 3]); }
+      pass(k => (k & 1) === 1 && !(k & 6), EDGE_TRACK, Math.max(1, Math.min(2.5, map.scale * 6)));
+      pass(k => (k & 1) === 1 && (k & 2), EDGE_BRIDGE, Math.max(1.5, Math.min(3, map.scale * 7)));
+      pass(k => (k & 1) === 1 && (k & 4), EDGE_TRACK, 1.5, [4, 3]);
+    }
+    geo.layer = oc; geo.key = key;
+    return oc;
+  }
   function fitMap(canvas) {
-    const d = map.data; const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles, ...(d.headquarters ? [d.headquarters] : [])].filter(p => p.x != null);
-    if (!pts.length) return;
-    const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
-    const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    map.scale = 0.9 * Math.min(w / Math.max(1, maxx - minx), h / Math.max(1, maxy - miny));
+    const d = map.data; const w = canvas.clientWidth, h = canvas.clientHeight;
+    let minx, maxx, miny, maxy;
+    if (geo.data && geo.data.bounds) { [minx, miny, maxx, maxy] = geo.data.bounds; }
+    else {
+      const pts = [...d.towns, ...d.stations, ...d.industries, ...d.vehicles, ...(d.headquarters ? [d.headquarters] : [])].filter(p => p.x != null);
+      if (!pts.length) return;
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+      minx = Math.min(...xs); maxx = Math.max(...xs); miny = Math.min(...ys); maxy = Math.max(...ys);
+    }
+    map.scale = (geo.data && geo.data.bounds ? 0.97 : 0.9) * Math.min(w / Math.max(1, maxx - minx), h / Math.max(1, maxy - miny));
     map.ox = w / 2 - ((minx + maxx) / 2) * map.scale; map.oy = h / 2 + ((miny + maxy) / 2) * map.scale;
     map.fitted = true;
   }
@@ -1515,6 +1563,7 @@
     ctx.fillStyle = "#0b1015"; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = "#162029"; ctx.lineWidth = 1;
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } }
+    const gl = geoLayer(w, h, dpr); if (gl) ctx.drawImage(gl, 0, 0, w, h);
     ctx.font = "12px " + font;
     if ($("#map-lines").checked && d.lines) d.lines.forEach(l => { if (l.points.length < 2) return; const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? 0.5 : 0.95) : 0.08; ctx.lineWidth = on && lf != null ? 4 : 2; ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.globalAlpha = 1; });
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = "#4f8a8a"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
@@ -1555,7 +1604,7 @@
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
     const px = 1000 * map.scale; ctx.strokeStyle = "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
-    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>`;
+    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${EDGE_TRACK}">━</span> ${t("legend_track")} · <span style="color:${EDGE_STREET}">━</span> ${t("legend_street")} · <span style="color:${WATER_EDGE}">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
   }
   function pickMap(canvas, e) {
     const d = map.data; if (!d) return null;

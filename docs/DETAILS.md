@@ -180,6 +180,19 @@ Three independent parts:
      `set_camera` command (the mod detaches a running follow camera first, else it pulls the view back); also
      Shift+1..9 and a click on the numbered pin on the map. Update / rename / reorder / delete through
      `POST /api/views`. With a rev 6 mod the panel explains that revision 7 is needed.
+   - **Map geography** (mod rev 11 / companion 0.5.0): the mod writes `tf3dash_geo.lua` once after the first slow
+     cycle, then again only when the number of `BASE_EDGE` entities changed (checked once a minute, one call). Content:
+     `bounds` (`api.engine.terrain.getBoundingBox()`), `tiles` + `water_level` (`TERRAIN` component of the world),
+     `water` = the contours of every `WATER_MESH` entity (`riverSystem.getWaterMeshEntities` over the whole tile
+     range), simplified with Douglas-Peucker at 6 m and flattened to `[x, y, x, y, ...]`, and `edges` = every street
+     and track edge as `[x0, y0, x1, y1, kind]` (`BASE_EDGE.position0/1`; kind bit 0 = track, bit 1 = bridge, bit 2 =
+     tunnel). Collected one water mesh / 40 edges per step under the slow budget (2 ms per frame, 50 ms while the
+     player is on the dashboard), so the first collection takes a second or two of frames and never stalls; the game
+     log line `geo written: N edges, M water contours (a -> b vertices) ...` gives the cost. The collector re-reads
+     the file on mtime change into the `geo` table (one JSON row per game); `/api/geo?have=<seq>&game=<id>` answers
+     `unchanged` unless a new file arrived. The map tab draws water (fill, even-odd) and the network (streets thin,
+     tracks lighter, bridges lighter still, tunnels dashed) once per view into an offscreen canvas and blits it on every
+     refresh; "Recentre" fits the real terrain bounds instead of the cloud of points. Lines are still drawn stop to stop.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead

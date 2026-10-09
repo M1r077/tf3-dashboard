@@ -16,6 +16,18 @@ CREATE TABLE IF NOT EXISTS game (
     lang           TEXT                           -- game UI language code (fr, en, de, zh_CN...)
 );
 
+-- geography of the map (mod rev 11): terrain bounds, water contours and the street/track network, one row per
+-- game, replaced whenever the mod writes a new tf3dash_geo.lua (first slow cycle, then when the network changed).
+-- Stored as the JSON the dashboard draws from: {bounds, tiles, water_level, water: [[x,y,...]], edges: [[x0,y0,x1,y1,kind]]}
+CREATE TABLE IF NOT EXISTS geo (
+    game_id        INTEGER PRIMARY KEY REFERENCES game(game_id),
+    geo_seq        INTEGER,
+    received_at    TEXT NOT NULL,
+    edge_count     INTEGER,
+    water_count    INTEGER,
+    data           TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS snapshot (
     snapshot_id    INTEGER PRIMARY KEY,
     game_id        INTEGER NOT NULL REFERENCES game(game_id),

@@ -1262,6 +1262,9 @@ local GEO_FILE = PREFIX .. "geo"
 local GEO_EDGE_BATCH = 40          -- edges per step (~1 ms measured target)
 local GEO_WATER_EPS = 6            -- m: contour simplification tolerance (the map shows 1 px = 5..50 m)
 local GEO_MIN_INTERVAL = 60        -- s between two collections when the network keeps changing
+local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
+local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
+local GEO_HEIGHT_EVERY = 4         -- a height sample every N grid points in x and y (64x64 for the relief)
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
 local geoSeq = 0
@@ -1310,10 +1313,25 @@ local function simplify(pts, eps)
 	return out
 end
 
+-- Every street and track edge. BASE_EDGE is not enumerable ("Cannot loop over this component type", build 40420);
+-- the street system's node -> segments map lists them all, each edge from both its nodes, so dedupe. One call
+-- (~a few ms for 10 000 edges); returns the list and its size.
+local function geoEdgeList()
+	local ok, m = pcall(api.engine.system.streetSystem.getNode2SegmentMap)
+	if not ok or type(m) ~= "table" then return nil, nil, tostring(m) end
+	local seen, list = {}, {}
+	for _, segs in pairs(m) do
+		for _, e in pairs(segs) do
+			local k = num(e) or tostring(e)
+			if not seen[k] then seen[k] = true; list[#list + 1] = e end
+		end
+	end
+	return list, #list, nil
+end
+
 local function geoEdgeCount()
-	local ok, list = pcall(api.engine.getEntitiesWithComponent, api.type.ComponentType.BASE_EDGE)
-	if ok and type(list) == "table" then return #list end
-	return nil
+	local _, n = geoEdgeList()
+	return n
 end
 
 local function geoJobStart()
@@ -1337,18 +1355,66 @@ local function geoJobStart()
 	-- water meshes: all entities in the tile range (tile indices start at 0)
 	local waterEntities = {}
 	if tiles then
-		local okW, list = pcall(api.engine.system.riverSystem.getWaterMeshEntities, api.type.Vec2i.new(0, 0), api.type.Vec2i.new(tiles.x, tiles.y))
-		if okW and type(list) == "table" then for _, e in pairs(list) do waterEntities[#waterEntities + 1] = e end
-		else geo.errors[#geo.errors + 1] = { section = "water", error = tostring(list) } end
+		-- tile indices: the API does not say whether they start at 0 or are centred on the map; ask for both ranges
+		-- and dedupe (the same entity comes back once per matching range)
+		local seen = {}
+		for _, range in ipairs({ { 0, 0, tiles.x, tiles.y }, { -tiles.x, -tiles.y, tiles.x, tiles.y } }) do
+			local okW, list = pcall(api.engine.system.riverSystem.getWaterMeshEntities, api.type.Vec2i.new(range[1], range[2]), api.type.Vec2i.new(range[3], range[4]))
+			if okW and type(list) == "table" then
+				for _, e in pairs(list) do local k = num(e) or tostring(e); if not seen[k] then seen[k] = true; waterEntities[#waterEntities + 1] = e end end
+			else geo.errors[#geo.errors + 1] = { section = "water", error = tostring(list) } end
+		end
+		debug(string.format("geo: %d water mesh entities (tiles %dx%d)", #waterEntities, tiles.x, tiles.y))
 	end
-	local edges = {}
-	local okE, list = pcall(api.engine.getEntitiesWithComponent, api.type.ComponentType.BASE_EDGE)
-	if okE and type(list) == "table" then for _, e in pairs(list) do edges[#edges + 1] = e end
-	else geo.errors[#geo.errors + 1] = { section = "edges", error = tostring(list) } end
+	local edges, _, errE = geoEdgeList()
+	if edges == nil then edges = {}; geo.errors[#geo.errors + 1] = { section = "edges", error = tostring(errE) } end
 	geoSeq = geoSeq + 1
 	geo.geo_seq = geoSeq
-	geoJob = { geo = geo, water = waterEntities, wi = 0, edges = edges, ei = 0, started = os.clock(), steps = 0,
+	-- land / water grid: the sea and lakes are terrain below the water level, not water meshes (those only exist
+	-- for rivers and some lakes); sample isOnWater on a regular grid like the game's own minimap mods do
+	-- (schbrongx's minimap samples 256x256). GEO_GRID cells over the bounds, GEO_GRID_BATCH points per step.
+	local grid = nil
+	if geo.bounds then
+		local n = GEO_GRID
+		local w, h = geo.bounds[3] - geo.bounds[1], geo.bounds[4] - geo.bounds[2]
+		if w > 0 and h > 0 then
+			local ny = math.max(8, math.floor(n * h / math.max(w, h) + 0.5)); local nx = math.max(8, math.floor(n * w / math.max(w, h) + 0.5))
+			grid = { nx = nx, ny = ny, i = 0, rows = {}, cur = {}, run = nil, runOn = nil, heights = {}, hsum = 0, hmin = math.huge, hmax = -math.huge }
+			geo.grid = { nx, ny }
+		end
+	end
+	geoJob = { geo = geo, water = waterEntities, wi = 0, edges = edges, ei = 0, grid = grid, started = os.clock(), steps = 0,
 		vertsIn = 0, vertsOut = 0 }
+end
+
+-- a batch of grid points: isOnWater, encoded per row as run lengths starting with land ("3,5,2" = 3 land, 5 water,
+-- 2 land); heights sampled every 4th point in both directions for a coarse relief (getHeightAt, rounded to the metre)
+local function geoGridStep(job)
+	local g = job.grid
+	local total = g.nx * g.ny
+	local b = job.geo.bounds
+	local cw, ch = (b[3] - b[1]) / g.nx, (b[4] - b[2]) / g.ny
+	local Vec2f = api.type.Vec2f
+	for _ = 1, GEO_GRID_BATCH do
+		if g.i >= total then return true end
+		local col, row = g.i % g.nx, math.floor(g.i / g.nx)
+		local x, y = b[1] + (col + 0.5) * cw, b[4] - (row + 0.5) * ch  -- rows from north (max y) to south
+		local p = Vec2f.new(x, y)
+		local on = api.engine.terrain.isOnWater(p) and true or false
+		if col == 0 then g.cur = {}; g.run = 0; g.runOn = false end
+		if on == g.runOn then g.run = g.run + 1
+		else g.cur[#g.cur + 1] = g.run; g.run = 1; g.runOn = on end
+		if col == g.nx - 1 then g.cur[#g.cur + 1] = g.run; g.rows[#g.rows + 1] = table.concat(g.cur, ",") end
+		if col % GEO_HEIGHT_EVERY == 0 and row % GEO_HEIGHT_EVERY == 0 then
+			local hh = api.engine.terrain.getHeightAt(p)
+			local hv = round(num(hh) or 0)
+			g.heights[#g.heights + 1] = hv
+			if hv < g.hmin then g.hmin = hv end
+			if hv > g.hmax then g.hmax = hv end
+		end
+		g.i = g.i + 1
+	end
+	return false
 end
 
 -- one water mesh: its contours, simplified; coordinates rounded to the metre
@@ -1359,6 +1425,8 @@ local function geoWaterStep(job)
 	local ok, err = pcall(function()
 		local wm = api.engine.getComponent(e, api.type.ComponentType.WATER_MESH)
 		if not wm or not wm.contours then return end
+		local pos = vec2(wm.pos)
+		debug(string.format("geo: water mesh %s tile (%s,%s): %d contours, %d mesh vertices", tostring(e), pos and pos.x or "?", pos and pos.y or "?", count(wm.contours), wm.vertices and count(wm.vertices) or 0))
 		for _, c in pairs(wm.contours) do
 			local pts = {}
 			for _, v in pairs(c.vertices) do
@@ -1417,13 +1485,22 @@ local function geoJobRun(budget)
 	local job = geoJob
 	repeat
 		job.steps = job.steps + 1
-		local done
-		if job.wi < #job.water then done = false; geoWaterStep(job)
-		elseif job.ei < #job.edges then done = geoEdgeStep(job)
+		-- phases in order: water meshes, edges, land/water grid; each step function returns true when its phase
+		-- has nothing left, the job is done when no phase has work left
+		local done = false
+		if job.wi < #job.water then geoWaterStep(job)
+		elseif job.ei < #job.edges then geoEdgeStep(job)
+		elseif job.grid and job.grid.i < job.grid.nx * job.grid.ny then geoGridStep(job)
 		else done = true end
 		if done then
 			job.geo.duration = os.clock() - job.started
 			job.geo.edge_count = #job.edges
+			if job.grid then
+				job.geo.water_rows = job.grid.rows
+				job.geo.heights = job.grid.heights
+				job.geo.height_every = GEO_HEIGHT_EVERY
+				job.geo.height_range = { job.grid.hmin, job.grid.hmax }
+			end
 			geoJob = nil
 			return job
 		end
@@ -1436,8 +1513,9 @@ local function geoWrite(job)
 	local ok, err = pcall(app.saveUserdata, DIR, GEO_FILE, job.geo)
 	if not ok then log("saveUserdata failed for geo:", tostring(err)); return false end
 	geoCache = { geo_seq = job.geo.geo_seq, edges = #job.geo.edges, water = #job.geo.water }
-	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
-		#job.geo.edges, #job.geo.water, job.vertsIn, job.vertsOut, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
+	log(string.format("geo written: %d edges, %d water contours (%d -> %d vertices), grid %s (%d heights), %d steps, collected in %.2fs, written in %.0fms, %d error(s)",
+		#job.geo.edges, #job.geo.water, job.vertsIn, job.vertsOut, job.geo.grid and (job.geo.grid[1] .. "x" .. job.geo.grid[2]) or "none",
+		job.geo.heights and #job.geo.heights or 0, job.steps, job.geo.duration, (os.clock() - t0) * 1000, #job.geo.errors))
 	for i = 1, math.min(3, #job.geo.errors) do log("  geo error:", job.geo.errors[i].section, job.geo.errors[i].error) end
 	return true
 end
@@ -1935,7 +2013,9 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete
 	if geoJob == nil and now - lastGeoAt >= GEO_MIN_INTERVAL then
 		lastGeoAt = now
+		local tc = os.clock()
 		local n = geoEdgeCount()
+		debug(string.format("geo: %s edges in the network (counted in %.0fms)", tostring(n), (os.clock() - tc) * 1000))
 		if geoCache == nil or (n ~= nil and n ~= lastGeoEdgeCount) then
 			lastGeoEdgeCount = n
 			local okG, errG = pcall(geoJobStart)

@@ -233,14 +233,24 @@ class Store:
         """Store the map geography written by the mod (rev 11, tf3dash_geo.lua) for the game `snap` belongs to.
         One row per game, replaced on every new file; skipped when geo_seq did not change. Returns True when stored."""
         gid = self.game_id(snap, iso())
-        seq = geo.get("geo_seq")
-        row = self.con.execute("SELECT geo_seq FROM geo WHERE game_id=?", (gid,)).fetchone()
-        if row and row["geo_seq"] == seq and seq is not None:
-            return False
         water = [as_list(w) for w in as_list(geo.get("water"))]
         edges = [as_list(e) for e in as_list(geo.get("edges"))]
+        # the mod's geo_seq restarts at 1 on every load: the row's own sequence is what the browser caches on, so
+        # it just increments per stored file (the caller only passes files whose mtime changed)
         data = {"bounds": as_list(geo.get("bounds")) or None, "tiles": as_list(geo.get("tiles")) or None,
-                "water_level": geo.get("water_level"), "water": water, "edges": edges, "geo_seq": seq}
+                "water_level": geo.get("water_level"), "water": water, "edges": edges,
+                # land/water grid (run lengths per row, north first) + coarse heights: see the mod's geoGridStep
+                "grid": as_list(geo.get("grid")) or None, "water_rows": as_list(geo.get("water_rows")),
+                "heights": as_list(geo.get("heights")), "height_every": geo.get("height_every"),
+                "height_range": as_list(geo.get("height_range")) or None}
+        import hashlib
+        digest = hashlib.sha1(json.dumps(data, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
+        row = self.con.execute("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,)).fetchone()
+        # same content as last time (the mod rewrites its file on every load): keep the row and its sequence
+        if row and json.loads(row["data"]).get("digest") == digest:
+            return False
+        seq = (row["geo_seq"] or 0) + 1 if row else 1
+        data["geo_seq"], data["digest"] = seq, digest
         self.con.execute(
             "INSERT OR REPLACE INTO geo(game_id, geo_seq, received_at, edge_count, water_count, data) VALUES (?,?,?,?,?,?)",
             (gid, seq, iso(), len(edges), len(water), json.dumps(data, separators=(",", ":"))))

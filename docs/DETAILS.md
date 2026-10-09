@@ -193,6 +193,14 @@ Three independent parts:
      `unchanged` unless a new file arrived. The map tab draws water (fill, even-odd) and the network (streets thin,
      tracks lighter, bridges lighter still, tunnels dashed) once per view into an offscreen canvas and blits it on every
      refresh; "Recentre" fits the real terrain bounds instead of the cloud of points. Lines are still drawn stop to stop.
+     Two findings from build 40420: `getEntitiesWithComponent(BASE_EDGE)` fails ("Cannot loop over this component
+     type"), so the edges come from `streetSystem.getNode2SegmentMap()` (every segment from both its nodes, deduped,
+     7 ms for 4 800 edges); and the sea and lakes are NOT water meshes (those exist only for rivers, one per tile), so
+     a 256x256 grid of `terrain.isOnWater` (run-length encoded per row) plus a 64x64 grid of `getHeightAt` give the
+     land/water picture and a soft relief, the way the in-game minimap mods do it. Measured on an 11 km map with 4 813
+     edges: 472 steps, 2.8 s of collection spread over frames, 28 ms to write, 205 KB file, ~140 KB JSON row.
+     The collector hashes the content: the mod rewrites the file on every load, the row (and the browser cache) only
+     change when the geography did.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead

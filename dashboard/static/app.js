@@ -1477,7 +1477,40 @@
   }
   // water and network drawn once per view (scale/offset/size/toggles) into an offscreen canvas, blitted on every
   // refresh: 10 000 edges + a few thousand water vertices cost ~15 ms to stroke, the blit nothing
-  const EDGE_STREET = "#3a4858", EDGE_TRACK = "#8a98a8", EDGE_BRIDGE = "#b8c4d0", WATER_FILL = "#10294a", WATER_EDGE = "#2a5a8a";
+  const EDGE_STREET = "#34424f", EDGE_TRACK = "#8a98a8", EDGE_BRIDGE = "#b8c4d0", WATER_FILL = "#10294a", WATER_EDGE = "#2a5a8a";
+  // terrain bitmap at grid resolution, built once per geography: land shaded by height (dark low, lighter high,
+  // with a soft hill shade from the west), water cells blue. Rows are run lengths starting with land, north first.
+  function terrainBitmap(g, withWater) {
+    if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
+    const [nx, ny] = g.grid, c = document.createElement("canvas"); c.width = nx; c.height = ny;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(nx, ny), px = img.data;
+    const every = g.height_every || 4, hx = Math.ceil(nx / every), hy = Math.ceil(ny / every), H = g.heights || [];
+    const [hmin, hmax] = g.height_range && g.height_range.length === 2 ? g.height_range : [0, 1];
+    const hRaw = (ci, ri) => { ci = Math.max(0, Math.min(hx - 1, ci)); ri = Math.max(0, Math.min(hy - 1, ri)); const v = H[ri * hx + ci]; return v != null ? v : hmin; };
+    // bilinear between the coarse samples (one every `every` cells) so the relief reads as slopes, not as blocks
+    const hAt = (col, row) => { const fx = Math.max(0, col / every - 0.5), fy = Math.max(0, row / every - 0.5), ci = Math.floor(fx), ri = Math.floor(fy), tx = fx - ci, ty = fy - ri; return (hRaw(ci, ri) * (1 - tx) + hRaw(ci + 1, ri) * tx) * (1 - ty) + (hRaw(ci, ri + 1) * (1 - tx) + hRaw(ci + 1, ri + 1) * tx) * ty; };
+    const span = Math.max(1, hmax - hmin);
+    const land0 = [19, 28, 37], land1 = [40, 52, 58];   // low -> high (kept close: the relief is a hint, not a hillshade poster)
+    const water = [16, 41, 74];
+    for (let row = 0; row < ny; row++) {
+      const runs = String(g.water_rows[row] || "").split(",").map(Number);
+      let col = 0, on = false;
+      for (const n of runs) {
+        for (let k = 0; k < n && col < nx; k++, col++) {
+          const o = (row * nx + col) * 4;
+          if (on && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
+          const hgt = hAt(col, row), t = (hgt - hmin) / span;
+          // hill shade: slope towards the east sampled on the coarse height grid (one coarse cell apart)
+          const sh = (hAt(col + every, row) - hAt(col - every, row)) / (2 * every * ((g.bounds[2] - g.bounds[0]) / nx));
+          const light = Math.max(-0.25, Math.min(0.25, -sh * 2));
+          px[o] = Math.round((land0[0] + (land1[0] - land0[0]) * t) * (1 + light)); px[o + 1] = Math.round((land0[1] + (land1[1] - land0[1]) * t) * (1 + light)); px[o + 2] = Math.round((land0[2] + (land1[2] - land0[2]) * t) * (1 + light)); px[o + 3] = 255;
+        }
+        on = !on;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
   function geoLayer(w, h, dpr) {
     const g = geo.data; if (!g) return null;
     const showW = $("#map-water").checked, showN = $("#map-net").checked;
@@ -1485,8 +1518,16 @@
     if (geo.layer && geo.key === key) return geo.layer;
     const oc = geo.layer || document.createElement("canvas"); oc.width = w * dpr; oc.height = h * dpr;
     const ctx = oc.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
-    // the terrain: a slightly lighter land rectangle so the map's edge is visible, the rest stays the page background
-    if (g.bounds) { const [ax, ay] = P(g.bounds[0], g.bounds[3]), [bx, by] = P(g.bounds[2], g.bounds[1]); ctx.fillStyle = "#121b24"; ctx.fillRect(ax, ay, bx - ax, by - ay); ctx.strokeStyle = "#2c3a4a"; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1); }
+    // the terrain: the sampled land/water bitmap stretched over the bounds (smoothed by the browser), else a plain
+    // slightly lighter rectangle so the map's edge is visible
+    if (g.bounds) {
+      const [ax, ay] = P(g.bounds[0], g.bounds[3]), [bx, by] = P(g.bounds[2], g.bounds[1]);
+      const bmKey = showW ? "bmW" : "bmL";
+      if (!geo[bmKey] || geo.bmSeq !== geo.seq) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = geo.seq; }
+      if (geo[bmKey]) { ctx.imageSmoothingEnabled = true; ctx.drawImage(geo[bmKey], ax, ay, bx - ax, by - ay); }
+      else { ctx.fillStyle = "#121b24"; ctx.fillRect(ax, ay, bx - ax, by - ay); }
+      ctx.strokeStyle = "#2c3a4a"; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1);
+    }
     if (showW && g.water) {
       ctx.fillStyle = WATER_FILL; ctx.strokeStyle = WATER_EDGE; ctx.lineWidth = 1;
       ctx.beginPath();

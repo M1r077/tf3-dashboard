@@ -104,11 +104,16 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
 - **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on
   the object. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9. Views are kept
-  per savegame in `db\camera_views.json`.
+  per savegame in `db\camera_views.json`. **Travelling** (mod revision 10): smooth camera movements around a view
+  (orbit, dolly, flyover, sweep, spiral), the chain of all views, and on each line's sheet a **line tour** - one
+  flight over the line, its stops and where its vehicles are at that moment. Drop music files in `music\` and
+  they play with the travellings (in the browser; never part of the release).
 - **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
   satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
 - **Finances** — balance, yearly result, transported, network size and company value over time.
-- Languages: English, French, German, Brazilian Portuguese — follows the game language automatically.
+- **Settings ▸ Savegames and backups** — one backup = database + camera views for the current savegame; restore
+  the views, or the whole database at the next start.
+- Languages: English, French, German, Brazilian Portuguese, partial Chinese — follows the game language automatically.
 
 ## Configuration
 

@@ -57,6 +57,8 @@ window.I18N = {
     legend_vehicle: "vehicle (color = line)", legend_stopped: "stopped en route", legend_pax_station: "passenger station", legend_cargo_station: "cargo station", legend_industry: "industry",
     legend_counts: "{v} vehicles · {s} stations · {i} industries", station_pax: "passenger station", station_cargo: "cargo station", industry: "industry", capacity_n: "capacity {n}", load_n: "load {a}/{b}",
     // camera views panel (Map tab)
+    cam_travel: "Travelling", cam_travel_play: "Play the views", cam_travel_stop: "Stop", cam_travel_loop: "Loop", cam_travel_dur_tip: "Seconds between two views",
+    cam_travel_needs_rev10: "Travelling needs revision 10 of the mod. Update it in the Mod Hub, then reload the savegame.",
     cam_views: "Camera views", cam_save: "Save the current view", cam_empty: "No saved view yet. Frame the game camera, then save it here; recall it with one click or Shift+1..9.",
     cam_go_hint: "go to this view (Shift+{n})", cam_update: "replace with the current camera", cam_rename: "rename", cam_move_up: "move up", cam_move_down: "move down", cam_delete: "delete",
     cam_max: "9 views at most (Shift+1..9)", cam_current: "current camera", cam_following: "following a vehicle", cam_name_prompt: "Name of the view", cam_default_name: "View {n}",
@@ -176,6 +178,8 @@ window.I18N = {
     all_lines: "toutes les lignes", recenter: "recentrer", map_hint: "molette : zoom · glisser : déplacer · survol : info · clic : caméra en jeu",
     legend_vehicle: "véhicule (couleur = ligne)", legend_stopped: "à l'arrêt en route", legend_pax_station: "gare voyageurs", legend_cargo_station: "gare cargo", legend_industry: "industrie",
     legend_counts: "{v} véhicules · {s} gares · {i} industries", station_pax: "gare voyageurs", station_cargo: "gare cargo", industry: "industrie", capacity_n: "capacité {n}", load_n: "charge {a}/{b}",
+    cam_travel: "Travelling", cam_travel_play: "Jouer les vues", cam_travel_stop: "Arrêter", cam_travel_loop: "En boucle", cam_travel_dur_tip: "Secondes entre deux vues",
+    cam_travel_needs_rev10: "Le travelling demande la révision 10 du mod. Mettez-le à jour dans le Mod Hub, puis rechargez la partie.",
     cam_views: "Vues caméra", cam_save: "Enregistrer la vue actuelle", cam_empty: "Aucune vue enregistrée. Cadrez la caméra du jeu, puis enregistrez-la ici ; rappelez-la d'un clic ou avec Shift+1..9.",
     cam_go_hint: "aller à cette vue (Shift+{n})", cam_update: "remplacer par la caméra actuelle", cam_rename: "renommer", cam_move_up: "monter", cam_move_down: "descendre", cam_delete: "supprimer",
     cam_max: "9 vues au maximum (Shift+1..9)", cam_current: "caméra actuelle", cam_following: "suit un véhicule", cam_name_prompt: "Nom de la vue", cam_default_name: "Vue {n}",
@@ -288,6 +292,8 @@ window.I18N = {
     all_lines: "alle Linien", recenter: "zentrieren", map_hint: "Rad: Zoom · ziehen: verschieben · hover: Info · Klick: Kamera im Spiel",
     legend_vehicle: "Fahrzeug (Farbe = Linie)", legend_stopped: "unterwegs stehend", legend_pax_station: "Personenbahnhof", legend_cargo_station: "Güterbahnhof", legend_industry: "Industrie",
     legend_counts: "{v} Fahrzeuge · {s} Stationen · {i} Industrien", station_pax: "Personenstation", station_cargo: "Güterstation", industry: "Industrie", capacity_n: "Kapazität {n}", load_n: "Ladung {a}/{b}",
+    cam_travel: "Kamerafahrt", cam_travel_play: "Ansichten abfahren", cam_travel_stop: "Stopp", cam_travel_loop: "Schleife", cam_travel_dur_tip: "Sekunden zwischen zwei Ansichten",
+    cam_travel_needs_rev10: "Die Kamerafahrt braucht Revision 10 des Mods. Im Mod Hub aktualisieren, dann den Spielstand neu laden.",
     cam_views: "Kameraansichten", cam_save: "Aktuelle Ansicht speichern", cam_empty: "Noch keine gespeicherte Ansicht. Kamera im Spiel ausrichten, dann hier speichern; Aufruf mit einem Klick oder Shift+1..9.",
     cam_go_hint: "zu dieser Ansicht (Shift+{n})", cam_update: "durch aktuelle Kamera ersetzen", cam_rename: "umbenennen", cam_move_up: "nach oben", cam_move_down: "nach unten", cam_delete: "löschen",
     cam_max: "höchstens 9 Ansichten (Shift+1..9)", cam_current: "aktuelle Kamera", cam_following: "folgt einem Fahrzeug", cam_name_prompt: "Name der Ansicht", cam_default_name: "Ansicht {n}",
@@ -384,6 +390,8 @@ window.I18N = {
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     // tabs
     // camera views (map)
+    cam_travel: "Travelling", cam_travel_play: "Percorrer as visões", cam_travel_stop: "Parar", cam_travel_loop: "Repetir", cam_travel_dur_tip: "Segundos entre duas visões",
+    cam_travel_needs_rev10: "O travelling precisa da revisão 10 do mod. Atualize-o no Mod Hub e recarregue o jogo salvo.",
     cam_views: "Visões de câmera", cam_save: "Salvar a visão atual", cam_empty: "Nenhuma visão salva ainda. Enquadre a câmera do jogo e salve aqui; volte a ela com um clique ou com Shift+1..9.",
     cam_go_hint: "ir para esta visão (Shift+{n})", cam_update: "substituir pela câmera atual", cam_rename: "renomear",
     cam_move_up: "subir", cam_move_down: "descer", cam_delete: "apagar",
@@ -518,6 +526,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   all_lines: "所有线路", recenter: "重新居中", map_hint: "滚轮：缩放 · 拖动：平移 · 悬停：信息 · 点击：游戏内镜头",
   legend_vehicle: "载具（颜色 = 线路）", legend_stopped: "途中停止", legend_pax_station: "客运站", legend_cargo_station: "货运站", legend_industry: "产业",
   legend_counts: "{v} 载具 · {s} 车站 · {i} 产业", station_pax: "客运站", station_cargo: "货运站", industry: "产业", capacity_n: "容量 {n}", load_n: "装载 {a}/{b}",
+  cam_travel: "镜头运动", cam_travel_play: "播放视角", cam_travel_stop: "停止", cam_travel_loop: "循环",
   cam_views: "镜头视角", cam_save: "保存当前视角", cam_rename: "重命名", cam_delete: "删除", cam_current: "当前镜头", cam_default_name: "视角 {n}", confirm_title: "请确认",
   // towns
   th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_stations: "车站", th_growth: "增长",

@@ -180,6 +180,17 @@ Three independent parts:
      `set_camera` command (the mod detaches a running follow camera first, else it pulls the view back); also
      Shift+1..9 and a click on the numbered pin on the map. Update / rename / reorder / delete through
      `POST /api/views`. With a rev 6 mod the panel explains that revision 7 is needed.
+   - **Travelling** (mod rev 10): "Play the views" sends `camera_path {points, duration, loop, ease}` once (the saved
+     views in order); the mod keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
+     `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead
+     of cornering), shortest-way heading, linear pitch, smoothstep per leg. Cost: one Vec5f per frame. It stops by
+     itself at the end (or loops), on `camera_stop`, on `set_camera` / a new path, when a follow camera is active,
+     or when the camera is no longer where the mod left it (the player grabbed it). `snapshot.camera.path
+     {playing, progress, loop, n}` is exported while it plays; the panel shows a progress bar and the map draws the
+     path (dashed when idle, solid while playing). Seconds per leg (5/10/20/40) and loop are remembered per browser
+     (`tf3.travel`). An older mod answers "unknown command": the panel says revision 10 is needed.
+     `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
+     the Advanced Camera Tool); not exposed in the UI until tested in a free game.
    - **Cargo per vehicle** (mod rev 8 / companion 0.3.1): the fast vehicle record carries `cargo` = {cargo id: count
      on board} (from `getNumCargoPerTypeInVehicle`, the same call that gives the total load) and the slow record
      `capacities` = {cargo id: capacity} (from `getVehicleCapacities`). Both are dense arrays over all cargo types in

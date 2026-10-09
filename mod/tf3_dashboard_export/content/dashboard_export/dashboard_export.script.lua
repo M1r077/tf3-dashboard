@@ -987,6 +987,8 @@ local lastAck = nil
 -- Where the player is looking: api.gui.camera.getCameraData() is a Vec5f {center.x, center.y, distance, angle, pitch}
 -- (map coordinates, metres, radians). follow = the vehicle the camera is attached to, if any. The dashboard stores
 -- named views from this and sends them back through the set_camera command.
+local camPath, camPathProgress  -- camera travelling state, defined below
+
 local function collectCamera()
 	local c = api.gui.camera.getCameraData()
 	local cam = { x = num(c.x), y = num(c.y), dist = num(c.z), angle = num(c.w), pitch = num(c.q) }
@@ -995,7 +997,111 @@ local function collectCamera()
 		local e = num(f[1])
 		if e and e > 0 then cam.follow = e end
 	end
+	if camPath then cam.path = { playing = true, progress = camPathProgress(), loop = camPath.loop, n = #camPath.pts } end
 	return cam
+end
+
+-- ---------------------------------------------------------------- camera travelling (rev 10)
+-- camera_path: the dashboard sends a list of waypoints once ({x, y, dist, angle, pitch} + the duration of each
+-- leg); the mod interpolates on every frame (guiUpdate runs per rendered frame) and calls setCameraData, so the
+-- movement is as smooth as the frame rate. Nothing touches the simulation. Catmull-Rom on the ground point and the
+-- distance (the path bends through the waypoints instead of cornering), shortest-way interpolation of the heading,
+-- smoothstep easing per leg when the dashboard asks for it. Stops on camera_stop, on a new path, when the player
+-- grabs the camera (the camera no longer is where we left it), or when a follow camera takes over.
+camPath = nil  -- { pts = {...}, legs = { duration }, t0, total, loop, ease, lastSet = Vec5 we wrote, tick }
+
+local function lerp(a, b, t) return a + (b - a) * t end
+local function angLerp(a, b, t)
+	local d = (b - a) % (2 * math.pi)
+	if d > math.pi then d = d - 2 * math.pi end
+	return a + d * t
+end
+-- Catmull-Rom between p1 and p2 (p0, p3 = neighbours, clamped at the ends), t in [0,1]
+local function catmull(p0, p1, p2, p3, t)
+	local t2, t3 = t * t, t * t * t
+	return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+end
+
+camPathProgress = function()
+	if not camPath then return 0 end
+	local e = os.clock() - camPath.t0
+	if camPath.loop and camPath.total > 0 then e = e % camPath.total end
+	return math.max(0, math.min(1, e / camPath.total))
+end
+
+local function camPathStop(reason)
+	if camPath then debug("camera path stopped: " .. tostring(reason)); camPath = nil end
+end
+
+-- the camera is "ours" if it is within a small tolerance of what we last wrote; otherwise the player moved it
+local function camPathUserTouched()
+	if not camPath or not camPath.lastSet then return false end
+	local ok, c = pcall(api.gui.camera.getCameraData)
+	if not ok or not c then return false end
+	local l = camPath.lastSet
+	local tol = math.max(2, l.dist * 0.01)
+	return math.abs(num(c.x) - l.x) > tol or math.abs(num(c.y) - l.y) > tol or math.abs(num(c.z) - l.dist) > tol
+		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
+end
+
+local function camPathTick()
+	if not camPath then return end
+	local okF, f = pcall(api.gui.camera.getFollowEntity)
+	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then return camPathStop("follow camera active") end
+	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera") end
+	local e = os.clock() - camPath.t0
+	if e >= camPath.total then
+		if camPath.loop then e = e % camPath.total else e = camPath.total end
+	end
+	-- find the leg
+	local pts, legs = camPath.pts, camPath.legs
+	local i, acc = 1, 0
+	while i < #legs and e > acc + legs[i] do acc = acc + legs[i]; i = i + 1 end
+	local t = legs[i] > 0 and (e - acc) / legs[i] or 1
+	if t > 1 then t = 1 end
+	if camPath.ease then t = t * t * (3 - 2 * t) end
+	local p0, p1, p2, p3 = pts[math.max(1, i - 1)], pts[i], pts[math.min(#pts, i + 1)], pts[math.min(#pts, i + 2)]
+	if camPath.loop and #pts > 2 then p0 = pts[i == 1 and #pts - 1 or i - 1]; p3 = pts[(i + 1) % (#pts - 1) + 1] end
+	local x = catmull(p0.x, p1.x, p2.x, p3.x, t)
+	local y = catmull(p0.y, p1.y, p2.y, p3.y, t)
+	local dist = math.max(10, catmull(p0.dist, p1.dist, p2.dist, p3.dist, t))
+	local angle = angLerp(p1.angle, p2.angle, t)
+	local pitch = lerp(p1.pitch, p2.pitch, t)
+	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
+	if not ok then return camPathStop("setCameraData failed: " .. tostring(err)) end
+	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
+	camPath.tick = camPath.tick + 1
+	if e >= camPath.total and not camPath.loop then camPathStop("finished") end
+end
+
+local function camPathStart(args)
+	local raw = args and args.points
+	if type(raw) ~= "table" or #raw < 2 then error("camera_path needs at least 2 points") end
+	local pts, legs, total = {}, {}, 0
+	for i, p in ipairs(raw) do
+		local x, y, dist = num(p.x), num(p.y), num(p.dist)
+		if not x or not y or not dist then error("point " .. i .. ": missing x/y/dist") end
+		pts[#pts + 1] = { x = x, y = y, dist = math.max(10, dist), angle = num(p.angle) or 0, pitch = num(p.pitch) or 0 }
+		if i > 1 then
+			local d = math.max(0.1, num(p.duration) or num(args.duration) or 5)
+			legs[#legs + 1] = d; total = total + d
+		end
+	end
+	if args.loop and (pts[1].x ~= pts[#pts].x or pts[1].y ~= pts[#pts].y) then
+		-- close the loop: come back to the first point
+		pts[#pts + 1] = pts[1]
+		local d = math.max(0.1, num(args.duration) or legs[#legs] or 5)
+		legs[#legs + 1] = d; total = total + d
+	end
+	-- a follow camera would pull the view back to its vehicle: detach it first
+	local okF, f = pcall(api.gui.camera.getFollowEntity)
+	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
+		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(pts[1].x, pts[1].y, 0), pts[1].dist)
+	end
+	camPath = { pts = pts, legs = legs, total = total, loop = args.loop == true, ease = args.ease ~= false, t0 = os.clock(), tick = 0, lastSet = nil }
+	camPathTick()
+	debug(string.format("camera path started: %d points, %.1fs%s", #pts, total, camPath.loop and ", loop" or ""))
+	return true
 end
 
 local function buildSnapshot(player, names)
@@ -1152,8 +1258,28 @@ local COMMANDS = {
 		if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
 			pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(x, y, 0), dist)
 		end
+		camPathStop("set_camera")
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
 		return true
+	end,
+	-- camera travelling: args = { points = { {x, y, dist, angle, pitch, duration?}, ... }, duration?, loop?, ease? }
+	-- (duration = seconds per leg when a point has none; ease defaults to true). Played by the mod frame by frame.
+	camera_path = function(args) camPathStop("new path"); return camPathStart(args) end,
+	camera_stop = function() camPathStop("camera_stop"); return true end,
+	-- experiment (rev 10): play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
+	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts
+	-- it outside a mission / from userdata is what this command is here to find out. Answer carries the API result.
+	camera_cutscene = function(args)
+		local f = args and args.file
+		if type(f) ~= "string" or f == "" then error("missing args.file") end
+		if not (api.gui.mission and api.gui.mission.playCutscene) then error("api.gui.mission.playCutscene not available") end
+		camPathStop("cutscene")
+		local ok, err = pcall(api.gui.mission.playCutscene, f, args.resolve_language == true)
+		if not ok then error("playCutscene: " .. tostring(err)) end
+		local playing = false
+		pcall(function() playing = api.gui.mission.isCutscenePlaying() end)
+		debug("camera_cutscene " .. f .. " -> playing=" .. tostring(playing))
+		return true, nil
 	end,
 	-- selection: opens the entity window (line, vehicle, station, town, industry...) exactly like a click in the
 	-- game; same react event the game's notifications use. args.focus (default true) also moves the camera.
@@ -1398,6 +1524,10 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	local now = os.clock()
 	local o = options()
 	statusTick(now)
+	if camPath then  -- camera travelling: one interpolation + setCameraData per frame, a few microseconds
+		local okT, errT = pcall(camPathTick)
+		if not okT then log("camera path tick failed:", tostring(errT)); camPath = nil end
+	end
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()

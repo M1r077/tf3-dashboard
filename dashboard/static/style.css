@@ -344,6 +344,13 @@ h2 .ico { color: var(--accent); }
 .cv .cv-tools .btn { padding: 1px 4px; font-size: 11px; line-height: 1.2; }
 .camviews .cv-cur { margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .camviews .cv-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
+/* travelling: play the saved views as one smooth camera path */
+.camviews .cv-travel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; }
+.camviews .cv-travel .lbl { color: var(--muted); display: inline-flex; align-items: center; }
+.camviews .cv-travel .seg button { padding: 2px 7px; }
+.camviews .cv-travel .btn.tgl.active { background: var(--accent); color: #fff; }
+.camviews .cv-travel .bar.travel { flex: 1 1 100%; width: auto; height: 6px; margin-top: 2px; }
+.camviews .cv-travel .bar.travel > i { background: var(--accent); }
 td .ico, .row .ico { color: var(--muted); }
 .alert .ico { width: calc(var(--isz) * 0.9); height: calc(var(--isz) * 0.9); margin: 0; }
 .alert .sev.bad ~ div .ico { color: var(--bad); }

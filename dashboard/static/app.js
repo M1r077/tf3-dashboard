@@ -254,6 +254,8 @@
     const st = $("#cmd-status");
     if (c.ack && cmd.lastSent && c.ack.id === cmd.lastSent.id) {
       st.textContent = `${c.ack.cmd} · ${c.ack.ok ? t("act_done") : t("act_failed", { msg: c.ack.error || "" })}`; st.className = "cmdstatus " + (c.ack.ok ? "ok" : "bad");
+      // an older mod answers "unknown command" to camera_path: say which revision the travelling needs
+      if (!c.ack.ok && /^camera_(path|stop)/.test(c.ack.cmd || "") && /unknown command/i.test(c.ack.error || "")) { st.textContent = t("cam_travel_needs_rev10"); if (camViews.cur) camViews.cur.path = null; renderCamViews(); }
       if (cmd.lastSent.el) cmd.lastSent.el.classList.remove("pending");
       cmd.pendingId = null;
     } else if (cmd.pendingId && !c.pending && cmd.lastSent && Date.now() - cmd.lastSent.at > 8000) {
@@ -1177,6 +1179,9 @@
   const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
   const activeView = () => camViews.list.find(v => sameView(camViews.cur, v)) || null;
   function gotoView(v) { return sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
+  // travelling preferences (seconds per leg, loop), this browser only
+  const travelPrefs = () => { try { return Object.assign({ dur: 10, loop: false }, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { dur: 10, loop: false }; } };
+  const saveTravelPrefs = (p) => localStorage.setItem("tf3.travel", JSON.stringify(p));
   async function editViews(body) {
     const r = await fetch("/api/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
@@ -1199,13 +1204,36 @@
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === views.length - 1 ? "disabled" : ""}>▼</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
       </span></div>`;
+    // travelling (mod rev 10+): play the saved views in order as one smooth camera path; the mod interpolates per
+    // frame. cur.path is present while it plays (progress 0..1). Older mods ignore the command: the block is still
+    // shown but says what revision it needs once the first answer comes back as "unknown command".
+    const path = cur.path, tp = travelPrefs();
+    const travel = views.length >= 2 ? `<div class="cv-travel">
+        <span class="lbl">${ico("follow", "sm")}${t("cam_travel")}</span>
+        <span class="seg" data-travel="dur">${[5, 10, 20, 40].map(d => `<button data-v="${d}" class="${tp.dur === d ? "active" : ""}" title="${esc(t("cam_travel_dur_tip"))}">${d} s</button>`).join("")}</span>
+        <button class="btn tgl ${tp.loop ? "active" : ""}" data-travel="loop" title="${esc(t("cam_travel_loop"))}">${ico("reset", "sm")}</button>
+        ${path ? `<button class="btn primary" data-travel="stop" ${off ? "disabled" : ""}>${ico("play_pause", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn primary" data-travel="play" ${off ? "disabled" : ""}>${ico("play_1", "sm")}${t("cam_travel_play")}</button>`}
+        ${path ? `<span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span>` : ""}
+      </div>` : "";
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
-      (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
+      (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) + travel +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
       const name = await modal.prompt(t("cam_name_prompt"), { value: t("cam_default_name", { n: views.length + 1 }), ok: t("cam_save_ok") });
       if (name) editViews({ action: "add", name, camera: camViews.cur });
     });
+    $$("[data-travel]", box).forEach(b => b.addEventListener("click", () => {
+      const a = b.dataset.travel;
+      if (a === "dur") return;
+      if (a === "loop") { tp.loop = !tp.loop; saveTravelPrefs(tp); renderCamViews(); return; }
+      if (a === "stop") { sendCmd("camera_stop", {}); camViews.cur.path = null; renderCamViews(); return; }
+      if (a === "play") {
+        const points = views.map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }));
+        sendCmd("camera_path", { points, duration: tp.dur, loop: tp.loop, ease: true });
+        camViews.cur.path = { playing: true, progress: 0, loop: tp.loop, n: points.length }; renderCamViews();
+      }
+    }));
+    $$('[data-travel="dur"] button', box).forEach(b => b.addEventListener("click", () => { tp.dur = +b.dataset.v; saveTravelPrefs(tp); renderCamViews(); }));
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, v = views.find(x => x.id === id); if (!v) return;
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
@@ -1375,6 +1403,18 @@
     // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
     // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
     const act = activeView();
+    // the travelling path through the saved views (same Catmull-Rom as the mod), dashed; solid while it plays
+    if (camViews.list.length >= 2) {
+      const pts = camViews.list.slice(); if (travelPrefs().loop) pts.push(pts[0]);
+      const cr = (p0, p1, p2, p3, t) => 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+      ctx.save(); ctx.strokeStyle = camViews.cur && camViews.cur.path ? "#e8b04b" : "rgba(232,176,75,.45)"; ctx.lineWidth = 2; if (!(camViews.cur && camViews.cur.path)) ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        for (let s = 0; s <= 12; s++) { const tt = s / 12; const [x, y] = P(cr(p0.x, p1.x, p2.x, p3.x, tt), cr(p0.y, p1.y, p2.y, p3.y, tt)); if (i === 0 && s === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      }
+      ctx.stroke(); ctx.restore();
+    }
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : "#e6edf3");
     camViews.list.forEach((v, i) => {
       const [x, y] = P(v.x, v.y), on = act && act.id === v.id;

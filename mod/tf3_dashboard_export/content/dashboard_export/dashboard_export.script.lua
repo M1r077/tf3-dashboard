@@ -1126,7 +1126,35 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
+-- Ground clearance (rev 11): the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
+-- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
+-- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
+-- if the eye would be lower than the highest of them + CAM_CLEARANCE, the distance is raised (same heading and
+-- pitch, the camera backs up and climbs) so that it is not. Cheap: four getHeightAt per frame.
+local CAM_CLEARANCE = 60      -- m above the highest ground sampled (buildings are rarely taller)
+local CAM_MIN_PITCH = 0.25    -- a flatter camera cannot be lifted by distance alone: raise the pitch to this first
+local function camClear(x, y, dist, angle, pitch)
+	local terrain = api.engine.terrain
+	if not terrain or not terrain.getHeightAt then return dist, pitch end
+	if pitch < CAM_MIN_PITCH then pitch = CAM_MIN_PITCH end
+	local sp, cp = math.sin(pitch), math.cos(pitch)
+	local sa, ca = math.sin(angle), math.cos(angle)
+	local function hAt(px, py) local ok, h = pcall(terrain.getHeightAt, api.type.Vec2f.new(px, py)); return ok and num(h) or 0 end
+	local h0 = hAt(x, y)
+	local back = dist * cp
+	local hmax = h0
+	for _, f in ipairs({ 0.33, 0.66, 1.0 }) do
+		local h = hAt(x + sa * back * f, y - ca * back * f)
+		if h > hmax then hmax = h end
+	end
+	local eyeZ = h0 + dist * sp
+	local need = hmax + CAM_CLEARANCE
+	if eyeZ < need and sp > 0.01 then dist = dist + (need - eyeZ) / sp end
+	return dist, pitch
+end
+
 local function camSet(x, y, dist, angle, pitch)
+	dist, pitch = camClear(x, y, dist, angle, pitch)
 	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
 	if not ok then camPathStop("setCameraData failed: " .. tostring(err)); return false end
 	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
@@ -1837,6 +1865,7 @@ local COMMANDS = {
 			pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(x, y, 0), dist)
 		end
 		camPathStop("set_camera")
+		dist, pitch = camClear(x, y, dist, angle, pitch)
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
 		return true
 	end,
@@ -2123,7 +2152,8 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		local ff = followFrame
 		local okF, errF = pcall(function()
 			local c = api.gui.camera.getCameraData()
-			api.gui.camera.setCameraData(api.type.Vec5f.new(c.x, c.y, ff.dist or c.z, ff.angle or c.w, ff.pitch or c.q))
+			local d, p = camClear(c.x, c.y, ff.dist or c.z, ff.angle or c.w, ff.pitch or c.q)
+			api.gui.camera.setCameraData(api.type.Vec5f.new(c.x, c.y, d, ff.angle or c.w, p))
 		end)
 		ff.left = ff.left - 1
 		if not okF then log("follow framing failed:", tostring(errF)); followFrame = nil

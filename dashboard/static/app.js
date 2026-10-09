@@ -1227,6 +1227,12 @@
   const sameView = (a, b) => !!(a && b) && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(15, b.dist * 0.05) && Math.abs(a.dist - b.dist) < Math.max(10, b.dist * 0.1) && angDiff(a.angle, b.angle) < 0.1 && Math.abs(a.pitch - b.pitch) < 0.1;
   // a view attached to a vehicle is "active" while the camera follows that vehicle (its position moves)
   const activeView = () => camViews.list.find(v => v.follow ? (camViews.cur && camViews.cur.follow === v.follow) : sameView(camViews.cur, v)) || null;
+  // a view attached to a vehicle, resolved to where the vehicle is NOW (map data); null when the vehicle is unknown
+  function liveView(v) {
+    if (!v.follow) return v;
+    const veh = map.data && (map.data.vehicles || []).find(x => x.vehicle_id === v.follow);
+    return veh && veh.x != null ? { ...v, x: veh.x, y: veh.y } : null;
+  }
   function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
   const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "auto", vol: 0.6 };
@@ -1369,8 +1375,8 @@
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", () => {
       const a = b.dataset.travel;
       if (a === "stop") return stopTravelling();
-      if (a === "view" && sel) return playTravelling(tp.move, TRAVEL_MOVES[tp.move](sel, tp), tp);
-      if (a === "chain") { const pts = views.map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); return playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, views.length - 1) / 2 }); }
+      if (a === "view" && sel) { const lv = liveView(sel); if (!lv) return; return playTravelling(tp.move, TRAVEL_MOVES[tp.move](lv, tp), tp); }
+      if (a === "chain") { const pts = views.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); if (pts.length < 2) return; return playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, views.length - 1) / 2 }); }
     }));
     // music row (async: the track list comes from the server)
     musicTracks().then(tracks => {
@@ -1391,7 +1397,7 @@
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); }
-        else if (a === "travel") { travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](v, tp2), tp2); }
+        else if (a === "travel") { const lv = liveView(v); if (!lv) return; travel.sel = v.id; const tp2 = travelPrefs(); playTravelling(tp2.move, TRAVEL_MOVES[tp2.move](lv, tp2), tp2); }
         else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur, attach: !!(camViews.cur && camViews.cur.follow && v.follow) }); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
@@ -1746,7 +1752,7 @@
     // the travelling being played (orbit circle, dolly segment, chain curve...): the points we sent, drawn where the
     // camera EYE is on the ground (centre pushed back along the heading by dist*cos(pitch)); dashed preview of the
     // selected movement when idle. The current camera itself is the view cone drawn just below.
-    const tv = travel.active || (travel.sel && camViews.list.find(v => v.id === travel.sel) ? (() => { const tp = travelPrefs(), v = camViews.list.find(x => x.id === travel.sel); return { points: TRAVEL_MOVES[tp.move](v, tp), preview: true }; })() : null);
+    const tv = travel.active || (travel.sel && camViews.list.find(v => v.id === travel.sel) ? (() => { const tp = travelPrefs(), v = liveView(camViews.list.find(x => x.id === travel.sel)); return v ? { points: TRAVEL_MOVES[tp.move](v, tp), preview: true } : null; })() : null);
     if (tv && tv.points.length > 1) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -1754,8 +1760,9 @@
       ctx.stroke(); ctx.restore();
     }
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : ink);
-    camViews.list.forEach((v, i) => {
-      const [x, y] = P(v.x, v.y), on = act && act.id === v.id;
+    camViews.list.forEach((v0, i) => {
+      const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
+      const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
       drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b");
       ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
@@ -1768,7 +1775,7 @@
     const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;
     let best = null, bd = 140;
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
-    camViews.list.forEach((v, i) => consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v }));
+    camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));

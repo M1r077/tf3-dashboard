@@ -1,7 +1,7 @@
 {
     "name": "Second Screen Dashboard",
     "summary": "Live dashboard of your company on a second monitor: lines, vehicles, towns, industries, alerts. PC only.",
-    "description": "Turns a second monitor into a live control room for your company: finances, lines, vehicles, stations, towns, industries, depots and alerts, with the game's icons and history charts.\n\nThe mod writes a snapshot to userdata/dashboard_export/live.lua every few seconds; a free, open source companion program (Windows, nothing to install) shows the dashboard in your browser. Everything stays on your PC.\nDownload the companion: https://github.com/M1r077/tf3-dashboard\n\nOptional remote control (off by default): speed, camera, vehicle actions, stop and terminal configuration - exactly what the matching click in the game does. Never modifies the savegame; nothing is bought, sold or demolished. PC only.\n\nBy Miro.",
+    "description": "Turns a second monitor into a live control room for your company: finances, lines, vehicles, stations, towns, industries, depots and alerts, with the game's icons and history charts.\n\nThe mod writes a snapshot to userdata/dashboard_export/live.lua every few seconds; a free, open source companion program (Windows, nothing to install) shows the dashboard in your browser. Everything stays on your PC.\nDownload the companion: https://github.com/M1r077/tf3-dashboard\n\nOptional remote control (off by default): speed, camera and smooth camera travellings, vehicle actions, stop and terminal configuration - exactly what the matching click in the game does. Never modifies the savegame; nothing is bought, sold or demolished. PC only.\n\nBy Miro.",
     "localization": {
         "fr": {
             "name": "Second Screen Dashboard",

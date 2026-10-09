@@ -1149,7 +1149,7 @@ local function camTourBuild(args)
 	for i, p in ipairs(raw) do
 		local x, y = num(p.x) or num(p[1]), num(p.y) or num(p[2])
 		if not x or not y then error("route point " .. i .. ": missing x/y") end
-		local st = isStop == nil or isStop[i - 1] or isStop[i] or false  -- 0- or 1-based indices both accepted
+		local st = isStop == nil or isStop[i - 1] or false  -- args.stops: 0-based indices into route
 		pts[#pts + 1] = { x = x, y = y, stop = st and true or false }
 	end
 	local closed = args.closed ~= false and #pts > 2

@@ -1874,8 +1874,9 @@
       const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
       const lines = [fmtDist(dist)];
       if (ha != null && hb != null) {
+        // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
         const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
-        if (dz > 0.5) lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * dz) }));
+        lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * Math.max(0, dz)) }));
       }
       // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
       // over the relief)

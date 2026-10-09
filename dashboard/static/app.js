@@ -775,26 +775,39 @@
   // at a height that scales with the leg length (a short tram hop stays low, a long rail leg is seen from higher).
   // Uses the travelling preferences (duration, loop, music) but not the movement, the line is the path.
   async function lineTravelling(l) {
-    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { return; } }
+    try { map.data = await api("/api/map"); } catch (e) { if (!map.data) return; }  // fresh vehicle positions
     const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
     const pts = ml ? ml.points : [];
     if (pts.length < 2) return;
     const prefs = travelPrefs();
     // Zoom rhythm: close and steep at each stop (the station is the subject), then climb to a high, flatter
     // point halfway along the leg (the leg is the subject), and dive again. amp scales the whole range.
-    const near = 120 * prefs.amp, nearPitch = 1.0, farPitch = 0.75, points = [];
+    const near = 150 * prefs.amp, nearPitch = 1.0, farPitch = 0.85, points = [];
     // closing the loop back to the first stop (the game's lines are circuits) unless the line is a shuttle A-B
     const ring = pts.length > 2 ? pts.concat([pts[0]]) : pts;
     // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
     const headTo = (x, y, to) => (Math.atan2(-(to[0] - x), to[1] - y) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
+    // vehicles of the line (last known positions): the mid-leg point goes over the vehicle travelling that leg,
+    // nearer the ground, so the travelling shows the traffic and not only empty track
+    const vehs = (map.data.vehicles || []).filter(v => v.line_id === l.line_id && v.x != null);
+    const onLeg = (a, b) => {
+      const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy || 1;
+      let best = null;
+      for (const v of vehs) {
+        const t = ((v.x - a[0]) * dx + (v.y - a[1]) * dy) / len2; if (t < 0.12 || t > 0.88) continue;  // near a stop = the stop shot covers it
+        const off = Math.abs((v.x - a[0]) * dy - (v.y - a[1]) * dx) / Math.sqrt(len2); if (off > 400) continue;  // too far off the straight line (detour)
+        const score = Math.abs(t - 0.5); if (!best || score < best.score) best = { v, score };
+      }
+      return best ? best.v : null;
+    };
     for (let i = 0; i < ring.length; i++) {
       const [x, y] = ring[i], nx = ring[(i + 1) % ring.length], px = ring[(i - 1 + ring.length) % ring.length];
       const to = i < ring.length - 1 ? nx : px;  // last point: keep the previous heading (look back along the leg)
       points.push({ x, y, dist: near, angle: headTo(x, y, to), pitch: nearPitch });
       if (i < ring.length - 1) {
-        const leg = Math.hypot(nx[0] - x, nx[1] - y);
-        // high point: at least 3x the close-up, more on long legs, so the dive is always visible
-        points.push({ x: (x + nx[0]) / 2, y: (y + nx[1]) / 2, dist: Math.max(near * 3, near + leg * 0.6), angle: headTo(x, y, nx), pitch: farPitch });
+        const leg = Math.hypot(nx[0] - x, nx[1] - y), v = onLeg(ring[i], nx);
+        if (v) points.push({ x: v.x, y: v.y, dist: near * 1.3, angle: headTo(x, y, nx), pitch: 0.95 });
+        else points.push({ x: (x + nx[0]) / 2, y: (y + nx[1]) / 2, dist: Math.max(near * 2, near + leg * 0.35), angle: headTo(x, y, nx), pitch: farPitch });
       }
     }
     // stop-to-stop duration proportional to leg length so the speed over the ground is roughly constant

@@ -1480,7 +1480,8 @@
     canvas.addEventListener("click", e => {
       const hit = pickMap(canvas, e); if (!hit || map.lastDragMoved) return;
       if (hit.kind === "view") gotoView(hit.view);
-      else if (hit.entity != null) sendCmd(hit.kind === "vehicle" && e.shiftKey ? "follow_entity" : "focus_entity", { entity: hit.entity });
+      // a vehicle: follow it (Shift+click = just look at it); anything else: look at it
+      else if (hit.entity != null) sendCmd(hit.kind === "vehicle" && !e.shiftKey ? "follow_entity" : "focus_entity", { entity: hit.entity });
     });
     canvas.addEventListener("mousedown", () => { map.lastDragMoved = false; });
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });

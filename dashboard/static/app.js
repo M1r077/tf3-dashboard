@@ -1326,7 +1326,8 @@
     const cur = camViews.cur, off = cmdOff();
     if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
     const views = camViews.list, act = activeView();
-    const row = (v, i) => `<div class="cv ${act && act.id === v.id ? "on" : ""}" data-id="${v.id}">
+    // rows are draggable: dropped on a chain in the travellings panel, the view is appended there
+    const row = (v, i) => `<div class="cv ${act && act.id === v.id ? "on" : ""}" data-id="${v.id}" draggable="true">
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
       <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${v.follow ? esc(t("cam_follow_view", { v: v.follow_name || v.follow })) : fmtCam(v)}" ${off ? "disabled" : ""}>${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</button>
       <span class="cv-tools">
@@ -1352,6 +1353,7 @@
     });
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, v = views.find(x => x.id === id); if (!v) return;
+      el.addEventListener("dragstart", e => { e.dataTransfer.effectAllowed = "copy"; e.dataTransfer.setData("text/plain", "view:" + id); });
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); renderTravellings(); }
@@ -1371,12 +1373,14 @@
   // The panel holds ONE draft (what the view/line buttons hand over, editable) and the saved list (db/travellings.json,
   // per savegame, max 20). Playing anything also makes it the draft, so "save" always keeps what was just seen.
   const trv = { list: [], draft: null, loaded: false, editing: null };
-  const SPEC_KEYS = ["kind", "view", "line", "move", "dir", "amp", "dur", "loop", "music", "vol", "tail"];
+  const SPEC_KEYS = ["kind", "view", "line", "views", "move", "dir", "amp", "dur", "loop", "music", "vol", "tail"];
+  // the views of a chain, in order: the recipe's own list (ids that still exist) or every view of the panel
+  const chainViews = (s) => (s.views ? s.views.map(id => camViews.list.find(v => v.id === id)).filter(Boolean) : camViews.list);
   const specOf = (o) => { const s = {}; SPEC_KEYS.forEach(k => { if (o[k] !== undefined) s[k] = o[k]; }); return s; };
   // the draft starts from the browser preferences (last used settings) + the subject
-  function trvDraft(subject) { trv.draft = { ...travelPrefs(), ...subject }; saveTravelPrefs(specOf(trv.draft)); renderTravellings(); }
+  function trvDraft(subject) { trv.draft = { ...travelPrefs(), ...subject }; if (subject.kind === "line") trv.line = subject.line; saveTravelPrefs(specOf(trv.draft)); renderTravellings(); }
   function trvSubjectName(s) {
-    if (s.kind === "chain") return t("cam_travel_chain");
+    if (s.kind === "chain") return t("trv_chain_n", { n: chainViews(s).length });
     if (s.kind === "line") { const l = (state.lines || []).find(x => x.line_id === s.line) || (map.data && (map.data.lines || []).find(x => x.line_id === s.line)); return l ? l.name : t("line") + " " + s.line; }
     const v = camViews.list.find(x => x.id === s.view); return v ? v.name : t("trv_view_gone");
   }
@@ -1384,7 +1388,7 @@
   function trvPlay(s) {
     const tp = { ...TRAVEL_DEFAULTS, ...s };
     if (s.kind === "line") { const l = (state.lines || []).find(x => x.line_id === s.line) || { line_id: s.line, name: trvSubjectName(s) }; lineTravelling(l, tp); return true; }
-    if (s.kind === "chain") { const pts = camViews.list.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); if (pts.length < 2) return false; playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, camViews.list.length - 1) / 2 }); return true; }
+    if (s.kind === "chain") { const vs = chainViews(s), pts = vs.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); if (pts.length < 2) return false; playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, vs.length - 1) / 2 }); return true; }
     const v = camViews.list.find(x => x.id === s.view), lv = v && liveView(v); if (!lv) return false;
     playTravelling(tp.move, TRAVEL_MOVES[tp.move](lv, tp), tp); return true;
   }
@@ -1402,11 +1406,14 @@
     const box = $("#travellings"); if (!box) return;
     const cur = camViews.cur, off = cmdOff();
     if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
+    // always a draft: the selected view (or the first one) with the browser preferences
+    if (!trv.draft && camViews.list.length) { const pf = travelPrefs(); trv.draft = { ...pf, kind: pf.kind === "chain" && camViews.list.length >= 2 ? "chain" : "view", view: (travel.sel && camViews.list.find(v => v.id === travel.sel)) ? travel.sel : (camViews.list.find(v => v.id === pf.view) ? pf.view : camViews.list[0].id) }; }
+    if (trv.draft && trv.draft.kind === "view" && !camViews.list.find(v => v.id === trv.draft.view)) trv.draft = camViews.list.length ? { ...trv.draft, view: camViews.list[0].id } : null;
     const path = cur.path, d = trv.draft, editing = trv.editing != null ? trv.list.find(x => x.id === trv.editing) : null;
     // the settings being edited: a saved travelling (pencil) or the draft
     const tp = editing || d;
     const seg = (name, opts, val, fmt) => `<span class="seg" data-tset="${name}">${opts.map(o => `<button data-v="${o}" class="${String(val) === String(o) ? "active" : ""}">${fmt ? fmt(o) : o}</button>`).join("")}</span>`;
-    const kindIco = (s) => s.kind === "line" ? ico("line", "sm") : s.kind === "chain" ? ico("route", "sm") : ico(TRAVEL_MOVE_ICON[s.move] || "reset", "sm");
+    const kindIco = (s) => s.kind === "line" ? ico("line", "sm") : s.kind === "chain" ? ico("line", "sm") : ico(TRAVEL_MOVE_ICON[s.move] || "reset", "sm");
     const summary = (s) => `${s.dur} s · ×${s.amp}${s.loop ? " · " + t("cam_travel_loop") : ""}${s.music ? " · " + ico("noise", "sm") : ""}`;
     const row = (s, i) => `<div class="cv ${trv.editing === s.id ? "on" : ""}" data-id="${s.id}">
       <span class="cv-n">${i + 1}</span>
@@ -1418,12 +1425,18 @@
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>▼</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
       </span></div>`;
+    // subject: a view (pick by number), the chain of views, the line handed over by a line sheet (kept in the draft)
+    const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat((tp && tp.kind === "line") || trv.line ? ["line"] : []);
+    const KIND_ICO = { view: "star", chain: "line", line: "configure_line" };
     const settings = tp ? `<div class="cv-travel">
-        <div class="tr-row"><span class="lbl">${kindIco(tp)}${editing ? esc(editing.name) : t("trv_draft")}</span><span class="muted small">${esc(trvSubjectName(tp))}</span>
+        <div class="tr-row"><span class="lbl">${editing ? kindIco(tp) + esc(editing.name) : t("trv_draft")}</span>
+          ${seg("kind", kinds, tp.kind, k => `<span title="${esc(t("trv_kind_" + k))}">${ico(KIND_ICO[k], "sm")}</span>`)}
+          ${tp.kind === "view" ? seg("view", camViews.list.map(v => v.id), tp.view, id => { const v = camViews.list.find(x => x.id === id); return `<span title="${esc(v.name)}">${camViews.list.indexOf(v) + 1}</span>`; }) : `<span class="muted small">${esc(trvSubjectName(tp))}</span>`}
           ${editing ? `<button class="btn" data-tdone title="${esc(t("trv_done"))}">${ico("check", "sm")}</button>` : ""}</div>
         ${tp.kind === "view" ? `<div class="tr-row"><span class="lbl">${t("cam_travel")}</span>${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico(TRAVEL_MOVE_ICON[m], "sm")}</span>`)}
           <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("reverse", "sm")}</button></div>
         <div class="tr-row"><span class="muted small tr-desc">${t("cam_move_" + tp.move)}</span></div>` : ""}
+        ${tp.kind === "chain" ? `<div class="tr-chain" data-chain>${chainViews(tp).map((v, i) => `<div class="cv ch" draggable="true" data-ci="${i}"><span class="cv-n">${i + 1}</span><span class="ch-name">${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</span><button class="btn" data-chrm="${i}" title="${esc(t("trv_chain_remove"))}">✕</button></div>`).join("")}<div class="ch-drop muted small">${t("trv_chain_hint")}</div></div>` : ""}
         <div class="tr-row"><span class="lbl">${t("cam_travel_dur")}</span>${seg("dur", [10, 20, 40, 90], tp.dur, x => x + " s")}
           <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("reset", "sm")}</button></div>
         <div class="tr-row"><span class="lbl">${tp.kind === "line" ? t("trv_alt") : t("cam_travel_amp")}</span>${seg("amp", [0.5, 1, 2], tp.amp, a => "×" + a)}</div>
@@ -1436,20 +1449,43 @@
       </div>` : "";
     box.innerHTML = cmdHint() +
       (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`) +
-      (camViews.list.length >= 2 && !tp ? `<div class="tr-row"><button class="btn" data-travel="chain" ${off ? "disabled" : ""}>${ico("route", "sm")}${t("cam_travel_chain")}</button></div>` : "") +
       settings +
       (path && !tp ? `<div class="tr-row"><button class="btn primary" data-travel="stop">${ico("play_pause", "sm")}${t("cam_travel_stop")}</button><span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span></div>` : "");
     // settings: segments and toggles (edit the saved travelling in place, or the draft)
-    const apply = (k, v) => { if (editing) { const spec = { ...specOf(editing) }; spec[k] = v; editTravellings({ action: "update", id: editing.id, spec }); } else { tp[k] = v; saveTravelPrefs(specOf(tp)); renderTravellings(); } };
+    const applyAll = (patch) => { if (editing) editTravellings({ action: "update", id: editing.id, spec: { ...specOf(editing), ...patch } }); else { Object.assign(tp, patch); saveTravelPrefs(specOf(tp)); renderTravellings(); } };
+    const apply = (k, v) => applyAll({ [k]: v });
     $$("[data-tset] button, .btn[data-tset]", box).forEach(b => b.addEventListener("click", () => {
       const k = b.dataset.tset || b.closest("[data-tset]").dataset.tset;
-      if (k === "dir") apply("dir", -(tp.dir || 1)); else if (k === "loop") apply("loop", !tp.loop); else apply(k, isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v);
+      const val = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+      if (k === "dir") apply("dir", -(tp.dir || 1)); else if (k === "loop") apply("loop", !tp.loop);
+      else if (k === "kind") { const patch = { kind: val }; if (val === "chain" && !tp.views) patch.views = camViews.list.map(v => v.id); if (val === "line" && trv.line && !editing) patch.line = trv.line; applyAll(patch); }
+      else apply(k, val);
     }));
     const done = $("[data-tdone]", box); if (done) done.addEventListener("click", () => { trv.editing = null; renderTravellings(); });
+    // chain editor: drag a row to reorder, drop a view from the camera views card to append it, x removes
+    const chainBox = $("[data-chain]", box);
+    if (chainBox) {
+      const ids = () => chainViews(tp).map(v => v.id);
+      const setChain = (list) => apply("views", list);
+      $$("[data-chrm]", chainBox).forEach(b => b.addEventListener("click", () => { const l = ids(); l.splice(+b.dataset.chrm, 1); setChain(l); }));
+      let from = null;
+      $$(".cv.ch", chainBox).forEach(r => {
+        r.addEventListener("dragstart", e => { from = +r.dataset.ci; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", "chain:" + from); });
+        r.addEventListener("dragend", () => { from = null; $$(".drag-over", chainBox).forEach(x => x.classList.remove("drag-over")); });
+      });
+      chainBox.addEventListener("dragover", e => { e.preventDefault(); const r = e.target.closest(".cv.ch"); $$(".drag-over", chainBox).forEach(x => x.classList.remove("drag-over")); (r || chainBox).classList.add("drag-over"); });
+      chainBox.addEventListener("dragleave", e => { if (e.target === chainBox) chainBox.classList.remove("drag-over"); });
+      chainBox.addEventListener("drop", e => {
+        e.preventDefault(); const l = ids(), r = e.target.closest(".cv.ch"), to = r ? +r.dataset.ci : l.length;
+        const data = e.dataTransfer.getData("text/plain") || "";
+        if (data.startsWith("view:")) { l.splice(to, 0, +data.slice(5)); setChain(l); }           // a view dragged from the views card
+        else if (from != null) { const [m] = l.splice(from, 1); l.splice(to > from ? to - 1 : to, 0, m); setChain(l); }
+        chainBox.classList.remove("drag-over");
+      });
+    }
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", async () => {
       const a = b.dataset.travel;
       if (a === "stop") return stopTravelling();
-      if (a === "chain") return trvDraft({ kind: "chain" });
       if (a === "play" && tp) { if (!trvPlay(tp)) { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; } return; }
       if (a === "save" && d) { const name = await modal.prompt(t("cam_name_prompt"), { value: trvSubjectName(d).slice(0, 40), ok: t("trv_save") }); if (name) { await editTravellings({ action: "add", name, spec: specOf(d) }); } }
     }));

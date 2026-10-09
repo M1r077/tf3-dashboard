@@ -58,6 +58,7 @@ window.I18N = {
     legend_counts: "{v} vehicles · {s} stations · {i} industries", station_pax: "passenger station", station_cargo: "cargo station", industry: "industry", capacity_n: "capacity {n}", load_n: "load {a}/{b}",
     // camera views panel (Map tab)
     cam_travel: "Travelling", cam_travel_play: "Play", cam_travel_stop: "Stop", cam_travel_loop: "Loop", cam_travel_dur: "Duration", cam_travel_amp: "Amplitude", cam_travel_dir: "Reverse direction",
+    trv_kind_view: "Around a view", trv_kind_chain: "Chain of views", trv_kind_line: "Line tour", trv_chain_n: "Chain of {n} views", trv_chain_hint: "Drag the views to reorder, drop a saved view here to add it", trv_chain_remove: "Remove from the chain",
     trv_title: "Travellings", trv_draft: "Draft", trv_play: "Play", trv_save: "Save", trv_save_hint: "Keep this travelling (subject + settings) for this savegame", trv_empty: "No saved travelling. Play one around a view, along a line or through all views, tune it below, then save it.", trv_edit: "Settings", trv_done: "Done", trv_gone: "The subject of this travelling no longer exists", trv_view_gone: "deleted view", trv_alt: "Altitude", trv_music_game: "Game soundtrack",
     cam_travel_here: "Travelling around this view", cam_travel_around: "Play around \"{name}\"", cam_travel_pick: "Pick a view (click its name)", cam_travel_chain: "Chain all views",
     line_travel: "Travelling along the line", line_travel_hint: "One smooth flight over the line: its stops and where its vehicles are right now, high enough to read the line, dipping over each vehicle. Duration x4 = time for the whole line, amplitude = altitude, loop = replay",
@@ -185,6 +186,7 @@ window.I18N = {
     legend_vehicle: "véhicule (couleur = ligne)", legend_stopped: "à l'arrêt en route", legend_pax_station: "gare voyageurs", legend_cargo_station: "gare cargo", legend_industry: "industrie",
     legend_counts: "{v} véhicules · {s} gares · {i} industries", station_pax: "gare voyageurs", station_cargo: "gare cargo", industry: "industrie", capacity_n: "capacité {n}", load_n: "charge {a}/{b}",
     cam_travel: "Travelling", cam_travel_play: "Jouer", cam_travel_stop: "Arrêter", cam_travel_loop: "En boucle", cam_travel_dur: "Durée", cam_travel_amp: "Amplitude", cam_travel_dir: "Sens inverse",
+    trv_kind_view: "Autour d'une vue", trv_kind_chain: "Chaîne de vues", trv_kind_line: "Tour de ligne", trv_chain_n: "Chaîne de {n} vues", trv_chain_hint: "Glissez les vues pour les réordonner, déposez une vue enregistrée ici pour l'ajouter", trv_chain_remove: "Retirer de la chaîne",
     trv_title: "Travellings", trv_draft: "Brouillon", trv_play: "Jouer", trv_save: "Enregistrer", trv_save_hint: "Conserver ce travelling (sujet + rÃ©glages) pour cette partie", trv_empty: "Aucun travelling enregistrÃ©. Jouez-en un autour d'une vue, le long d'une ligne ou Ã  travers toutes les vues, rÃ©glez-le ci-dessous, puis enregistrez-le.", trv_edit: "RÃ©glages", trv_done: "TerminÃ©", trv_gone: "Le sujet de ce travelling n'existe plus", trv_view_gone: "vue supprimÃ©e", trv_alt: "Altitude", trv_music_game: "Musiques du jeu",
     cam_travel_here: "Travelling autour de cette vue", cam_travel_around: "Jouer autour de « {name} »", cam_travel_pick: "Choisissez une vue (cliquez son nom)", cam_travel_chain: "Enchaîner toutes les vues",
     line_travel: "Travelling le long de la ligne", line_travel_hint: "Un seul vol fluide au-dessus de la ligne : ses arrêts et la position actuelle de ses véhicules, assez haut pour lire la ligne, en plongeant un peu sur chaque véhicule. Durée ×4 = temps pour toute la ligne, amplitude = altitude, boucle = rejouer",
@@ -305,6 +307,7 @@ window.I18N = {
     legend_vehicle: "Fahrzeug (Farbe = Linie)", legend_stopped: "unterwegs stehend", legend_pax_station: "Personenbahnhof", legend_cargo_station: "Güterbahnhof", legend_industry: "Industrie",
     legend_counts: "{v} Fahrzeuge · {s} Stationen · {i} Industrien", station_pax: "Personenstation", station_cargo: "Güterstation", industry: "Industrie", capacity_n: "Kapazität {n}", load_n: "Ladung {a}/{b}",
     cam_travel: "Kamerafahrt", cam_travel_play: "Abspielen", cam_travel_stop: "Stopp", cam_travel_loop: "Schleife", cam_travel_dur: "Dauer", cam_travel_amp: "Weite", cam_travel_dir: "Richtung umkehren",
+    trv_kind_view: "Um eine Ansicht", trv_kind_chain: "Kette von Ansichten", trv_kind_line: "Linienrundflug", trv_chain_n: "Kette aus {n} Ansichten", trv_chain_hint: "Ansichten ziehen zum Umordnen, eine gespeicherte Ansicht hier ablegen zum Hinzufügen", trv_chain_remove: "Aus der Kette entfernen",
     trv_title: "Kamerafahrten", trv_draft: "Entwurf", trv_play: "Abspielen", trv_save: "Speichern", trv_save_hint: "Diese Kamerafahrt (Motiv + Einstellungen) fÃ¼r diesen Spielstand behalten", trv_empty: "Keine gespeicherte Kamerafahrt. Eine um eine Ansicht, entlang einer Linie oder durch alle Ansichten abspielen, unten einstellen, dann speichern.", trv_edit: "Einstellungen", trv_done: "Fertig", trv_gone: "Das Motiv dieser Kamerafahrt gibt es nicht mehr", trv_view_gone: "gelÃ¶schte Ansicht", trv_alt: "HÃ¶he", trv_music_game: "Spielmusik",
     cam_travel_here: "Kamerafahrt um diese Ansicht", cam_travel_around: "Um \"{name}\" fahren", cam_travel_pick: "Ansicht wählen (Namen anklicken)", cam_travel_chain: "Alle Ansichten nacheinander",
     line_travel: "Kamerafahrt entlang der Linie", line_travel_hint: "Ein ruhiger Flug über die Linie: ihre Halte und die aktuellen Positionen ihrer Fahrzeuge, hoch genug, um die Linie zu lesen, mit leichtem Absenken über jedem Fahrzeug. Dauer x4 = Zeit für die ganze Linie, Amplitude = Höhe, Schleife = wiederholen",
@@ -409,6 +412,7 @@ window.I18N = {
     // tabs
     // camera views (map)
     cam_travel: "Travelling", cam_travel_play: "Reproduzir", cam_travel_stop: "Parar", cam_travel_loop: "Repetir", cam_travel_dur: "Duração", cam_travel_amp: "Amplitude", cam_travel_dir: "Sentido inverso",
+    trv_kind_view: "Em torno de uma visão", trv_kind_chain: "Cadeia de visões", trv_kind_line: "Tour da linha", trv_chain_n: "Cadeia de {n} visões", trv_chain_hint: "Arraste as visões para reordenar, solte uma visão salva aqui para adicioná-la", trv_chain_remove: "Remover da cadeia",
     trv_title: "Travellings", trv_draft: "Rascunho", trv_play: "Reproduzir", trv_save: "Salvar", trv_save_hint: "Guardar este travelling (assunto + ajustes) para este jogo salvo", trv_empty: "Nenhum travelling salvo. Reproduza um em torno de uma visÃ£o, ao longo de uma linha ou por todas as visÃµes, ajuste abaixo e salve.", trv_edit: "Ajustes", trv_done: "Pronto", trv_gone: "O assunto deste travelling nÃ£o existe mais", trv_view_gone: "visÃ£o excluÃ­da", trv_alt: "Altitude", trv_music_game: "Trilha sonora do jogo",
     cam_travel_here: "Travelling em torno desta visão", cam_travel_around: "Reproduzir em torno de \"{name}\"", cam_travel_pick: "Escolha uma visão (clique no nome)", cam_travel_chain: "Encadear todas as visões",
     line_travel: "Travelling ao longo da linha", line_travel_hint: "Um voo suave sobre a linha: suas paradas e onde estão seus veículos agora, alto o bastante para ler a linha, descendo um pouco sobre cada veículo. Duração x4 = tempo da linha inteira, amplitude = altitude, repetição = repetir",
@@ -518,6 +522,7 @@ window.I18N = {
    (载具, 线路, 车站, 车库...); everything else stays in English until a native speaker completes it (see README,
    "Translating"). Built on top of "en" so no key is ever missing. */
 window.I18N.zh = Object.assign({}, window.I18N.en, {
+    trv_kind_view: "围绕视角", trv_kind_chain: "视角链", trv_kind_line: "线路巡游", trv_chain_n: "{n} 个视角的链",
     trv_title: "é•œå¤´å·¡æ¸¸", trv_draft: "è‰ç¨¿", trv_play: "æ’­æ”¾", trv_save: "ä¿å­˜", trv_edit: "è®¾ç½®", trv_done: "å®Œæˆ", trv_alt: "é«˜åº¦", trv_music_game: "æ¸¸æˆåŽŸå£°",
   _locale: "zh-CN", _ymd: true, _months: ["", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
   // top bar

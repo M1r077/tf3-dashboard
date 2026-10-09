@@ -213,7 +213,7 @@
       if (opts.zeroBase || opts.stacked) min = Math.min(0, min);
       if (forcedMin != null) min = forcedMin; if (forcedMax != null) max = forcedMax;
       if (!isFinite(min) || !isFinite(max)) return [0, 1];
-      if (min === max) { min -= 1; max += 1; }
+      if (min === max) { if ((opts.zeroBase || opts.stacked) && min === 0) max = 1; else { min -= 1; max += 1; } }  // all zero: keep 0 at the bottom
       const m = (max - min) * 0.08;
       return [min - ((opts.zeroBase || opts.percent) && min === 0 ? 0 : m), max + m];
     };

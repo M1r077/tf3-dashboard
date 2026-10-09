@@ -227,6 +227,17 @@ Three independent parts:
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
+     (mod rev 10: KPI strip, financial alerts, monthly cash flow and a 24-month cash forecast, the game's Finances
+     window table by year (revenue / running costs / upkeep per carrier), loans, fleet value, costs by line and
+     vehicle, lines running mostly empty). The table comes from `computeFinanceTable`; each column covers several
+     months (the header says which), so figures are brought back to per-month values. The forecast is the median
+     recurring result of the last ~12 months minus the payments of the running loans, with a band of one median
+     absolute deviation; one-off spending is left out. Only the last continuous stretch of the history is charted (a
+     reloaded save or the infinite-money cheat would otherwise stitch 1e12 steps into the curves).
+   - **Money actions** (loans: take / repay; selling a vehicle): always behind a confirmation dialog, and the server
+     (`MONEY_CMDS`) refuses them unless the page sends `confirmed: true`. Loans are read from the game's own loan table
+     and only the type / id travel in the command. A vehicle is only sold while it is inside a depot (the game never
+     uses "sell on arrival", which crashed it): a running vehicle is sent to the depot and sold once it is in.
 
 ## Text encoding (verified with a Chinese savegame, 9 Oct 2026)
 
@@ -246,6 +257,7 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
 
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
+- latest copy per game: `finance_latest` (the finance table by year / month and the loans, mod rev 10+)
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`

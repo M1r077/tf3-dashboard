@@ -52,7 +52,12 @@ ALLOWED_CMDS = {
     "line_set_stop": ("line", "stop"), "line_set_all_stops": ("line",), "line_set_terminals": ("line", "stop", "main"),
     "line_stop_all": ("line",), "line_start_all": ("line",), "line_all_to_depot": ("line",),
     "rename_entity": ("entity", "name"),
+    "loan_obtain": ("type",), "loan_repay": ("id",), "vehicle_sell": ("vehicle",),  # mod rev 10+; the commands that move money
 }
+
+# commands that spend or earn money: refused unless the page sends confirmed=true, which it only does after the player
+# accepted a confirmation dialog (so a stray request cannot move money)
+MONEY_CMDS = {"loan_obtain", "loan_repay", "vehicle_sell"}
 
 
 def lua_literal(v) -> str:
@@ -99,6 +104,8 @@ def write_command(cmd: str, args: dict) -> dict:
     for k in ALLOWED_CMDS[cmd]:
         if k not in args:
             raise ValueError(f"missing argument: {k}")
+    if cmd in MONEY_CMDS and args.get("confirmed") is not True:
+        raise ValueError("this command moves money and needs the player's confirmation")
     clean = {}
     for k, v in args.items():
         if isinstance(v, (int, float, bool)) or v is None:
@@ -185,6 +192,7 @@ def api_overview(q: dict) -> dict:
     sid = snap["snapshot_id"]
     gid = snap["game_id"]
     fin = one("SELECT * FROM finance WHERE snapshot_id=?", (sid,)) or {}
+    _sane_earnings(fin)
     comp = one("SELECT c.* FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,)) or {}
     prev = one("""SELECT f.balance, s.real_time FROM finance f JOIN snapshot s USING(snapshot_id)
                   WHERE s.game_id=? AND s.snapshot_id < ? ORDER BY s.snapshot_id DESC LIMIT 1 OFFSET 29""", (gid, sid))
@@ -215,6 +223,29 @@ def api_overview(q: dict) -> dict:
             "commands": {"enabled": not CMD_DISABLED, "accepted": snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
+def _sane_earnings(r: dict | None) -> None:
+    """calculateEarnings is "balance now - balance on 1 January": switching the infinite-money cheat on or off (or loading
+    another save) inside a year makes it read about +-1e12 until the year ends. Show nothing rather than that."""
+    if r and r.get("earnings_ytd") is not None and abs(r["earnings_ytd"]) > 1e10:
+        r["earnings_ytd"] = None
+
+
+def _session_start(series: list[dict]) -> int:
+    """Index where the last continuous stretch of a finance series begins. The collector keeps one "game" per player id
+    and reloading a save, loading another one or switching the infinite-money cheat on/off makes the date jump back or
+    the balance jump by billions: charts must not stitch those together (one 1e12 step flattens everything else)."""
+    start = 0
+    for i in range(1, len(series)):
+        a, b = series[i - 1], series[i]
+        ka = (a.get("year") or 0) * 12 + (a.get("month") or 0)
+        kb = (b.get("year") or 0) * 12 + (b.get("month") or 0)
+        back = ka and kb and kb < ka
+        jump = a.get("balance") is not None and b.get("balance") is not None and abs(b["balance"] - a["balance"]) > 1e9
+        if back or jump:
+            start = i
+    return start
+
+
 def api_finance(q: dict) -> dict:
     limit = _limit(q, 600)
     gid = _gid()
@@ -234,7 +265,65 @@ def api_finance(q: dict) -> dict:
                    ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), limit))
     comp.reverse()
     _stamp(comp)
-    return {"series": series, "company": comp}
+    for r in series:
+        _sane_earnings(r)
+    cut = _session_start(series)
+    if cut:
+        series = series[cut:]
+        comp = [c for c in comp if c["ts"] >= series[0]["ts"]]
+    # whole-game history (not limited by the range): last balance / year result seen in each calendar year
+    # Reloading older saves repeats the same game years, and the infinite-money cheat puts the balance near 1e12: keep the
+    # rows of the same kind of money as now (cheat or not) and, per year, the most recent one
+    hist = rows("""SELECT year, month, balance, loan, earnings_ytd FROM agg_finance_min WHERE game_id=? AND year IS NOT NULL ORDER BY bucket""", (gid,))
+    last = one("SELECT year, month, balance, loan, earnings_ytd FROM v_finance_series WHERE game_id=? AND year IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    if last:
+        hist.append(last)
+    big = bool(last and last.get("balance") is not None and abs(last["balance"]) > 1e10)
+    yrs: dict[int, dict] = {}
+    for r in hist:
+        if r.get("balance") is None or (abs(r["balance"]) > 1e10) != big:
+            continue
+        _sane_earnings(r)
+        yrs[r["year"]] = r
+    years = [yrs[y] for y in sorted(yrs)]
+    # a year whose result the game could not give (cheat toggled inside it): change of the year-end balance instead
+    for i in range(1, len(years)):
+        if years[i].get("earnings_ytd") is None and years[i - 1]["year"] == years[i]["year"] - 1:
+            years[i]["earnings_ytd"] = years[i]["balance"] - years[i - 1]["balance"]
+            years[i]["approx"] = True
+    # running cost and value of the fleet right now, per line and per vehicle (vehicle_state.running_cost = per year)
+    sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
+    sid = sid["sid"] if sid else None
+    by_line, top_vehicles = [], []
+    if sid is not None:
+        by_line = rows("""SELECT vs.line_id, COALESCE(l.name, '') AS line_name, GROUP_CONCAT(DISTINCT v.carrier) carriers, COUNT(*) n,
+                          SUM(vs.running_cost) running_cost, SUM(vs.value) value, SUM(vs.load) load, SUM(v.capacity) capacity, AVG(vs.maintenance) maint
+                          FROM vehicle_state vs JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
+                          LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
+                          WHERE vs.snapshot_id=? GROUP BY vs.line_id ORDER BY running_cost DESC""", (gid, gid, sid))
+        top_vehicles = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model, vs.running_cost, vs.value, vs.maintenance, l.name AS line_name
+                               FROM vehicle_state vs JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
+                               LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
+                               WHERE vs.snapshot_id=? AND vs.running_cost IS NOT NULL ORDER BY vs.running_cost DESC LIMIT 15""", (gid, gid, sid))
+    # the Finances window table (by year / by month) and the loans, as stored by the collector (mod rev 10+); each is
+    # kept only when it changed / every couple of minutes, so take the most recent row that has one
+    def _latest_json(col: str):
+        try:
+            r = one(f"""SELECT fl.{col} AS j, s.real_time FROM finance_latest fl JOIN snapshot s USING(snapshot_id)
+                        WHERE fl.game_id=?""", (gid,))
+        except sqlite3.Error:  # database not yet migrated by a collector >= mod rev 10 support
+            return None, None
+        if not r or not r["j"]:
+            return None, None
+        try:
+            return json.loads(r["j"]), r["real_time"]
+        except ValueError:
+            return None, None
+    table, table_at = _latest_json("finance_json")
+    loans, loans_at = _latest_json("loans_json")
+    return {"series": series, "company": comp, "years": years, "by_line": by_line, "top_vehicles": top_vehicles,
+            "table": table, "table_at": table_at, "loans": loans, "loans_at": loans_at,
+            "commands": {"enabled": not CMD_DISABLED}}
 
 
 def api_alerts(q: dict) -> dict:

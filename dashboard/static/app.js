@@ -281,8 +281,10 @@
   });
   const vehActions = (v) => {
     const off = !cmd.enabled || cmd.accepted === 0;
-    const b = (name, icon, label, extra = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${v.vehicle_id}" ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
-    return `${cmdHint()}<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger")}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger")}${b("horn", "noise", t("act_horn"))}</div>`;
+    const b = (name, icon, label, extra = "", confirm = "") => `<button class="btn act ${extra}" data-cmd="${name}" data-veh="${v.vehicle_id}" ${confirm ? `data-confirm="${esc(confirm)}"` : ""} ${off ? "disabled" : ""}>${ico(icon, "sm")}${esc(label)}</button>`;
+    const vn = v.name || "#" + v.vehicle_id;
+    const sellMsg = t(v.state === "IN_DEPOT" ? "confirm_sell_depot" : "confirm_sell_route", { name: v.name || "#" + v.vehicle_id, value: money(v.value) });
+    return `${cmdHint()}<div class="actions">${b("focus_entity", "camera", t("act_focus"))}${b("follow_entity", "locate", t("act_follow"))}${b("select_entity", "select", t("act_select"))}${v.user_stopped ? b("vehicle_start", "play_1", t("act_start")) : b("vehicle_stop", "stop", t("act_stop"), "danger", t("confirm_veh_stop", { name: vn }))}${b("vehicle_reverse", "reverse", t("act_reverse"))}${b("vehicle_depart", "depart", t("act_depart"))}${b("vehicle_to_depot", "to_depot", t("act_depot"), "danger", t("confirm_veh_depot", { name: vn }))}${b("horn", "noise", t("act_horn"))}${b("vehicle_sell", "money", t("act_sell"), "danger", sellMsg)}</div>`;
   };
   // compact icon buttons for any entity: camera (focus) + select (opens the game window); lines also get "manage"
   const entBtns = (id, o = {}) => {
@@ -295,6 +297,7 @@
       e.stopPropagation(); const id = +b.dataset.veh; const n = b.dataset.cmd;
       if (b.dataset.confirm && !(await modal.confirm(b.dataset.confirm, { danger: true, ok: b.textContent.trim() }))) return;
       const args = n.startsWith("vehicle_") || n === "horn" ? { vehicle: id } : (n === "open_line_manager" || n.startsWith("line_")) ? { line: id } : { entity: id };
+      if (n === "vehicle_sell") args.confirmed = true;  // only reached after the confirmation above
       if (n === "horn" && b.dataset.line) { args.line = +b.dataset.line; delete args.vehicle; }
       sendCmd(n, args, b);
     }));
@@ -403,6 +406,11 @@
     $("#k-pax").textContent = int(f.passengers_transported) + " " + t("pax");
     $("#k-cargo").textContent = int(f.cargo_transported) + " " + t("cargo");
     $("#k-balance").textContent = money(f.balance);
+    const proj = yearProjection(f, s);
+    $("#k-result").textContent = money(f.earnings_ytd); $("#k-result").className = "v " + (f.earnings_ytd == null ? "" : f.earnings_ytd >= 0 ? "pos" : "neg");
+    $("#k-result-detail").textContent = proj != null ? t("fin_proj") + ": " + money(proj) : "";
+    $("#k-debt").textContent = money(f.loan);
+    $("#k-debt-detail").textContent = state.cache.loanService ? t("k_debt_monthly", { a: money(state.cache.loanService) }) : (f.balance != null ? t("fin_net") + ": " + money(f.balance - (f.loan || 0)) : "");
     const bd = $("#k-balance-delta");
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
@@ -581,7 +589,7 @@
     const el = $("#veh-detail");
     el.innerHTML = `<h2>${vehIcon(v, "lg")}${esc(v.name)} <small>#${v.vehicle_id} · ${v.icon_type ? t("icon_type." + v.icon_type) : CA(v.carrier)}${v.model ? " · " + esc(v.model) : ""}</small></h2>
       <div class="consist-row">${consist(v, "lg")}</div>
-      ${vehActions({ vehicle_id: v.vehicle_id, user_stopped: cur.user_stopped })}
+      ${vehActions({ vehicle_id: v.vehicle_id, user_stopped: cur.user_stopped, name: v.name, value: cur.value, state: cur.state })}
       <table class="kv">
         <tr><td>${t("th_line")}</td><td>${lineLink(cur.line_id || last.line_id, v.line_name)}</td></tr>
         <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${ST(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
@@ -1097,15 +1105,131 @@
   }
 
   // ------------------------------------------------------------ finance (secondary)
+  // year result projected from the part of the year elapsed (needs >= 1 month, or it is mostly noise)
+  function yearProjection(f, cur) {
+    if (!f || f.earnings_ytd == null || !cur || !cur.month) return null;
+    const frac = ((cur.month - 1) + ((cur.day || 1) - 1) / 30) / 12;
+    return frac >= 1 / 12 ? f.earnings_ytd / frac : null;
+  }
+  const arrOf = (x) => Array.isArray(x) ? x : [];
+  const sumOf = (a) => a.reduce((x, y) => x + (y || 0), 0);
+  // The mod flattens the game's Finances window table (one value per column, oldest first, the last column is the period
+  // in progress). Each column covers several months, whatever was asked: the header says which ("10/03 - 1/04" = Oct 1903
+  // to Jan 1904 = 4 months, "1900 - 1903" = 4 years), so every figure is brought back to a per-month value.
+  function headerMonths(h) {
+    let m = /^\s*(\d+)\/(\d+)\s*-\s*(\d+)\/(\d+)\s*$/.exec(h || "");
+    if (m) { const a = +m[2] * 12 + +m[1], b0 = +m[4] * 12 + +m[3], b = b0 < a ? b0 + 1200 : b0; return Math.max(1, b - a + 1); }
+    m = /^\s*(\d{4})\s*-\s*(\d{4})\s*$/.exec(h || "");
+    if (m) return Math.max(1, (+m[2] - +m[1] + 1) * 12);
+    return null;
+  }
+  function orientTable(tb, bal) {
+    if (!tb || typeof tb !== "object") return null;
+    const b = arrOf(tb.balance);
+    // normally already oldest first; only the balance (compared with the current one) can tell when it is not
+    const flip = b.length > 1 && bal != null && Math.abs(b[0] - bal) < Math.abs(b[b.length - 1] - bal) && Math.abs(b[0] - bal) * 10 < Math.abs(b[b.length - 1] - bal);
+    const fix = (v) => Array.isArray(v) ? (flip ? v.slice().reverse() : v.slice()) : (v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fix(x)])) : v);
+    return fix(tb);
+  }
+  const FIN_CATS = ["income", "running", "vehicle_maint", "infra_upkeep", "upkeep_other", "construction", "acquisition", "subsidy", "other", "interest", "loan_new", "loan_repay", "total", "balance", "loan"];
+  // per column: income, recurring costs (running + maintenance + upkeep), net of the recurring part; months = length of the
+  // column, and inc / costs / net / total are per-month averages over it
+  function monthlyOps(tb) {
+    const n = arrOf(tb.balance).length, at = (k, i) => arrOf(tb[k])[i] || 0, hdr = arrOf(tb.header);
+    return Array.from({ length: n }, (_, i) => {
+      const months = headerMonths(hdr[i]) || 1;
+      const inc = (at("income", i) + at("subsidy", i)) / months, costs = (at("running", i) + at("vehicle_maint", i) + at("infra_upkeep", i) + at("upkeep_other", i) + at("other", i)) / months;
+      return { inc, costs, net: inc + costs, total: at("total", i) / months, header: hdr[i], months };
+    });
+  }
+  // payments of the loans still running: month i (1-based) -> principal + interest, as the game books them
+  function loanSchedule(L, months) {
+    const mms = L && L.month_ms, out = new Array(months + 1).fill(0);
+    if (!mms) return out;
+    arrOf(L.obtained).forEach(l => {
+      const n = Math.max(1, Math.round(l.duration / mms)), left = n - (l.times_paid || 0), pr = l.amount / n, pay = pr + pr * l.percentage;
+      for (let i = 1; i <= months && i <= left; i++) out[i] += pay;
+    });
+    return out;
+  }
+  const loanMath = (l, mms) => { const n = Math.max(1, Math.round(l.duration / mms)), pr = l.amount / n; return { n, monthly: pr * (1 + l.percentage), totalInterest: l.amount * l.percentage }; };
+  const loanLeft = (l, mms) => { const n = Math.max(1, Math.round(l.duration / mms)), mo = Math.round(l.amount / n); return (n - (l.times_paid || 0)) * mo + (l.amount - n * mo); };
+
+  function forecastCash(ops, cash, sched, months) {
+    // the last column is the period in progress: leave it out; take the most recent complete columns that span ~12 months
+    const complete = ops.slice(0, -1).filter(x => x.inc || x.costs), done = [];
+    let covered = 0;
+    for (let i = complete.length - 1; i >= 0 && covered < 12; i--) { done.unshift(complete[i]); covered += complete[i].months; }
+    if (!done.length || cash == null || !isFinite(cash)) return null;
+    // median and median absolute deviation: one-off entries (a vehicle sold, a subsidy) must not move the trend
+    const med = (a) => { const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+    const mean = med(done.map(x => x.net)), sd = done.length > 1 ? 1.4826 * med(done.map(x => Math.abs(x.net - mean))) : Math.abs(mean) * 0.25;
+    const run = (d) => { const out = [cash]; for (let i = 1; i <= months; i++) out.push(out[i - 1] + d - sched[i]); return out; };
+    return { n: Math.round(covered), mean, sd, expected: run(mean), low: run(mean - sd), high: run(mean + sd) };
+  }
+
+  function renderLoans(L, f, cur) {
+    const body = $("#loans-body");
+    if (!L || !L.month_ms) { body.innerHTML = `<div class="muted">${t("no_data")}</div>`; $("#loans-sub").textContent = ""; return; }
+    const off = cmdOff(), taken = arrOf(L.obtained), full = taken.length >= (L.max || 4), mms = L.month_ms;
+    const service = sumOf(taken.map(l => loanMath(l, mms).monthly));
+    $("#loans-sub").textContent = t("loans_sub", { n: taken.length, m: L.max || 4, a: money(service) });
+    const card = (l, isTaken) => {
+      if (l.amount == null) return `<div class="loancard cool"><div class="n">${esc(l.type)}</div><div class="muted">${t("loan_cooldown")}</div></div>`;
+      const m = loanMath(l, mms), left = isTaken ? loanLeft(l, mms) : null, months = isTaken ? m.n - (l.times_paid || 0) : m.n;
+      const noMoney = isTaken && f.balance != null && f.balance < left;
+      const btn = isTaken
+        ? `<button class="btn" data-loan-repay="${l.id}" ${off || noMoney ? "disabled" : ""} title="${noMoney ? esc(t("loan_no_money")) : ""}">${t("loan_repay")}</button>`
+        : `<button class="btn primary" data-loan-obtain="${esc(l.type)}" ${off || full ? "disabled" : ""}>${t("loan_obtain")}</button>`;
+      return `<div class="loancard"><div class="amt">${money(isTaken ? left : l.amount)}</div>
+        <div class="stats"><span>${t("loan_rate", { p: num(l.percentage * 100, 1) })}</span><span>${t("loan_term", { n: months })}</span><span>${t("loan_monthly", { a: money(m.monthly) })}</span><span>${t("loan_interest_total", { a: money(m.totalInterest) })}</span></div>${btn}</div>`;
+    };
+    body.innerHTML = `${cmdHint()}<div class="loans"><h3>${t("loans_obtained")}</h3>${taken.length ? taken.map(l => card(l, true)).join("") : `<div class="muted">${t("loan_none")}</div>`}
+      <h3>${t("loans_available")}${full ? " · " + t("loan_max", { n: L.max || 4 }) : ""}</h3>${arrOf(L.available).map(l => card(l, false)).join("")}</div>`;
+    $$("[data-loan-obtain]", body).forEach(b => b.addEventListener("click", async () => {
+      const l = arrOf(L.available).find(x => x.type === b.dataset.loanObtain); if (!l) return; const m = loanMath(l, mms);
+      const ok = await modal.confirm(t("loan_confirm_obtain", { amount: money(l.amount), p: num(l.percentage * 100, 1), n: m.n, m: money(m.monthly), i: money(m.totalInterest) }), { title: t("loan_title_obtain"), ok: t("loan_obtain"), danger: true });
+      if (ok) sendCmd("loan_obtain", { type: l.type, confirmed: true }, b);
+    }));
+    $$("[data-loan-repay]", body).forEach(b => b.addEventListener("click", async () => {
+      const l = taken.find(x => x.id === +b.dataset.loanRepay); if (!l) return;
+      const ok = await modal.confirm(t("loan_confirm_repay", { left: money(loanLeft(l, mms)) }), { title: t("loan_title_repay"), ok: t("loan_repay"), danger: true });
+      if (ok) sendCmd("loan_repay", { id: l.id, confirmed: true }, b);
+    }));
+  }
+
+  function renderBreakdown(tb) {
+    const el = $("#fin-breakdown");
+    if (!tb || !arrOf(tb.balance).length) { el.innerHTML = `<tbody><tr class="emptyrow"><td>${t("no_data")}</td></tr></tbody>`; $("#breakdown-sub").textContent = ""; return; }
+    const n = arrOf(tb.balance).length, hdr = arrOf(tb.header);
+    $("#breakdown-sub").textContent = t("bd_sub", { n });
+    const head = `<thead><tr><th></th>${Array.from({ length: n }, (_, i) => `<th class="num">${esc(hdr[i] || "")}${i === n - 1 ? `<br><small>${t("bd_current")}</small>` : ""}</th>`).join("")}</tr></thead>`;
+    const row = (label, arr, cls = "", color = false) => { const a = arrOf(arr); return a.some(v => v) || cls === "tot" ? `<tr class="${cls}"><td>${esc(label)}</td>${Array.from({ length: n }, (_, i) => `<td class="num ${color && a[i] ? (a[i] > 0 ? "pos" : "neg") : ""}">${a[i] == null ? "–" : money(a[i])}</td>`).join("")}</tr>` : ""; };
+    const carriers = Object.entries(tb.by_carrier || {});
+    const byCar = (key) => carriers.map(([c, v]) => row(CA(c), v[key], "sub")).join("");
+    el.className = "data fintable";
+    el.innerHTML = head + `<tbody>${row(t("bd_income"), tb.income)}${byCar("income")}${row(t("bd_running"), tb.running)}${byCar("running")}${row(t("bd_vmaint"), tb.vehicle_maint)}${row(t("bd_infra"), tb.infra_upkeep)}${row(t("bd_upkeep_other"), tb.upkeep_other)}
+      ${row(t("bd_subsidy"), tb.subsidy)}${row(t("bd_construction"), tb.construction)}${row(t("bd_acquisition"), tb.acquisition)}${row(t("bd_other"), tb.other)}${row(t("bd_interest"), tb.interest)}
+      ${row(t("bd_result"), tb.total, "tot", true)}${row(t("bd_loan_new"), tb.loan_new)}${row(t("bd_loan_repay"), tb.loan_repay)}${row(t("bd_balance"), tb.balance, "tot")}</tbody>`;
+  }
+
   async function renderFinance(o) {
     const fin = await api("/api/finance", { limit: Math.max(600, settings.history), range: settings.range });
     const ser = fin.series || [], labels = ser.map(x => dateLabel(x));
     const tx = tsOpts(ser, "fin");
+    // a balance of ~1 000 000 000 000 that moves by a few thousand (infinite-money saves) is a flat line on a normal axis:
+    // plot the change since the start of the range instead
+    const bvals = ser.map(x => x.balance).filter(v => v != null), bmax = Math.max(...bvals), bmin = Math.min(...bvals);
+    const flat = bvals.length > 1 && Math.abs(bmax) > 1e8 && (bmax - bmin) / Math.abs(bmax) < 0.005, base = flat ? bvals[0] : 0;
+    const hasDebt = ser.some(x => x.loan > 0);
     Charts.lineChart($("#chart-balance"), [
-      { name: t("balance"), values: ser.map(x => x.balance), color: "#4f8a8a", area: true, unit: "$" },
-      { name: t("debt"), values: ser.map(x => x.loan), color: "#d62560", dash: [6, 4], unit: "$" },
-    ], labels, { unit: "$", ...tx });
-    $("#fin-range").textContent = ser.length ? t("balance_range", { n: ser.length, a: date(ser[0]), b: date(ser[ser.length - 1]) }) : "";
+      { name: flat ? t("balance") + " Δ" : t("balance"), values: ser.map(x => x.balance != null ? x.balance - base : null), color: "#4f8a8a", area: true, unit: "$" },
+      ...(hasDebt ? [
+        { name: t("debt"), values: ser.map(x => x.loan), color: "#d62560", dash: [6, 4], unit: "$", axis: "right" },
+        { name: t("fin_net"), values: ser.map(x => x.balance != null ? x.balance - base - (x.loan || 0) : null), color: "#3fb950", unit: "$" },
+      ] : []),
+    ], labels, { unit: "$", rightAxis: hasDebt, rightUnit: "$", zeroBase: false, ...tx });
+    $("#fin-range").textContent = ser.length ? t("balance_range", { n: ser.length, a: date(ser[0]), b: date(ser[ser.length - 1]) }) + (flat ? " · Δ " + money(base) : "") : "";
     Charts.lineChart($("#chart-earn"), [{ name: t("earnings_ytd"), values: ser.map(x => x.earnings_ytd), color: "#e8b04b", area: true, unit: "$" }], labels, { zeroBase: true, unit: "$", ...tx });
     Charts.lineChart($("#chart-transport"), [
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
@@ -1123,7 +1247,7 @@
       { name: t("score"), values: comp.map(x => x.total_score), color: "#3fb950" },
       { name: t("assets"), values: comp.map(x => x.total_assets), color: "#4f8a8a", axis: "right", unit: "$" },
       { name: t("debt"), values: comp.map(x => x.debt), color: "#d62560", axis: "right", dash: [6, 4], unit: "$" },
-    ], clabels, { rightAxis: true, zeroBase: true, rightUnit: "$", ...ctx });
+    ], clabels, { rightAxis: true, zeroBase: false, rightUnit: "$", ...ctx });
     const c = (o && o.company) || {}, f = (o && o.finance) || {};
     $("#company-table").innerHTML = [
       [t("balance"), money(f.balance)], [t("debt"), money(f.loan)], [t("annual_result"), money(f.earnings_ytd)], [t("assets"), money(c.total_assets)], [t("score"), int(c.total_score)],
@@ -1133,7 +1257,118 @@
       [t("top_speed"), kmh(c.top_speed)], [t("longest_train"), c.top_length != null ? Math.round(c.top_length) + " m" : "–"],
     ].map(([k, val]) => `<tr><td>${k}</td><td>${val}</td></tr>`).join("");
     const fleet = state.cache.fleet || await api("/api/fleet");
-    Charts.hbars($("#chart-costs"), (fleet.by_carrier || []).map(x => ({ label: `${CA(x.carrier)} (${x.n})`, value: x.running_cost || 0, color: CARRIER_COLOR[x.carrier], text: money(x.running_cost) })), {});
+    const carriers = fleet.by_carrier || [];
+    Charts.hbars($("#chart-costs"), carriers.map(x => ({ label: `${CA(x.carrier)} (${x.n})`, value: x.running_cost || 0, color: CARRIER_COLOR[x.carrier], text: money(x.running_cost) })), {});
+    Charts.hbars($("#chart-value"), carriers.map(x => ({ label: `${CA(x.carrier)} (${x.n})`, value: x.value || 0, color: CARRIER_COLOR[x.carrier], text: money(x.value) })), {});
+
+    // KPI strip: everything derived from what is already collected
+    const last = ser[ser.length - 1], first = ser[0];
+    const totCost = carriers.reduce((a, x) => a + (x.running_cost || 0), 0), totValue = carriers.reduce((a, x) => a + (x.value || 0), 0), nVeh = carriers.reduce((a, x) => a + (x.n || 0), 0);
+    const fl = fin.by_line || [];
+    // year result projected from the part of the year elapsed (needs >= 1 month, or it is mostly noise)
+    const cur = last || f, proj = yearProjection(f, cur);
+    const days = first && last && first.year != null && last.year != null ? (last.year - first.year) * 360 + (last.month - first.month) * 30 + ((last.day || 1) - (first.day || 1)) : 0;
+    const change = first && last && first.balance != null && last.balance != null ? last.balance - first.balance : null;
+    const sgn = (n) => n == null ? "" : n >= 0 ? "pos" : "neg";
+    const kpi = (icon, label, value, sub, cls = "", subCls = "") => `<div class="kpi"><div class="k"><i class="ico sm" data-ico="${icon}"></i>${esc(label)}</div><div class="v ${cls}">${value}</div><div class="s ${subCls}">${sub || ""}</div></div>`;
+    const net = f.balance != null ? f.balance - (f.loan || 0) : null;
+    $("#fin-kpis").innerHTML = [
+      kpi("money", t("balance"), money(f.balance), change != null ? (change >= 0 ? "+" : "") + money(change) + (days > 0 ? " · " + t("fin_per_day", { n: money(change / days) }) : "") : "", "", sgn(change)),
+      kpi("money", t("fin_net"), money(net), t("fin_net_sub"), sgn(net)),
+      kpi("alert", t("debt"), money(f.loan), c.total_assets ? t("fin_debt_ratio_sub", { d: money(f.loan), a: money(c.total_assets) }) : ""),
+      kpi("chart", t("annual_result"), money(f.earnings_ytd), proj != null ? t("fin_proj") + ": " + money(proj) : t("fin_proj_sub"), sgn(f.earnings_ytd)),
+      kpi("running_cost", t("fin_costs"), money(totCost), nVeh ? t("fin_costs_sub", { n: int(nVeh), m: money(totCost / nVeh) }) : ""),
+      kpi("vehicles", t("fin_fleet_value"), money(totValue), totValue ? t("fin_fleet_value_sub", { p: num(100 * totCost / totValue) }) : ""),
+      kpi("chart", t("fin_margin"), totCost && f.earnings_ytd != null ? num(f.earnings_ytd / totCost, 2) + " ×" : "–", t("fin_margin_sub"), sgn(f.earnings_ytd)),
+      kpi("info", t("assets"), money(c.total_assets), c.debt != null ? t("debt") + ": " + money(c.debt) : ""),
+    ].join("");
+    applyIcons($("#fin-kpis"));
+
+    // result and year-end balance for every year of the game
+    const yrs = fin.years || [];
+    Charts.lineChart($("#chart-years"), [
+      { name: t("year_result"), values: yrs.map(y => y.earnings_ytd), color: "#e8b04b", unit: "$", step: true },
+      { name: t("year_end_balance"), values: yrs.map(y => y.balance), color: "#4f8a8a", axis: "right", unit: "$" },
+    ], yrs.map(y => String(y.year)), { rightAxis: true, unit: "$", rightUnit: "$" });
+
+    // running costs by line / costliest vehicles (latest snapshot; running_cost is per year)
+    const lineCols = [
+      { key: "line_name", label: t("th_line"), render: r => esc(r.line_name || t("no_line")) },
+      { key: "n", label: t("th_vehicles_n"), num: true, render: r => int(r.n) },
+      { key: "running_cost", label: t("th_cost_year"), num: true, render: r => money(r.running_cost) },
+      { key: "share", label: t("th_share"), num: true, render: r => bar(r.running_cost || 0, totCost, "", Math.round(pct(r.running_cost || 0, totCost)) + "%"), sortValue: r => r.running_cost },
+      { key: "cost_veh", label: t("th_cost_veh"), num: true, render: r => money(r.running_cost / (r.n || 1)), sortValue: r => r.running_cost / (r.n || 1) },
+      { key: "value", label: t("th_value"), num: true, render: r => money(r.value) },
+      { key: "fill", label: t("th_load"), num: true, render: r => r.capacity ? Math.round(pct(r.load || 0, r.capacity)) + "%" : "–", sortValue: r => r.capacity ? (r.load || 0) / r.capacity : null },
+    ];
+    renderTable($("#fin-lines-table"), lineCols, fl, { defaultSort: "running_cost", defaultAsc: false, empty: { icon: "line", text: t("empty_lines") } });
+    const vehCols = [
+      { key: "name", label: t("th_vehicle"), render: r => `${esc(r.name)}${r.line_name ? `<br><small>${esc(r.line_name)}</small>` : ""}` },
+      { key: "carrier", label: t("th_type"), render: r => `<span class="vehicon" style="color:${CARRIER_COLOR[r.carrier] || "#888"}">${ENGINE_ICON[r.icon_type] ? ico(ENGINE_ICON[r.icon_type], "sm", t("icon_type." + r.icon_type)) : esc(CA(r.carrier))}</span>`, sortValue: r => r.carrier || "" },
+      { key: "running_cost", label: t("th_cost_year"), num: true, render: r => money(r.running_cost) },
+      { key: "value", label: t("th_value"), num: true, render: r => money(r.value) },
+      { key: "cv", label: t("th_cost_value"), num: true, render: r => r.value ? Math.round(100 * r.running_cost / r.value) + " %" : "–", sortValue: r => r.value ? r.running_cost / r.value : null },
+      { key: "maintenance", label: t("th_cond_short"), num: true, render: r => r.maintenance == null ? "–" : bar(r.maintenance, 1, maintCls(r.maintenance)) },
+    ];
+    renderTable($("#fin-veh-table"), vehCols, fin.top_vehicles || [], { defaultSort: "running_cost", defaultAsc: false, empty: { icon: "vehicles", text: t("empty_vehicles") } });
+
+    // ---- the game's Finances window (mod rev 10+): cash flow, breakdown, loans, forecast, alerts
+    const monthsT = orientTable(fin.table && fin.table.months, f.balance), yearsT = orientTable(fin.table && fin.table.years, f.balance), L = fin.loans;
+    const cashNow = f.balance != null ? f.balance : (monthsT ? arrOf(monthsT.balance).slice(-1)[0] : null);
+    const ops = monthsT ? monthlyOps(monthsT) : [], sched = loanSchedule(L, 24);
+    state.cache.loanService = sched[1] || 0;
+    renderLoans(L, f, cur);
+    renderBreakdown(yearsT);
+    if (ops.length) {
+      $("#cashflow-sub").textContent = t("cf_sub", { n: ops.length - 1 });
+      Charts.lineChart($("#chart-cashflow"), [
+        { name: t("cf_income"), values: ops.map(x => x.inc), color: "#3fb950", unit: "$" },
+        { name: t("cf_costs"), values: ops.map(x => -x.costs), color: "#d62560", unit: "$" },
+        { name: t("cf_net"), values: ops.map(x => x.total), color: "#e8b04b", area: true, unit: "$" },
+      ], ops.map(x => x.header || ""), { zeroBase: true, unit: "$" });
+    } else { $("#cashflow-sub").textContent = ""; Charts.lineChart($("#chart-cashflow"), [], [], {}); }
+    const fc = forecastCash(ops, cashNow, sched, 24);
+    const dateAt = (i) => { const idx = ((cur.month || 1) - 1) + i; return `${MON()[idx % 12 + 1]} ${(cur.year || 0) + Math.floor(idx / 12)}`; };
+    const alerts = [];
+    if (fc) {
+      const zeroAt = (arr) => { const i = arr.findIndex(v => v < 0); return i < 0 ? null : i; };
+      const zl = zeroAt(fc.low), ze = zeroAt(fc.expected);
+      $("#forecast-sub").textContent = t("fc_sub", { n: 24 });
+      // same as the balance chart: with an enormous balance plot the change from today
+      const fbase = Math.abs(cashNow) > 1e8 && Math.abs(fc.high[24] - fc.low[24]) / Math.abs(cashNow) < 0.005 ? cashNow : 0, fd = (a) => a.map(v => v - fbase);
+      if (fbase) $("#forecast-sub").textContent += " · Δ " + money(fbase);
+      Charts.lineChart($("#chart-forecast"), [
+        { name: t("fc_expected"), values: fd(fc.expected), color: "#4f8a8a", area: true, unit: "$" },
+        { name: t("fc_low"), values: fd(fc.low), color: "#d62560", dash: [6, 4], unit: "$" },
+        { name: t("fc_high"), values: fd(fc.high), color: "#3fb950", dash: [6, 4], unit: "$" },
+      ], fc.expected.map((_, i) => dateAt(i)), { unit: "$", zeroBase: false });
+      $("#forecast-note").textContent = (zl != null ? t("fc_zero", { n: zl }) : t("fc_ok", { n: 24 })) + " · " + t("fc_note", { n: fc.n, a: money(fc.mean), l: money(sched[1]) });
+      if (ze != null) alerts.push(["bad", t("al_cash_out", { n: ze })]); else if (zl != null) alerts.push(["warn", t("al_cash_out", { n: zl })]);
+      if (cashNow != null && sumOf(ops.slice(0, -1).slice(-3).map(x => -x.costs)) > 0 && cashNow < sumOf(ops.slice(0, -1).slice(-3).map(x => -x.costs)) ) alerts.push(["warn", t("al_low_cash")]);
+    } else { $("#forecast-sub").textContent = ""; $("#forecast-note").textContent = t("fc_none"); Charts.lineChart($("#chart-forecast"), [], [], {}); }
+    // more alerts
+    const bals = monthsT ? arrOf(monthsT.balance) : [];
+    if (bals.length > 3) { const k = bals.slice(1).filter((v, i) => v < bals[i]).length; if (k >= Math.ceil((bals.length - 1) * 0.6)) alerts.push(["warn", t("al_falling", { n: k, m: bals.length - 1 })]); }
+    const lo = arrOf(ser).map(x => x.loan); if (lo.length > 5 && lo[lo.length - 1] > lo[0]) alerts.push(["warn", t("al_debt_up")]);
+    if (L && arrOf(L.obtained).length >= (L.max || 4)) alerts.push(["", t("al_loans_max", { n: L.max || 4 })]);
+    if (f.earnings_ytd != null && f.earnings_ytd < 0 && (cur.month || 0) >= 3) alerts.push(["warn", t("al_neg_year")]);
+    const avgCost = nVeh ? totCost / nVeh : 0, costly = (fin.top_vehicles || []).filter(v => avgCost && v.running_cost > 2 * avgCost).length;
+    if (costly) alerts.push(["warn", t("al_costly", { n: costly })]);
+    // lines that run mostly empty: the vehicles above what the load needs (target fill 70 %) are the saving
+    const att = fl.filter(l => l.line_id && l.n >= 2 && l.capacity > 0).map(l => {
+      const fill = (l.load || 0) / l.capacity, need = Math.max(1, Math.ceil(l.n * fill / 0.7)), surplus = fill < 0.5 ? l.n - need : 0;
+      return { ...l, fill, surplus, saving: surplus * (l.running_cost || 0) / l.n };
+    }).filter(l => l.surplus > 0);
+    if (att.length) alerts.push(["", t("al_idle_lines", { n: att.length })]);
+    $("#fin-alerts").innerHTML = alerts.map(([c, txt]) => `<span class="chip ${c}">${esc(txt)}</span>`).join("");
+    $("#fin-alerts-card").style.display = alerts.length ? "" : "none";
+    renderTable($("#fin-attention"), [
+      { key: "line_name", label: t("th_line"), render: r => esc(r.line_name || "") },
+      { key: "n", label: t("th_vehicles_n"), num: true, render: r => int(r.n) },
+      { key: "fill", label: t("th_fill"), num: true, render: r => bar(r.fill, 1, fillCls(r.fill * 100), Math.round(r.fill * 100) + "%") , sortValue: r => r.fill },
+      { key: "surplus", label: t("att_surplus"), num: true, render: r => "+" + r.surplus },
+      { key: "saving", label: t("att_saving"), num: true, render: r => money(r.saving) },
+    ], att, { defaultSort: "saving", defaultAsc: false, empty: { icon: "check", text: t("att_none") } });
   }
 
   // ------------------------------------------------------------ camera views (Map tab panel)

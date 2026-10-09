@@ -19,6 +19,8 @@
     <div class="kpi alert-kpi"><div class="k"><i class="ico sm" data-ico="alert"></i><span data-i18n="kpi_alerts"></span></div><div class="v" id="k-alerts">–</div><div class="s" id="k-alerts-detail"></div></div>
     <div class="kpi"><div class="k"><i class="ico sm" data-ico="passengers"></i><span data-i18n="kpi_transported"></span></div><div class="v" id="k-pax">–</div><div class="s" id="k-cargo"></div></div>
     <div class="kpi dim"><div class="k"><i class="ico sm" data-ico="money"></i><span data-i18n="kpi_balance"></span></div><div class="v" id="k-balance">–</div><div class="s" id="k-balance-delta"></div></div>
+    <div class="kpi dim"><div class="k"><i class="ico sm" data-ico="chart"></i><span data-i18n="annual_result"></span></div><div class="v" id="k-result">–</div><div class="s" id="k-result-detail"></div></div>
+    <div class="kpi dim"><div class="k"><i class="ico sm" data-ico="alert"></i><span data-i18n="debt"></span></div><div class="v" id="k-debt">–</div><div class="s" id="k-debt-detail"></div></div>
   </div>
   <div class="controls">
     <div id="game-speed" class="speedbar" title="">
@@ -216,6 +218,34 @@
   <!-- ------------------------------------------------ finance (secondary) -->
   <section id="tab-finance" class="tab">
     <div class="panels" data-layout="finance">
+      <div class="card" data-panel="fin-kpis" data-w="12">
+        <div class="finkpis" id="fin-kpis"></div>
+      </div>
+      <div class="card" data-panel="fin-alerts" data-w="12" id="fin-alerts-card" style="display:none">
+        <h2><i class="ico" data-ico="alert"></i><span data-i18n="fin_alerts"></span></h2>
+        <div id="fin-alerts" class="finalerts"></div>
+      </div>
+      <div class="card" data-panel="cashflow" data-w="6">
+        <h2><i class="ico" data-ico="chart"></i><span data-i18n="cashflow_title"></span> <small id="cashflow-sub"></small></h2>
+        <canvas id="chart-cashflow" data-h="240"></canvas>
+      </div>
+      <div class="card" data-panel="forecast" data-w="6">
+        <h2><i class="ico" data-ico="chart"></i><span data-i18n="forecast_title"></span> <small id="forecast-sub"></small></h2>
+        <canvas id="chart-forecast" data-h="240"></canvas>
+        <div id="forecast-note" class="muted finnote"></div>
+      </div>
+      <div class="card" data-panel="loans" data-w="6">
+        <h2><i class="ico" data-ico="money"></i><span data-i18n="loans_title"></span> <small id="loans-sub"></small></h2>
+        <div id="loans-body"></div>
+      </div>
+      <div class="card tablecard" data-panel="breakdown" data-w="6">
+        <h2><i class="ico" data-ico="info"></i><span data-i18n="breakdown_title"></span> <small id="breakdown-sub"></small></h2>
+        <table id="fin-breakdown" class="data"></table>
+      </div>
+      <div class="card tablecard" data-panel="attention" data-w="6">
+        <h2><i class="ico" data-ico="line"></i><span data-i18n="attention_title"></span></h2>
+        <table id="fin-attention" class="data"></table>
+      </div>
       <div class="card" data-panel="balance" data-w="7">
         <h2><i class="ico" data-ico="money"></i><span data-i18n="balance"></span> <small id="fin-range"></small></h2>
         <canvas id="chart-balance" data-h="240"></canvas>
@@ -243,6 +273,22 @@
       <div class="card" data-panel="costs" data-w="4">
         <h2><i class="ico" data-ico="running_cost"></i><span data-i18n="costs_by_carrier"></span> <small data-i18n="per_year"></small></h2>
         <canvas id="chart-costs"></canvas>
+      </div>
+      <div class="card" data-panel="value-carrier" data-w="4">
+        <h2><i class="ico" data-ico="money"></i><span data-i18n="value_by_carrier"></span></h2>
+        <canvas id="chart-value"></canvas>
+      </div>
+      <div class="card" data-panel="years" data-w="4">
+        <h2><i class="ico" data-ico="calendar"></i><span data-i18n="year_results"></span></h2>
+        <canvas id="chart-years" data-h="200"></canvas>
+      </div>
+      <div class="card tablecard" data-panel="cost-lines" data-w="7">
+        <h2><i class="ico" data-ico="line"></i><span data-i18n="costs_by_line"></span> <small data-i18n="per_year"></small></h2>
+        <table id="fin-lines-table" class="data"></table>
+      </div>
+      <div class="card tablecard" data-panel="cost-vehicles" data-w="5">
+        <h2><i class="ico" data-ico="running_cost"></i><span data-i18n="costliest_vehicles"></span> <small data-i18n="per_year"></small></h2>
+        <table id="fin-veh-table" class="data"></table>
       </div>
     </div>
   </section>

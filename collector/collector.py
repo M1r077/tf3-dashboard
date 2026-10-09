@@ -237,7 +237,7 @@ class Store:
         if slow_seq is not None and self._last_slow_seq.get(gid) != slow_seq:
             self._last_slow_seq[gid] = slow_seq
             self._cargo_types(gid, snap.get("cargo_types"))
-            self._company(sid, snap.get("company"))
+            self._company(sid, gid, snap.get("company"))
             self._lines(sid, gid, now, slow_seq, snap.get("lines"))
             self._stations(sid, gid, now, snap.get("stations"))
             self._towns(sid, gid, now, snap.get("towns"))
@@ -256,9 +256,16 @@ class Store:
              f.get("passengers_transported"), f.get("cargo_transported")),
         )
 
-    def _company(self, sid: int, c: Any):
+    def _company(self, sid: int, gid: int, c: Any):
         if not isinstance(c, dict):
             return
+        # the Finances window table and the loans: only the latest copy is useful (the table itself holds the history),
+        # so one row per game that is replaced every slow cycle
+        if isinstance(c.get("finance_years"), dict) or isinstance(c.get("finance_months"), dict) or isinstance(c.get("loans"), dict):
+            self.con.execute(
+                "INSERT OR REPLACE INTO finance_latest(game_id, snapshot_id, finance_json, loans_json) VALUES (?,?,?,?)",
+                (gid, sid, json.dumps({"years": c.get("finance_years"), "months": c.get("finance_months")}, separators=(",", ":")),
+                 json.dumps(c["loans"], separators=(",", ":")) if isinstance(c.get("loans"), dict) else None))
         self.con.execute(
             """INSERT OR REPLACE INTO company (snapshot_id, total_score, rail_vehicles, trams, road_vehicles, aircrafts, ships,
                    track_length_m, track_electric_m, bridge_length_m, tunnel_length_m, road_length_m, supplied_towns,

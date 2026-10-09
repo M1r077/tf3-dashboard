@@ -788,9 +788,11 @@
     // at x1: 10 km of line in ~80 s at the 20 s setting), loop replays it
     const closed = route.length > 2;
     const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0) + (closed ? Math.hypot(route[0].x - route[route.length - 1].x, route[0].y - route[route.length - 1].y) : 0);
-    const dur = Math.max(20, prefs.dur * 4), speed = len / dur;
     const xs = route.map(p => p.x), ys = route.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
     const alt = Math.max(350, Math.min(1500, span * 0.22)) * prefs.amp;
+    // speed = apparent motion: a fifth of the altitude per second whatever the length (12 m/s over a 1 km tram
+    // loop seen from 350 m looks frozen); the duration preference can only make it faster, never slower
+    const speed = Math.max(alt / 5, len / Math.max(20, prefs.dur * 4)), dur = len / speed;
     sendCmd("camera_tour", { line: l.line_id, route, closed, alt, speed, loop: prefs.loop });
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: nveh };

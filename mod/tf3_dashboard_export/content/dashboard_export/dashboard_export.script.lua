@@ -1155,8 +1155,8 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		local dist = q.kind == "vehicle" and alt * 0.8 or q.kind == "stop" and alt or alt * 1.3
-		local pitch = q.kind == "vehicle" and 0.85 or 0.95
+		local dist = q.kind == "vehicle" and alt * 0.65 or q.kind == "stop" and alt or alt * 1.4
+		local pitch = q.kind == "vehicle" and 0.8 or q.kind == "stop" and 0.95 or 1.05
 		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy), pitch = pitch, s = q.s }
 	end
 	-- durations: constant ground speed; speed = alt/7 m/s by default (a 800 m flight pans at ~115 m/s)

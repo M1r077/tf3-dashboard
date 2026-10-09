@@ -252,9 +252,9 @@
     btns.forEach(b => { b.disabled = off; b.classList.toggle("active", o && o.snapshot && String(o.snapshot.speed) === b.dataset.speed); });
     bar.title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : "";
     const mpd = o && o.snapshot ? o.snapshot.millis_per_day : null;
-    const calFactor = mpd ? Math.round(4000 / mpd * 100) / 100 : null;
+    const calFactor = mpd == null ? null : mpd === 0 ? 0 : Math.round(4000 / mpd * 100) / 100;  // 0 = calendar paused (the date stands still, the simulation runs)
     $$("#cal-speed .cbtn").forEach(b => { b.disabled = off; b.classList.toggle("active", calFactor != null && +b.dataset.cal === calFactor); });
-    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor != null ? ` · ${calFactor}x` : "");
+    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor == null ? "" : calFactor === 0 ? ` · ${t("pause")}` : ` · ${calFactor}x`);
     const st = $("#cmd-status");
     if (c.ack && cmd.lastSent && c.ack.id === cmd.lastSent.id) {
       st.textContent = `${c.ack.cmd} · ${c.ack.ok ? t("act_done") : t("act_failed", { msg: c.ack.error || "" })}`; st.className = "cmdstatus " + (c.ack.ok ? "ok" : "bad");
@@ -423,9 +423,9 @@
     $("#k-date").title = o.game ? `${o.game.label || o.game.key}${rel.length ? "\n" + t("saves_reloads", { n: rel.length, from: gameDay(lastRel.from_day), to: gameDay(lastRel.to_day), at: realDate(lastRel.at) }) : ""}` : "";
     $("#k-date").classList.toggle("rewound", !!recent);
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
-    const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
+    const cal = s.millis_per_day == null ? null : s.millis_per_day === 0 ? 0 : Math.round(4000 / s.millis_per_day * 100) / 100;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
-      `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${t("speed_x", { n: cal })}</span>` : ""}`;
+      `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${cal === 0 ? t("pause") : t("speed_x", { n: cal })}</span>` : ""}`;
     $("#k-veh").textContent = int(v.n);
     $("#k-veh-detail").innerHTML = v.n ? `<span style="color:${STATE_COLOR.EN_ROUTE}">${v.en_route} ${t("en_route")}</span> · ${v.at_terminal} ${t("at_terminal")} · ${v.in_depot} ${t("in_depot")}${v.no_path ? ` · <span class="neg">${v.no_path} ${t("no_path")}</span>` : ""}` : "";
     const fillEl = $("#k-fill");

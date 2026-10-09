@@ -1139,23 +1139,29 @@ local function camTourBuild(args)
 		local t = seg > 0 and (sm - cum[j - 1]) / seg or 0
 		return a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t
 	end
-	-- a long empty stretch gets a high waypoint in its middle so the path does not cut the corner of the route;
-	-- a vehicle gets a "high" point shortly before it, so the dip onto it is a visible descent and not a slow drift
+	-- Around every point of interest: an approach point before it and an exit point after it (0.6 x alt along
+	-- the route), both high; the heading swings from -SWING through the route direction to +SWING across the
+	-- three, so the camera pans across the subject as it passes (a slow look, not an orbit). Long empty
+	-- stretches get a high waypoint in the middle so the path does not cut the corner of the route.
+	local SWING = 0.5  -- ~30 degrees either side
+	local gap = alt * 0.6
 	local out = {}
 	for i, q in ipairs(merged) do
-		local prv = merged[i - 1]
-		if q.kind == "vehicle" and prv and q.s - prv.s > alt * 1.2 then
-			local x, y = routeAt(q.s - alt * 0.6); out[#out + 1] = { s = q.s - alt * 0.6, x = x, y = y, kind = "mid" }
+		local prv, nxt = merged[i - 1], merged[i + 1]
+		if prv and q.s - prv.s > gap * 2 then
+			local x, y = routeAt(q.s - gap); out[#out + 1] = { s = q.s - gap, x = x, y = y, kind = "mid", swing = -SWING }
 		end
 		out[#out + 1] = q
-		local nxt = merged[i + 1]
-		if nxt and nxt.s - q.s > alt * 3 then
+		if nxt and nxt.s - q.s > gap * 2 then
+			local x, y = routeAt(q.s + gap); out[#out + 1] = { s = q.s + gap, x = x, y = y, kind = "mid", swing = SWING }
+		end
+		if nxt and nxt.s - q.s > alt * 4 then
 			local sm = (q.s + nxt.s) / 2
 			local x, y = routeAt(sm)
 			out[#out + 1] = { s = sm, x = x, y = y, kind = "mid" }
 		end
 	end
-	-- headings: along the route (next point), bisector where the direction changes
+	-- headings: along the route (next point), bisector where the direction changes, plus the swing
 	local path = {}
 	for i, q in ipairs(out) do
 		local prv, nxt = out[i - 1], out[i + 1]
@@ -1165,10 +1171,10 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		-- zoom profile: vehicle = half the altitude (clearly closer), stop = altitude, in between = 1.5x
-		local dist = q.kind == "vehicle" and alt * 0.5 or q.kind == "stop" and alt or alt * 1.5
-		local pitch = q.kind == "vehicle" and 0.75 or q.kind == "stop" and 0.95 or 1.05
-		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy), pitch = pitch, s = q.s }
+		-- zoom profile: vehicle = 0.45 x alt, stop = 0.7 x alt, approach/exit = 1.3 x alt, mid-stretch = 1.5 x alt
+		local dist = q.kind == "vehicle" and alt * 0.45 or q.kind == "stop" and alt * 0.7 or q.swing and alt * 1.3 or alt * 1.5
+		local pitch = q.kind == "vehicle" and 0.75 or q.kind == "stop" and 0.85 or 1.05
+		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy) + (q.swing or 0), pitch = pitch, s = q.s }
 	end
 	-- durations: constant ground speed; speed = alt/8 m/s by default
 	local speed = math.max(10, num(args.speed) or alt / 8)

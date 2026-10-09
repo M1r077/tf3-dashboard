@@ -438,6 +438,8 @@
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
+    // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
+    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; musicStop(); }
     return o;
   }
 
@@ -727,7 +729,7 @@
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
     const keepStops = state.editStop && state.editStop.line === id && $("#line-stops-wrap tr.editing", el) ? $("#line-stops-wrap", el) : null;
     el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
-      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button></div>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button>${travel.active && travel.active.kind === "line" && travel.active.id === id ? `<button class="btn" id="line-travel" data-stop="1">${ico("stop", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 ? "disabled" : ""}>${ico("follow", "sm")}${t("line_travel")}</button>`}</div>
       <p class="muted">${l.stop_names.map(esc).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}</table>
       <h2 style="margin-top:12px">${ico("line_stations")}${t("stops_title")} <small>${(l.stop_list || []).length}</small></h2>
@@ -766,7 +768,38 @@
       { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
+    $("#line-travel").addEventListener("click", (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else lineTravelling(l); renderLineDetail(id); });
     bindActions(el);
+  }
+  // Travelling along a line: fly from stop to stop over the station positions, heading towards the next stop,
+  // at a height that scales with the leg length (a short tram hop stays low, a long rail leg is seen from higher).
+  // Uses the travelling preferences (duration, loop, music) but not the movement, the line is the path.
+  async function lineTravelling(l) {
+    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { return; } }
+    const ml = (map.data.lines || []).find(x => x.line_id === l.line_id);
+    const pts = ml ? ml.points : [];
+    if (pts.length < 2) return;
+    const prefs = travelPrefs();
+    const pitch = 0.95, dist0 = 180 * prefs.amp, points = [];
+    // closing the loop back to the first stop (the game's lines are circuits) unless the line is a shuttle A-B
+    const ring = pts.length > 2 ? pts.concat([pts[0]]) : pts;
+    for (let i = 0; i < ring.length; i++) {
+      const [x, y] = ring[i], nx = ring[(i + 1) % ring.length], px = ring[(i - 1 + ring.length) % ring.length];
+      const to = i < ring.length - 1 ? nx : px;  // last point: keep the previous heading (look back along the leg)
+      // the eye sits at centre + (sin a, -cos a) * back (see drawViewCone), so it looks along (-sin a, cos a)
+      const heading = (Math.atan2(-(to[0] - x), to[1] - y) - CAM_ANGLE_OFFSET) * CAM_ANGLE_SIGN;
+      const leg = Math.hypot(nx[0] - x, nx[1] - y);
+      points.push({ x, y, dist: dist0 + leg * 0.35, angle: heading, pitch });
+    }
+    // stop-to-stop duration proportional to leg length so the speed over the ground is roughly constant
+    const legLen = points.slice(1).map((p, i) => Math.hypot(p.x - points[i].x, p.y - points[i].y));
+    const total = legLen.reduce((a, b) => a + b, 0) || 1;
+    const dur = Math.max(prefs.dur, points.length * 3);  // at least 3 s per leg, else it is a slideshow
+    sendCmd("camera_path", { points: points.map((p, i) => ({ ...p, duration: i < legLen.length ? dur * legLen[i] / total : 0 })), loop: prefs.loop, ease: true });
+    travel.active = { kind: "line", id: l.line_id, points, loop: prefs.loop, at: Date.now(), dur };
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: points.length };
+    musicStart({ ...prefs, dur });
+    renderCamViews(); if (map.data) drawMap($("#map"));
   }
 
   // ------------------------------------------------------------ line: stops editor + bulk actions
@@ -1515,8 +1548,16 @@
   // ------------------------------------------------------------ refresh loop
   const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance };
   let busy = false, again = false;
+  // A pointer button held down = the user is mid-click. Re-rendering now would swap the element under
+  // the pointer between mousedown and mouseup and the browser would drop the click (one had to click twice).
+  let pointerDown = false;
+  document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
+  const pointerUp = () => { if (!pointerDown) return; pointerDown = false; if (again) { again = false; setTimeout(refresh, 0); } };
+  document.addEventListener("pointerup", pointerUp, true);
+  document.addEventListener("pointercancel", pointerUp, true);
+  window.addEventListener("blur", pointerUp);
   async function refresh() {
-    if (busy) { again = true; return; } busy = true;
+    if (busy || pointerDown) { again = true; return; } busy = true;
     try {
       const o = await renderTop();
       if (o && RENDER[state.tab]) await RENDER[state.tab](o);

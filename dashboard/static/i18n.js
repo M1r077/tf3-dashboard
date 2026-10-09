@@ -59,6 +59,7 @@ window.I18N = {
     // camera views panel (Map tab)
     cam_travel: "Travelling", cam_travel_play: "Play", cam_travel_stop: "Stop", cam_travel_loop: "Loop", cam_travel_dur: "Duration", cam_travel_amp: "Amplitude", cam_travel_dir: "Reverse direction",
     cam_travel_here: "Travelling around this view", cam_travel_around: "Play around \"{name}\"", cam_travel_pick: "Pick a view (click its name)", cam_travel_chain: "Chain all views",
+    line_travel: "Travelling along the line", line_travel_hint: "Fly from stop to stop over the line, duration / loop / music from the camera panel of the Map tab",
     cam_move_orbit: "Orbit: full turn around the view", cam_move_dolly: "Dolly: from far down to the view (reverse = pull away)", cam_move_flyover: "Flyover: arrive from high and far, levelling out (reverse = leave)", cam_move_sweep: "Sweep: back and forth around the heading", cam_move_spiral: "Spiral: one turn while coming closer (reverse = drifting away)",
     cam_music: "Music", cam_music_none: "drop .mp3 / .ogg files in the music folder of the companion", cam_music_vol: "Volume",
     cam_travel_needs_rev10: "Travelling needs revision 10 of the mod. Update it in the Mod Hub, then reload the savegame.",
@@ -183,6 +184,7 @@ window.I18N = {
     legend_counts: "{v} véhicules · {s} gares · {i} industries", station_pax: "gare voyageurs", station_cargo: "gare cargo", industry: "industrie", capacity_n: "capacité {n}", load_n: "charge {a}/{b}",
     cam_travel: "Travelling", cam_travel_play: "Jouer", cam_travel_stop: "Arrêter", cam_travel_loop: "En boucle", cam_travel_dur: "Durée", cam_travel_amp: "Amplitude", cam_travel_dir: "Sens inverse",
     cam_travel_here: "Travelling autour de cette vue", cam_travel_around: "Jouer autour de « {name} »", cam_travel_pick: "Choisissez une vue (cliquez son nom)", cam_travel_chain: "Enchaîner toutes les vues",
+    line_travel: "Travelling le long de la ligne", line_travel_hint: "Survole la ligne d'arrêt en arrêt ; durée / boucle / musique dans le panneau caméra de l'onglet Carte",
     cam_move_orbit: "Orbite : tour complet autour de la vue", cam_move_dolly: "Approche : de loin jusqu'à la vue (inverse = recul)", cam_move_flyover: "Survol : arrivée de haut et de loin, en se redressant (inverse = départ)", cam_move_sweep: "Balayage : va-et-vient autour du cap", cam_move_spiral: "Spirale : un tour en se rapprochant (inverse = en s'éloignant)",
     cam_music: "Musique", cam_music_none: "déposez des .mp3 / .ogg dans le dossier music du compagnon", cam_music_vol: "Volume",
     cam_travel_needs_rev10: "Le travelling demande la révision 10 du mod. Mettez-le à jour dans le Mod Hub, puis rechargez la partie.",
@@ -300,6 +302,7 @@ window.I18N = {
     legend_counts: "{v} Fahrzeuge · {s} Stationen · {i} Industrien", station_pax: "Personenstation", station_cargo: "Güterstation", industry: "Industrie", capacity_n: "Kapazität {n}", load_n: "Ladung {a}/{b}",
     cam_travel: "Kamerafahrt", cam_travel_play: "Abspielen", cam_travel_stop: "Stopp", cam_travel_loop: "Schleife", cam_travel_dur: "Dauer", cam_travel_amp: "Weite", cam_travel_dir: "Richtung umkehren",
     cam_travel_here: "Kamerafahrt um diese Ansicht", cam_travel_around: "Um \"{name}\" fahren", cam_travel_pick: "Ansicht wählen (Namen anklicken)", cam_travel_chain: "Alle Ansichten nacheinander",
+    line_travel: "Kamerafahrt entlang der Linie", line_travel_hint: "Fliegt von Halt zu Halt über die Linie; Dauer / Schleife / Musik im Kamera-Bereich des Karten-Tabs",
     cam_move_orbit: "Umkreisen: volle Runde um die Ansicht", cam_move_dolly: "Heranfahrt: von weit bis zur Ansicht (umgekehrt = zurückziehen)", cam_move_flyover: "Überflug: von hoch und weit heran, dabei abflachen (umgekehrt = wegfliegen)", cam_move_sweep: "Schwenk: hin und her um die Blickrichtung", cam_move_spiral: "Spirale: eine Runde beim Näherkommen (umgekehrt = beim Entfernen)",
     cam_music: "Musik", cam_music_none: ".mp3 / .ogg in den Ordner music des Begleitprogramms legen", cam_music_vol: "Lautstärke",
     cam_travel_needs_rev10: "Die Kamerafahrt braucht Revision 10 des Mods. Im Mod Hub aktualisieren, dann den Spielstand neu laden.",
@@ -401,6 +404,7 @@ window.I18N = {
     // camera views (map)
     cam_travel: "Travelling", cam_travel_play: "Reproduzir", cam_travel_stop: "Parar", cam_travel_loop: "Repetir", cam_travel_dur: "Duração", cam_travel_amp: "Amplitude", cam_travel_dir: "Sentido inverso",
     cam_travel_here: "Travelling em torno desta visão", cam_travel_around: "Reproduzir em torno de \"{name}\"", cam_travel_pick: "Escolha uma visão (clique no nome)", cam_travel_chain: "Encadear todas as visões",
+    line_travel: "Travelling ao longo da linha", line_travel_hint: "Sobrevoa a linha de parada em parada; duração / repetição / música no painel de câmera da aba Mapa",
     cam_move_orbit: "Órbita: volta completa em torno da visão", cam_move_dolly: "Aproximação: de longe até a visão (inverso = afastar)", cam_move_flyover: "Sobrevoo: chegar de alto e de longe, nivelando (inverso = partir)", cam_move_sweep: "Varredura: vai e vem em torno da direção", cam_move_spiral: "Espiral: uma volta aproximando-se (inverso = afastando-se)",
     cam_music: "Música", cam_music_none: "coloque arquivos .mp3 / .ogg na pasta music do complementar", cam_music_vol: "Volume",
     cam_travel_needs_rev10: "O travelling precisa da revisão 10 do mod. Atualize-o no Mod Hub e recarregue o jogo salvo.",
@@ -539,6 +543,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   legend_vehicle: "载具（颜色 = 线路）", legend_stopped: "途中停止", legend_pax_station: "客运站", legend_cargo_station: "货运站", legend_industry: "产业",
   legend_counts: "{v} 载具 · {s} 车站 · {i} 产业", station_pax: "客运站", station_cargo: "货运站", industry: "产业", capacity_n: "容量 {n}", load_n: "装载 {a}/{b}",
   cam_travel: "镜头运动", cam_travel_play: "播放", cam_travel_stop: "停止", cam_travel_loop: "循环", cam_travel_dur: "时长", cam_travel_amp: "幅度", cam_music: "音乐", cam_music_vol: "音量",
+  line_travel: "沿线路运镜", line_travel_hint: "沿线路逐站飞越；时长 / 循环 / 音乐在地图页的摄像机面板中",
   cam_views: "镜头视角", cam_save: "保存当前视角", cam_rename: "重命名", cam_delete: "删除", cam_current: "当前镜头", cam_default_name: "视角 {n}", confirm_title: "请确认",
   // towns
   th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_stations: "车站", th_growth: "增长",

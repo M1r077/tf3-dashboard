@@ -875,9 +875,14 @@ def api_line_paths(q: dict) -> dict:
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
 RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
-# game-date ranges (0.5.3, asked for on mod.io): so many in-game months back from the latest snapshot. Resolved to a
-# real-time bound once per request (_range_secs), so every history query keeps filtering on real_time / bucket.
+# game-time ranges (0.5.3, asked for on mod.io): so many months of SIMULATION time back from the latest snapshot.
+# The game has two clocks: the simulation (game_time_ms, which drives vehicles, running costs and the finance report:
+# one financial year = 365 days x 4 s = 1460 s of simulation, base/model_metadata_util.lua) and the calendar (the
+# date shown, for vehicle availability), which the player can slow down or pause while money keeps flowing. Ranges
+# follow the simulation, so "1 year" is a finance-report year whatever the calendar does. Resolved to a real-time
+# bound once per request (_range_secs), so every history query keeps filtering on real_time / bucket.
 GAME_RANGES = {"1gm": 1, "6gm": 6, "1gy": 12, "5gy": 60}
+GAME_YEAR_MS = 365 * 4 * 1000
 
 
 def _range(q: dict) -> str:
@@ -890,19 +895,22 @@ def _epoch(iso_str: str) -> float:
 
 
 def _range_secs(rng: str) -> float:
-    """Seconds of real time covered by the range (0 = everything). A game-date range is measured on the snapshots of
-    the current game: the first one dated inside the window gives the bound."""
+    """Seconds of real time covered by the range (0 = everything). A game-time range is measured on the snapshots of
+    the current game: the first one whose simulation clock is inside the window gives the bound."""
     if rng in RANGES:
         return RANGES[rng]
     months = GAME_RANGES.get(rng)
     if not months:
         return 0
-    last = one("SELECT year, month FROM snapshot WHERE game_id=? AND year IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (_gid(),))
+    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (_gid(),))
     if not last:
         return 0
-    ym = last["year"] * 12 + (last["month"] or 1) - 1 - months
-    first = one("""SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND year IS NOT NULL
-                   AND year * 12 + COALESCE(month, 1) - 1 > ?""", (_gid(), ym))
+    bound = last["game_time_ms"] - months * GAME_YEAR_MS // 12
+    # the simulation clock goes BACK when a save is reloaded: walk the current run only, i.e. the latest row whose
+    # clock is below the bound (or a rewind) ends the search; everything after it is inside the window
+    edge = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND snapshot_id <= ?
+                  AND (game_time_ms < ? OR game_time_ms > ?)""", (_gid(), last["snapshot_id"], bound, last["game_time_ms"]))
+    first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (_gid(), (edge and edge["sid"]) or 0))
     if not first or not first["rt"]:
         return 0
     return max(1.0, time.time() - _epoch(first["rt"]))

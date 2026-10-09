@@ -1107,8 +1107,8 @@ local function camTourBuild(args)
 	end
 	if len < 1 then error("route has no length") end
 	local span = math.sqrt((maxx - minx) ^ 2 + (maxy - miny) ^ 2)
-	-- altitude: a line is read from a height comparable to its spacing between stops, never below 350 m
-	local alt = num(args.alt) or math.max(350, math.min(1500, span * 0.22))
+	-- altitude: a line is read from a height comparable to its spacing between stops, 250..900 m by default
+	local alt = num(args.alt) or math.max(250, math.min(900, span * 0.15))
 	-- points of interest: stops, plus every vehicle of the line at its place along the route (now)
 	local poi = {}
 	for i, p in ipairs(pts) do poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end
@@ -1159,8 +1159,8 @@ local function camTourBuild(args)
 		local pitch = q.kind == "vehicle" and 0.8 or q.kind == "stop" and 0.95 or 1.05
 		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy), pitch = pitch, s = q.s }
 	end
-	-- durations: constant ground speed; speed = alt/7 m/s by default (a 800 m flight pans at ~115 m/s)
-	local speed = math.max(10, num(args.speed) or alt / 7)
+	-- durations: constant ground speed; speed = alt/8 m/s by default
+	local speed = math.max(10, num(args.speed) or alt / 8)
 	local raw2 = {}
 	for i, q in ipairs(path) do
 		local d = i > 1 and (q.s - path[i - 1].s) / speed or nil

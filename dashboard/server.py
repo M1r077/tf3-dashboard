@@ -605,6 +605,25 @@ def api_map(q: dict) -> dict:
     return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
 
 
+def api_geo(q: dict) -> dict:
+    """Map geography (mod rev 11): bounds, water contours, street/track network for the current game. The browser
+    passes the geo_seq it already has; when nothing changed only {geo_seq} comes back (the full payload is a few
+    hundred KB, the map tab asks on every refresh)."""
+    gid = _gid()
+    try:
+        row = one("SELECT geo_seq, received_at, edge_count, water_count, data FROM geo WHERE game_id=?", (gid,))
+    except sqlite3.OperationalError:  # collector older than 0.5.0 never created the table
+        row = None
+    if not row:
+        return {"geo_seq": None, "available": False}
+    have, game = q.get("have", [None])[0], q.get("game", [None])[0]
+    if have is not None and str(row["geo_seq"]) == str(have) and str(gid) == str(game):
+        return {"geo_seq": row["geo_seq"], "game_id": gid, "available": True, "unchanged": True}
+    data = json.loads(row["data"])
+    data.update({"available": True, "game_id": gid, "received_at": row["received_at"], "edge_count": row["edge_count"], "water_count": row["water_count"]})
+    return data
+
+
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
 RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
 
@@ -922,7 +941,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 

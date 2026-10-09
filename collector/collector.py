@@ -229,6 +229,34 @@ class Store:
         self.con.execute("UPDATE game SET label=? WHERE game_id=?", (f"{sorted(names)[0]} · {row['first_seen'][:10]}", gid))
 
     # ------------------------------------------------------------ ingest
+    def ingest_geo(self, snap: dict, geo: dict) -> bool:
+        """Store the map geography written by the mod (rev 11, tf3dash_geo.lua) for the game `snap` belongs to.
+        One row per game, replaced on every new file; skipped when geo_seq did not change. Returns True when stored."""
+        gid = self.game_id(snap, iso())
+        water = [as_list(w) for w in as_list(geo.get("water"))]
+        edges = [as_list(e) for e in as_list(geo.get("edges"))]
+        # the mod's geo_seq restarts at 1 on every load: the row's own sequence is what the browser caches on, so
+        # it just increments per stored file (the caller only passes files whose mtime changed)
+        data = {"bounds": as_list(geo.get("bounds")) or None, "tiles": as_list(geo.get("tiles")) or None,
+                "water_level": geo.get("water_level"), "water": water, "edges": edges,
+                # land/water grid (run lengths per row, north first) + coarse heights: see the mod's geoGridStep
+                "grid": as_list(geo.get("grid")) or None, "water_rows": as_list(geo.get("water_rows")),
+                "heights": as_list(geo.get("heights")), "height_every": geo.get("height_every"),
+                "height_range": as_list(geo.get("height_range")) or None}
+        import hashlib
+        digest = hashlib.sha1(json.dumps(data, separators=(",", ":"), sort_keys=True).encode()).hexdigest()
+        row = self.con.execute("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,)).fetchone()
+        # same content as last time (the mod rewrites its file on every load): keep the row and its sequence
+        if row and json.loads(row["data"]).get("digest") == digest:
+            return False
+        seq = (row["geo_seq"] or 0) + 1 if row else 1
+        data["geo_seq"], data["digest"] = seq, digest
+        self.con.execute(
+            "INSERT OR REPLACE INTO geo(game_id, geo_seq, received_at, edge_count, water_count, data) VALUES (?,?,?,?,?,?)",
+            (gid, seq, iso(), len(edges), len(water), json.dumps(data, separators=(",", ":"))))
+        self.con.commit()
+        return True
+
     def ingest(self, snap: dict) -> int | None:
         now = iso()
         real_time = iso(snap.get("real_time")) if isinstance(snap.get("real_time"), (int, float)) else now
@@ -719,6 +747,27 @@ class SlowFiles:
     def complete_for(self, slow_seq: Any) -> bool:
         return all(slow_seq in self.data.get(n, {}) for n in SLOW_SECTIONS)
 
+    def geo(self) -> dict | None:
+        """tf3dash_geo.lua (mod rev 11): the map's bounds, water and network. Returns the parsed table when the
+        file changed since the last call, else None. Big (hundreds of KB) and rare, so read only on mtime change."""
+        p = self.dir / f"{self.prefix}geo.lua"
+        try:
+            m = os.path.getmtime(p)
+        except OSError:
+            return None
+        if m == self.mtime.get("geo"):
+            return None
+        for _ in range(3):
+            try:
+                d = luatable.load(str(p))
+                if isinstance(d, dict) and "edges" in d:
+                    self.mtime["geo"] = m
+                    return d
+            except (luatable.LuaParseError, OSError, ValueError):
+                pass
+            time.sleep(0.1)
+        return None
+
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
         ss = snap.get("slow_seq")
@@ -931,6 +980,16 @@ def main(argv: list[str] | None = None) -> int:
                         with open(ERROR_LOG, "a", encoding="utf-8") as fh:
                             fh.write(f"\n===== {iso()} seq={snap.get('seq')} slow_seq={snap.get('slow_seq')}\n{tb}")
                         sid = None
+                    if sid is not None and slow_files is not None:
+                        # map geography (mod rev 11): one file, re-read only when the mod rewrote it
+                        try:
+                            geo = slow_files.geo()
+                            if geo is not None and store.ingest_geo(snap, geo):
+                                say(f"map geography: {len(as_list(geo.get('edges')))} network edges, "
+                                    f"{len(as_list(geo.get('water')))} water contours", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"geo ingest failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

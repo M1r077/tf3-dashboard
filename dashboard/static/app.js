@@ -39,7 +39,7 @@
 
   // ------------------------------------------------------------ settings (browser-local)
   const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1h" };
-  const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "all"];
+  const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "1gm", "6gm", "1gy", "5gy", "all"];  // real minutes, then game months / years
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
     const root = document.documentElement.style;

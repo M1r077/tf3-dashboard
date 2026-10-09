@@ -114,7 +114,7 @@ window.I18N = {
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "all" }, range_title: "Time range of the charts (real time)",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 month", "6gm": "6 months", "1gy": "1 year", "5gy": "5 years", all: "all" }, range_title: "Time range of the charts: real minutes, or in-game months and years",
     samples_range: "{n} points · {r}", chart_agg: "1-min average", chart_one_point: "1 point — the curve appears with the next sample", no_data_yet: "no data yet",
     chart_hint: "drag: zoom · double-click: reset · click a legend entry: hide/show",
     network_growth: "Network", company_growth: "Company value",
@@ -236,7 +236,7 @@ window.I18N = {
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "tout" }, range_title: "Plage de temps des graphiques (temps réel)",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mois", "6gm": "6 mois", "1gy": "1 an", "5gy": "5 ans", all: "tout" }, range_title: "Plage de temps des graphiques : minutes réelles, ou mois et années de jeu",
     samples_range: "{n} points · {r}", chart_agg: "moyenne 1 min", chart_one_point: "1 point — la courbe apparaît au prochain relevé", no_data_yet: "pas encore de données",
     chart_hint: "glisser : zoom · double-clic : réinitialiser · clic sur la légende : masquer/afficher",
     network_growth: "Réseau", company_growth: "Valeur de la compagnie",
@@ -357,7 +357,7 @@ window.I18N = {
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", all: "alles" }, range_title: "Zeitbereich der Diagramme (Echtzeit)",
+    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", "1gm": "1 Monat", "6gm": "6 Monate", "1gy": "1 Jahr", "5gy": "5 Jahre", all: "alles" }, range_title: "Zeitbereich der Diagramme: echte Minuten oder Spielmonate und -jahre",
     samples_range: "{n} Punkte · {r}", chart_agg: "1-Min-Mittel", chart_one_point: "1 Punkt — die Kurve erscheint mit der nächsten Messung", no_data_yet: "noch keine Daten",
     chart_hint: "Ziehen: Zoom · Doppelklick: zurücksetzen · Klick auf Legende: ein-/ausblenden",
     network_growth: "Netz", company_growth: "Unternehmenswert",
@@ -493,7 +493,7 @@ window.I18N = {
     saves_note: "Um histórico por jogo salvo (o jogo reutiliza a mesma chave a cada carregamento desse jogo). Backups são arquivos zip na pasta acima: banco de dados + visões de câmera; copie-os para onde quiser.",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos (tempo real)",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mês", "6gm": "6 meses", "1gy": "1 ano", "5gy": "5 anos", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos: minutos reais, ou meses e anos do jogo",
     samples_range: "{n} pontos · {r}", chart_agg: "média de 1 min", chart_one_point: "1 ponto — a curva aparece com a próxima amostra", no_data_yet: "ainda sem dados",
     chart_hint: "arrastar: zoom · clique duplo: redefinir · clique em um item da legenda: ocultar/mostrar",
     network_growth: "Rede", company_growth: "Valor da empresa",
@@ -538,7 +538,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   th_veh: "载具", th_en_route: "在途", th_terminal: "在站", th_depot: "车库", th_fill: "装载", th_cond: "状况", th_avg_speed: "平均速度", th_idle: "闲置", goto_line: "打开线路", goto_station: "打开车站",
   everyone_moving: "所有载具都在运行。", none_stuck: "没有停滞的载具。", all_good: "一切正常。", no_line: "无线路", stopped: "已停止", new: "新",
   samples: "{n} 个样本", stuck_n: "{n} 个样本为 0", idle_days: "闲置 {n} 天", state_cond: "状况 {n} %", samples_range: "{n} 个点 · {r}", dur_s: "{n} 秒", dur_m: "{n} 分钟", dur_h: "{n} 小时",
-  range: { "5m": "5 分钟", "10m": "10 分钟", "15m": "15 分钟", "20m": "20 分钟", "30m": "30 分钟", "45m": "45 分钟", "1h": "1 小时", all: "全部" },
+  range: { "5m": "5 分钟", "10m": "10 分钟", "15m": "15 分钟", "20m": "20 分钟", "30m": "30 分钟", "45m": "45 分钟", "1h": "1 小时", "1gm": "1 个月", "6gm": "6 个月", "1gy": "1 年", "5gy": "5 年", all: "全部" },
   // vehicles
   filter_vehicles: "筛选（名称、线路、城镇）…", all_carriers: "所有运输方式", all_states: "所有状态", worn_filter: "状况 < 50 %", problems: "问题",
   th_vehicle: "载具", th_type: "类型", th_line: "线路", th_state: "状态", th_speed: "速度", th_load: "装载", th_cond_short: "状况", th_idle_short: "闲置", th_cost_year: "成本/年", th_value: "价值", th_near: "附近",

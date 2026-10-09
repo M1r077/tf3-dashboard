@@ -875,19 +875,41 @@ def api_line_paths(q: dict) -> dict:
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
 RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
+# game-date ranges (0.5.3, asked for on mod.io): so many in-game months back from the latest snapshot. Resolved to a
+# real-time bound once per request (_range_secs), so every history query keeps filtering on real_time / bucket.
+GAME_RANGES = {"1gm": 1, "6gm": 6, "1gy": 12, "5gy": 60}
 
 
 def _range(q: dict) -> str:
     r = q.get("range", ["all"])[0]
-    return r if r in RANGES else "all"
+    return r if r in RANGES or r in GAME_RANGES else "all"
 
 
 def _epoch(iso_str: str) -> float:
     return datetime.datetime.fromisoformat(iso_str).timestamp()
 
 
+def _range_secs(rng: str) -> float:
+    """Seconds of real time covered by the range (0 = everything). A game-date range is measured on the snapshots of
+    the current game: the first one dated inside the window gives the bound."""
+    if rng in RANGES:
+        return RANGES[rng]
+    months = GAME_RANGES.get(rng)
+    if not months:
+        return 0
+    last = one("SELECT year, month FROM snapshot WHERE game_id=? AND year IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (_gid(),))
+    if not last:
+        return 0
+    ym = last["year"] * 12 + (last["month"] or 1) - 1 - months
+    first = one("""SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND year IS NOT NULL
+                   AND year * 12 + COALESCE(month, 1) - 1 > ?""", (_gid(), ym))
+    if not first or not first["rt"]:
+        return 0
+    return max(1.0, time.time() - _epoch(first["rt"]))
+
+
 def _since_iso(q: dict) -> str:
-    secs = RANGES.get(_range(q), 0)
+    secs = _range_secs(_range(q))
     return datetime.datetime.fromtimestamp(time.time() - secs).isoformat(timespec="seconds") if secs else "0000"
 
 
@@ -902,7 +924,7 @@ def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str
     Every row gets `ts` (unix seconds) and `agg` (0 = detail, 60 = one-minute bucket).
     `limit` bounds the number of detail rows (most recent first) and, when the result is still too dense,
     the detail part is thinned to roughly `limit` points so the browser never gets more than it can draw."""
-    secs = RANGES.get(rng, 0)
+    secs = _range_secs(rng)
     since_ts = time.time() - secs if secs else 0
     since_iso = datetime.datetime.fromtimestamp(since_ts).isoformat(timespec="seconds") if secs else "0000"
     # fetch the whole detail window (bounded by the collector's retention, ~2 h) and thin afterwards,

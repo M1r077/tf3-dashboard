@@ -531,8 +531,8 @@
 
   // ------------------------------------------------------------ overview = operations
   const miniRow = (v, right) => `<div class="row" data-veh="${v.vehicle_id}"><div><div class="n">${vehIcon(v, "sm")}${esc(v.name)}</div><div class="d">${CA(v.carrier)} · ${esc(v.line_name || t("no_line"))}</div></div><div class="r">${right}</div></div>`;
-  async function renderOverview() {
-    const [fleet, al, ld] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines")]);
+  async function renderOverview(o) {
+    const [fleet, al, ld, sd] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines"), api("/api/stations")]);
     state.cache.fleet = fleet; state.cache.lines = ld.lines || [];
     if (fleet.empty) return;
     const hist = fleet.history || [];
@@ -574,7 +574,13 @@
     const bad = lines.map(l => { const tot = (l.pax_total || 0) + (l.cargo_total || 0), b = (l.pax_bad || 0) + (l.cargo_bad || 0); return { l, tot, b, p: tot ? 100 * b / tot : 0 }; }).filter(x => x.tot >= 5).sort((a, b) => b.p - a.p).slice(0, 10);
     Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
     const load = lines.map(l => { const c = l.capacities.reduce((a, x) => ({ u: a.u + (x.used || 0), c: a.c + (x.capacity || 0) }), { u: 0, c: 0 }); return { l, p: c.c ? 100 * c.u / c.c : 0, u: c.u, c: c.c }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
-    Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p >= 80 ? "#3fb950" : x.p < 25 ? "#e8b04b" : "#4f8a8a", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);
+    // a line above 90 % is short of vehicles (people left on the platform), not a success: red; 80-90 orange
+    Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 80 ? "#e8b04b" : x.p < 25 ? "#8b98a8" : "#3fb950", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);
+    // busiest stations: waiting items against the station's capacity (platforms + pool), the Stations table's thresholds
+    const busy = (sd.stations || []).map(st => { const c = (st.terminal_capacity || 0) + (st.pool_capacity || 0); return { st, c, p: c ? 100 * (st.used || 0) / c : 0 }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
+    // cards pinned here from another tab (Layout.pin): render that tab's data too, it fills them in place
+    if (o && window.Layout) for (const home of Layout.pinnedHomes()) if (RENDER[home] && home !== "overview") await RENDER[home](o);
+    Charts.hbars($("#chart-stations-busy"), busy.map(x => ({ id: x.st.station_id, label: x.st.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 70 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${int(x.st.used)}/${int(x.c)})` })), { onClick: it => { state.selSt = it.id; showTab("stations"); } });
   }
 
   function renderAlerts(el, alerts) {

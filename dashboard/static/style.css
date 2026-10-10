@@ -291,6 +291,7 @@ body.layout-edit .panels > .card.tablecard, body.layout-edit .panels > .card.sti
 .panel-tools .pw { font-family: var(--mono); min-width: 36px; text-align: center; }
 .panel-tools .pbtn { background: var(--panel); border: 1px solid var(--border); color: var(--text); border-radius: 5px; min-width: 24px; height: 24px; padding: 0 6px; cursor: pointer; font: inherit; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
 .panel-tools .pbtn:hover { border-color: var(--accent); }
+.panel-tools .pbtn.pin.active { border-color: var(--accent); background: rgba(79,138,138,.25); }
 .panel-tools .pbtn .ico { margin: 0; }
 /* handles kept inside the card edge: sticking out by 4px made every scrolling card show both scrollbars in edit mode */
 .rz { position: absolute; z-index: 5; }

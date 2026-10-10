@@ -126,6 +126,10 @@
         <h2><i class="ico" data-ico="terminal_full"></i><span data-i18n="lines_loaded"></span></h2>
         <canvas id="chart-lines-load"></canvas>
       </div>
+      <div class="card" data-panel="stations-busy" data-w="4">
+        <h2><i class="ico" data-ico="station"></i><span data-i18n="stations_busy"></span> <small data-i18n="stations_busy_sub"></small></h2>
+        <canvas id="chart-stations-busy"></canvas>
+      </div>
     </div>
     <div class="card" id="errors-card" style="display:none">
       <h2><i class="ico" data-ico="warning"></i><span data-i18n="export_errors"></span></h2>
@@ -241,31 +245,31 @@
           <span class="h2-tools"><span class="seg" id="journal-view"><button data-v="window" class="active" data-i18n="journal_view_window"></button><button data-v="history" data-i18n="journal_view_history"></button></span></span></h2>
         <div class="journal-wrap"><table class="journal" id="journal-table"></table></div>
       </div>
-      <div class="card" data-panel="balance" data-w="7">
+      <div class="card" data-panel="balance" data-home="finance" data-w="7">
         <h2><i class="ico" data-ico="money"></i><span data-i18n="journal_bank_chart"></span></h2>
         <canvas id="chart-balance" data-h="240"></canvas>
       </div>
-      <div class="card" data-panel="earnings" data-w="5">
+      <div class="card" data-panel="earnings" data-home="finance" data-w="5">
         <h2><i class="ico" data-ico="chart"></i><span data-i18n="journal_result_chart"></span></h2>
         <canvas id="chart-earn" data-h="240"></canvas>
       </div>
-      <div class="card" data-panel="transport" data-w="4">
+      <div class="card" data-panel="transport" data-home="finance" data-w="4">
         <h2><i class="ico" data-ico="passengers"></i><span data-i18n="transport_cum"></span></h2>
         <canvas id="chart-transport" data-h="200"></canvas>
       </div>
-      <div class="card" data-panel="network" data-w="4">
+      <div class="card" data-panel="network" data-home="finance" data-w="4">
         <h2><i class="ico" data-ico="line_stations"></i><span data-i18n="network_growth"></span></h2>
         <canvas id="chart-network" data-h="200"></canvas>
       </div>
-      <div class="card" data-panel="company-chart" data-w="4">
+      <div class="card" data-panel="company-chart" data-home="finance" data-w="4">
         <h2><i class="ico" data-ico="chart"></i><span data-i18n="company_growth"></span></h2>
         <canvas id="chart-company" data-h="200"></canvas>
       </div>
-      <div class="card" data-panel="company" data-w="4" data-minh="440">
+      <div class="card" data-panel="company" data-home="finance" data-w="4" data-minh="440">
         <h2><i class="ico" data-ico="info"></i><span data-i18n="company"></span></h2>
         <table class="kv" id="company-table"></table>
       </div>
-      <div class="card" data-panel="costs" data-w="4" data-minh="280">
+      <div class="card" data-panel="costs" data-home="finance" data-w="4" data-minh="280">
         <h2><i class="ico" data-ico="running_cost"></i><span data-i18n="costs_by_carrier"></span> <small data-i18n="per_year"></small></h2>
         <canvas id="chart-costs"></canvas>
       </div>

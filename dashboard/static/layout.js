@@ -11,7 +11,7 @@
   "use strict";
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
-  const KEY = "tf3.layout";
+  const KEY = "tf3.layout", PIN_KEY = "tf3.pinned";  // pinned: ids of cards shown on Operations instead of their home tab
   const COLS = 12, ROW = 10, GAP = 14, MIN_W = 2, MIN_H = 12;  // MIN_H rows = 120 px
   /** Shipped layout, per tab: panel -> [x, y, w, h] (grid columns / rows of ROW px). Used when a tab has no saved
       layout (first start, Reset); cards unknown to the preset (added later) flow below it as usual. */
@@ -31,6 +31,35 @@
   const tr = (k) => (window.__t ? window.__t(k) : k);
 
   function load() { try { return JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { return {}; } }
+  // ---------------------------------------------------------------- cards pinned to Operations
+  // A card with data-home="<tab>" can be shown on the Operations page instead of its own tab: the element itself
+  // moves (its ids keep working, the renderer that fills it keeps filling it), and app.js renders the home tab's
+  // data on Operations too (see pinnedHomes). Not for the map, the detail panes or the big tables.
+  let pinned = (() => { try { return new Set(JSON.parse(localStorage.getItem(PIN_KEY) || "[]")); } catch (e) { return new Set(); } })();
+  const savePinned = () => localStorage.setItem(PIN_KEY, JSON.stringify([...pinned]));
+  function movePinned() {
+    const ops = $('.panels[data-layout="overview"]'); if (!ops) return;
+    $$(".card[data-home]").forEach(c => {
+      const home = $(`.panels[data-layout="${c.dataset.home}"]`);
+      const want = pinned.has(c.dataset.panel) ? ops : home;
+      if (want && c.parentElement !== want) { want.appendChild(c); }
+    });
+    $$(".panels[data-layout]").forEach(cn => { delete cn._defaults; });  // card lists changed
+  }
+  function pin(id, on) {
+    const c = $(`.card[data-panel="${id}"][data-home]`); if (!c) return;
+    const from = c.parentElement, fromTab = tabOf(from);
+    if (on) pinned.add(id); else pinned.delete(id);
+    savePinned();
+    // forget its place in the grid it leaves, so it flows in fresh where it lands
+    if (store[fromTab] && store[fromTab].panels) delete store[fromTab].panels[id];
+    movePinned();
+    const to = c.parentElement, toTab = tabOf(to);
+    if (store[toTab] && store[toTab].panels) delete store[toTab].panels[id];
+    save();
+    [from, to].forEach(cn => { cn.classList.remove("placed"); apply(cn); if (editing) decorate(cn); emit(cn); });
+  }
+  const pinnedHomes = () => [...new Set($$(".card[data-home]").filter(c => pinned.has(c.dataset.panel)).map(c => c.dataset.home))];
   function save() { localStorage.setItem(KEY, JSON.stringify(store)); }
   function tabOf(container) { return container.dataset.layout; }
   function emit(container) { listeners.forEach(fn => { try { fn(container); } catch (e) { console.error(e); } }); }
@@ -123,7 +152,9 @@
       items.forEach(it => { st.panels[it.id] = { x: it.x || 0, y: it.y || 0, w: it.w, h: it.h, hidden: it.hidden }; });
       store[tab] = st; save();
     }
-    // panels added by a newer version: append below everything
+    // a card that left this grid (pinned elsewhere): forget its slot so it does not hold space
+    Object.keys(st.panels).forEach(id => { if (!def.order.includes(id)) delete st.panels[id]; });
+    // panels added by a newer version (or a card pinned here): append below everything
     const missing = def.order.filter(id => !st.panels[id]);
     if (missing.length) {
       const byId = Object.fromEntries(cardsOf(container).map(c => [c.dataset.panel, c]));
@@ -145,7 +176,10 @@
     }
     return st;
   }
-  function items(st) { return Object.entries(st.panels).filter(([, p]) => !p.hidden).map(([id, p]) => ({ id, x: p.x, y: p.y, w: p.w, h: p.h })); }
+  function items(st, container) {
+    const here = container ? new Set(cardsOf(container).map(c => c.dataset.panel)) : null;
+    return Object.entries(st.panels).filter(([id, p]) => !p.hidden && (!here || here.has(id))).map(([id, p]) => ({ id, x: p.x, y: p.y, w: p.w, h: p.h }));
+  }
   function commit(st, its) { its.forEach(it => { Object.assign(st.panels[it.id], { x: it.x, y: it.y, w: it.w, h: it.h }); }); save(); }
 
   // ---------------------------------------------------------------- apply to the DOM
@@ -161,7 +195,7 @@
     if (!container.offsetParent && !(store[tabOf(container)] && store[tabOf(container)].v === 2)) return;
     const st = stateOf(container);
     container.classList.add("placed");
-    compact(items(st)).forEach(it => Object.assign(st.panels[it.id], { y: it.y }));
+    compact(items(st, container)).forEach(it => Object.assign(st.panels[it.id], { y: it.y }));
     cardsOf(container).forEach(c => {
       const p = st.panels[c.dataset.panel];
       c.classList.toggle("hidden-panel", !!p.hidden);
@@ -170,7 +204,7 @@
     renderHiddenBar(container);
     if (editing) decorate(container);
   }
-  function applyAll() { $$(".panels[data-layout]").forEach(apply); }
+  function applyAll() { movePinned(); $$(".panels[data-layout]").forEach(apply); }
 
   // ---------------------------------------------------------------- hidden panels (chips to restore them)
   function renderHiddenBar(container) {
@@ -197,15 +231,21 @@
   // ---------------------------------------------------------------- edit mode
   function decorate(container) {
     cardsOf(container).forEach(c => {
-      if ($(":scope > .panel-tools", c)) { $(":scope > .panel-tools .ptitle", c).textContent = titleOf(c); $(":scope > .panel-tools .pw", c).textContent = `${c.dataset.cols}/${COLS}`; return; }
+      if ($(":scope > .panel-tools", c)) {
+        $(":scope > .panel-tools .ptitle", c).textContent = titleOf(c); $(":scope > .panel-tools .pw", c).textContent = `${c.dataset.cols}/${COLS}`;
+        const pb = $(":scope > .panel-tools .pbtn.pin", c);
+        if (pb) { const on = pinned.has(c.dataset.panel); pb.classList.toggle("active", on); pb.title = tr(on ? "layout_unpin" : "layout_pin"); $(".ico", pb).style.setProperty("--ico", `url(icons/star${on ? "" : "_outline"}.png)`); }
+        return;
+      }
       const tools = document.createElement("div"); tools.className = "panel-tools";
       tools.innerHTML = `<span class="grip" title="${tr("layout_drag")}"><i class="ico" style="--ico:url(icons/drag.png)"></i></span><span class="ptitle">${titleOf(c)}</span><span class="pw">${c.dataset.cols}/${COLS}</span>
         <button class="pbtn" data-act="narrow" title="−">−</button><button class="pbtn" data-act="widen" title="+">+</button>
         <button class="pbtn" data-act="autoh" title="${tr("layout_auto_height")}">↕</button>
+        ${c.dataset.home ? `<button class="pbtn pin ${pinned.has(c.dataset.panel) ? "active" : ""}" data-act="pin" title="${tr(pinned.has(c.dataset.panel) ? "layout_unpin" : "layout_pin")}"><i class="ico sm" style="--ico:url(icons/star${pinned.has(c.dataset.panel) ? "" : "_outline"}.png)"></i></button>` : ""}
         <button class="pbtn" data-act="hide" title="${tr("layout_hide")}"><i class="ico sm" style="--ico:url(icons/hidden.png)"></i></button>`;
       c.insertBefore(tools, c.firstChild);
       ["e", "s", "se", "w", "n"].forEach(k => { const rz = document.createElement("div"); rz.className = "rz rz-" + k; c.appendChild(rz); });
-      bindCard(container, c);
+      bindCard(c);
     });
   }
   function undecorate(container) {
@@ -225,21 +265,23 @@
     const its = items(st); const me = its.find(it => it.id === c.dataset.panel); Object.assign(me, next);
     commit(st, resolve(its, me)); apply(container); emit(container);
   }
-  function bindCard(container, c) {
+  function bindCard(c) {
     const tools = $(":scope > .panel-tools", c);
     tools.addEventListener("click", e => {
       const b = e.target.closest(".pbtn"); if (!b) return;
+      const container = c.parentElement;  // a pinned card may have moved to another grid since it was bound
       const st = stateOf(container), p = st.panels[c.dataset.panel];
       if (b.dataset.act === "narrow") setGeom(container, c, { w: p.w - 1 });
       else if (b.dataset.act === "widen") setGeom(container, c, { w: p.w + 1 });
       else if (b.dataset.act === "autoh") setGeom(container, c, { h: measure(container, c) });
       else if (b.dataset.act === "hide") { p.hidden = true; save(); apply(container); emit(container); }
+      else if (b.dataset.act === "pin") pin(c.dataset.panel, !pinned.has(c.dataset.panel));
     });
     // free drag (mouse): the card follows the pointer, a placeholder shows where it will land (snapped to the grid),
     // the other cards make room live
-    $(".grip", tools).addEventListener("mousedown", e => startDrag(e, container, c));
-    tools.addEventListener("mousedown", e => { if (e.target.closest(".pbtn")) return; if (!e.target.closest(".grip")) startDrag(e, container, c); });
-    ["e", "s", "se", "w", "n"].forEach(k => $(".rz-" + k, c).addEventListener("mousedown", e => startResize(e, container, c, k)));
+    $(".grip", tools).addEventListener("mousedown", e => startDrag(e, c.parentElement, c));
+    tools.addEventListener("mousedown", e => { if (e.target.closest(".pbtn")) return; if (!e.target.closest(".grip")) startDrag(e, c.parentElement, c); });
+    ["e", "s", "se", "w", "n"].forEach(k => $(".rz-" + k, c).addEventListener("mousedown", e => startResize(e, c.parentElement, c, k)));
   }
   function startDrag(e, container, c) {
     e.preventDefault(); e.stopPropagation();
@@ -329,5 +371,5 @@
   if (document.readyState !== "loading") applyAll();
   // a tab becoming visible: place its cards if that was deferred
   new MutationObserver(() => $$(".panels[data-layout]").forEach(cn => { if (!cn.classList.contains("placed") && cn.offsetParent) apply(cn); })).observe(document.body, { attributes: true, subtree: true, attributeFilter: ["class"] });
-  window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing: () => editing, reset, resetAll, apply, applyAll, onChange: (fn) => listeners.push(fn), titleOf };
+  window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing: () => editing, reset, resetAll, apply, applyAll, onChange: (fn) => listeners.push(fn), titleOf, pin, pinnedHomes, isPinned: (id) => pinned.has(id) };
 })();

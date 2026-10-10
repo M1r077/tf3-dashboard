@@ -190,13 +190,16 @@ def api_overview(q: dict) -> dict:
     if not DB_PATH.exists():
         return {"empty": True, "version": VERSION}
     try:
-        snap = one("SELECT * FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
+        live = _live_state()
+        gid = _gid()
+        snap = one("SELECT * FROM snapshot WHERE game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,)) if gid >= 0 else None
     except sqlite3.Error:
         snap = None
     if not snap:
         return {"empty": True, "version": VERSION}
     sid = snap["snapshot_id"]
-    gid = snap["game_id"]
+    # offline: the pages show the last known situation of a save; the figures are for thinking, not for acting
+    offline = not live["fresh"] or gid != live["latest_gid"]
     fin = one("SELECT * FROM finance WHERE snapshot_id=?", (sid,)) or {}
     comp = one("SELECT c.* FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,)) or {}
     prev = one("""SELECT f.balance, s.real_time FROM finance f JOIN snapshot s USING(snapshot_id)
@@ -230,7 +233,9 @@ def api_overview(q: dict) -> dict:
             game["reloads"] = []
     return {"snapshot": snap, "finance": fin, "company": comp, "vehicles": veh, "alerts": alerts, "errors": errors,
             "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION, "camera": camera,
-            "commands": {"enabled": not CMD_DISABLED, "accepted": snap.get("accept_commands"), "ack": ack, "pending": pending}}
+            "live": {"fresh": live["fresh"], "age_s": live["age_s"], "offline": offline, "selected": _selected_game["gid"] is not None,
+                     "has_other": (one("SELECT COUNT(*) n FROM game") or {}).get("n", 0) > 1},
+            "commands": {"enabled": not CMD_DISABLED, "accepted": 0 if offline else snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
 def api_finance(q: dict) -> dict:
@@ -377,10 +382,10 @@ def api_lines(q: dict) -> dict:
                    LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
                    WHERE l.game_id=?""", (gid,))
     # speed = average of the vehicles currently en route (a vehicle waiting at a terminal would drag the line to 0)
-    veh = rows("""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) speed, SUM(vs.state='EN_ROUTE') en_route,
+    veh = rows(f"""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
                   FROM vehicle_state vs LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=vs.vehicle_id
-                  WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
+                  WHERE vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)}) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
                            force_unload, no_load, max_load, terminals, alternatives, waiting
@@ -418,11 +423,11 @@ def api_line_history(q: dict) -> dict:
     hist.reverse()
     _stamp(hist)
     # vehicles currently assigned to this line (latest snapshot) with the name of their next stop
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model, v.model_key, v.parts, v.capacity, vs.state, vs.speed_ms, vs.load, vs.maintenance,
+    veh = rows(f"""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model, v.model_key, v.parts, v.capacity, vs.state, vs.speed_ms, vs.load, vs.maintenance,
                   vs.stop_index, vs.no_path, vs.user_stopped, vs.days_in_depot, vs.days_at_terminal, st.name AS stop_name
                   FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
                   LEFT JOIN line_stop st ON st.game_id=v.game_id AND st.line_id=vs.line_id AND st.stop_index=vs.stop_index+1  -- game stopIndex is 0-based, line_stop is 1-based
-                  WHERE v.game_id=? AND vs.line_id=? AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
+                  WHERE v.game_id=? AND vs.line_id=? AND vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})
                   ORDER BY vs.stop_index, v.name""", (gid, lid))
     return {"history": hist, "vehicles": veh}
 
@@ -430,7 +435,7 @@ def api_line_history(q: dict) -> dict:
 def api_fleet(q: dict) -> dict:
     """Fleet overview: counts by carrier/state, fill rate, worn vehicles, idle vehicles, recent history."""
     gid = _gid()
-    sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     sid = sid["sid"] if sid else None
     if sid is None:
         # no per-snapshot detail left (the detail window is 2 h): the current figures are unknown, but the
@@ -521,11 +526,11 @@ def _cargo_on_board(gid: int, rows_: list[dict]) -> None:
 
 def api_vehicles(q: dict) -> dict:
     gid = _gid()
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.capacities, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
+    veh = rows(f"""SELECT v.vehicle_id, v.name, v.carrier, v.capacity, v.capacities, v.icon_type, v.model, v.model_key, v.parts, vs.*, l.name AS line_name, t.name AS town_name
                   FROM vehicle v JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id
                   LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id
                   LEFT JOIN town t ON t.game_id=v.game_id AND t.town_id=vs.closest_town
-                  WHERE v.game_id=? AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state)
+                  WHERE v.game_id=? AND vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})
                   ORDER BY v.carrier, l.name, v.name""", (gid,))
     _cargo_on_board(gid, veh)
     return {"vehicles": veh}
@@ -536,23 +541,23 @@ def api_towns(q: dict) -> dict:
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.* FROM town t JOIN town_state ts ON ts.town_id=t.town_id
                     WHERE t.game_id=? AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     ORDER BY (COALESCE(ts.cap_res,0)+COALESCE(ts.cap_com,0)+COALESCE(ts.cap_ind,0)) DESC""", (gid,))
-    cargo = rows("""SELECT tc.town_id, tc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, tc.stock, tc.capacity
+    cargo = rows(f"""SELECT tc.town_id, tc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, tc.stock, tc.capacity
                     FROM town_cargo tc LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=tc.cargo_id
-                    WHERE tc.snapshot_id=(SELECT MAX(snapshot_id) FROM town_cargo)""", (gid,))
+                    WHERE tc.snapshot_id=(SELECT MAX(x.snapshot_id) FROM town_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""", (gid,))
     cmap: dict[int, list] = {}
     for c in cargo:
         cmap.setdefault(c["town_id"], []).append(c)
     # "supplied / needed" of the town window (mod schema 3+), whole town only (land_use 0); per land use stays in the DB
-    supply = rows("""SELECT town_id, cargo_id, v1, v2 FROM town_supply
-                     WHERE land_use=0 AND snapshot_id=(SELECT MAX(snapshot_id) FROM town_supply)""")
+    supply = rows(f"""SELECT town_id, cargo_id, v1, v2 FROM town_supply
+                     WHERE land_use=0 AND snapshot_id=(SELECT MAX(x.snapshot_id) FROM town_supply x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""")
     smap: dict[tuple, dict] = {(s["town_id"], s["cargo_id"]): s for s in supply}
     for c in cargo:
         s = smap.get((c["town_id"], c["cargo_id"]))
         c["supplied"] = s["v1"] if s else None
         c["needed"] = s["v2"] if s else None
-    top = rows("""SELECT tl.town_id, tl.line_id, l.name, tl.resident_unhappy, tl.resident_total, tl.nonresident_unhappy, tl.nonresident_total
+    top = rows(f"""SELECT tl.town_id, tl.line_id, l.name, tl.resident_unhappy, tl.resident_total, tl.nonresident_unhappy, tl.nonresident_total
                   FROM town_top_line tl LEFT JOIN line l ON l.game_id=? AND l.line_id=tl.line_id
-                  WHERE tl.snapshot_id=(SELECT MAX(snapshot_id) FROM town_top_line)""", (gid,))
+                  WHERE tl.snapshot_id=(SELECT MAX(x.snapshot_id) FROM town_top_line x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""", (gid,))
     tmap: dict[int, list] = {}
     for t in top:
         tmap.setdefault(t["town_id"], []).append(t)
@@ -588,8 +593,8 @@ def api_industries(q: dict) -> dict:
                    JOIN industry_state st ON st.industry_id=i.industry_id
                    WHERE i.game_id=? AND st.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state x WHERE x.industry_id=i.industry_id)
                    ORDER BY i.name""", (gid,))
-    cargo = rows("""SELECT ic.*, ct.name AS cargo, ct.key AS cargo_key FROM industry_cargo ic LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=ic.cargo_id
-                    WHERE ic.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_cargo)""", (gid,))
+    cargo = rows(f"""SELECT ic.*, ct.name AS cargo, ct.key AS cargo_key FROM industry_cargo ic LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=ic.cargo_id
+                    WHERE ic.snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""", (gid,))
     cmap: dict[int, list] = {}
     for c in cargo:
         cmap.setdefault(c["industry_id"], []).append(c)
@@ -669,7 +674,7 @@ def api_depots(q: dict) -> dict:
 
 def api_map(q: dict) -> dict:
     gid = _gid()
-    sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     sid = sid["sid"] if sid else None
     veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity, vs.cargo,
                   l.color_r, l.color_g, l.color_b, l.name AS line_name
@@ -690,16 +695,16 @@ def api_map(q: dict) -> dict:
     st = rows("SELECT station_id, name, x, y, is_cargo, is_pax FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
     # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
     # (closed, renamed, earlier saves), which would litter the map with ghosts
-    ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
+    ind = rows(f"""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
                   WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
-                        (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state)))""", (gid,))
+                        (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})))""", (gid,))
     dep = rows("""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
                   LEFT JOIN depot_state ds ON ds.depot_id=d.depot_id AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)
                   WHERE d.game_id=? AND d.x IS NOT NULL""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
-    al = rows("SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot) AND x IS NOT NULL")
+    al = rows(f"SELECT kind, entity_id, x, y FROM alert WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM snapshot WHERE game_id={int(gid)}) AND x IS NOT NULL")
     # line paths: stops -> station group -> station position (first station of the group with coordinates).
     # Stops at an industry (fishing zone, oil platform, mine, sawmill...) have no station row: the game's industry
     # stations are not player stations and the mod does not export them; the stop carries the industry's name, so
@@ -733,7 +738,7 @@ def api_map_cargo(q: dict) -> dict:
     out: dict = {"towns": {}, "industries": {}}
     def owner(kind, oid):
         return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
-    sid = one("SELECT MAX(snapshot_id) sid FROM industry_cargo")
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     if sid and sid["sid"]:
         for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year, ic.stock, ic.capacity
                          FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
@@ -751,14 +756,14 @@ def api_map_cargo(q: dict) -> dict:
             if r["capacity"] is not None:  # the pile; output piles first so what is for sale reads first
                 item = {"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"], "direction": r["direction"]}
                 (o["stock"].insert(0, item) if r["direction"] == "out" else o["stock"].append(item))
-    sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM town_supply x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     if sid and sid["sid"]:
         for r in rows("""SELECT ts.town_id, ts.cargo_id, SUM(ts.v1) AS supplied, SUM(ts.v2) AS needed FROM town_supply ts
                          JOIN town t ON t.game_id=? AND t.town_id=ts.town_id AND t.x IS NOT NULL
                          WHERE ts.snapshot_id=? GROUP BY ts.town_id, ts.cargo_id""", (gid, sid["sid"])):
             need = r["needed"] or 0
             owner("towns", r["town_id"])["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["supplied"] or 0) / need if need else None})
-    sid = one("SELECT MAX(snapshot_id) sid FROM town_cargo")
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM town_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     if sid and sid["sid"]:
         for r in rows("""SELECT tc.town_id, tc.cargo_id, tc.stock, tc.capacity FROM town_cargo tc
                          JOIN town t ON t.game_id=? AND t.town_id=tc.town_id AND t.x IS NOT NULL WHERE tc.snapshot_id=?""", (gid, sid["sid"])):
@@ -1314,9 +1319,53 @@ def _limit(q: dict, default: int, cap: int = 5000) -> int:
         return default
 
 
+# ---------------------------------------------------------------- which game the pages show
+# Normally the game of the newest snapshot. While the game is closed (no snapshot for LIVE_MAX_AGE_S) the user may
+# pick another save recorded in the database to think about it offline: POST /api/select_game. The choice is held
+# in memory and shared by every browser; the live game takes over again as soon as a fresh snapshot arrives.
+LIVE_MAX_AGE_S = 120
+_selected_game: dict = {"gid": None}
+_select_lock = threading.Lock()
+
+
+def _latest_snapshot() -> dict | None:
+    return one("SELECT snapshot_id, game_id, real_time, received_at FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
+
+
+def _live_state() -> dict:
+    """{fresh, age_s, latest_gid}: fresh = the game wrote within LIVE_MAX_AGE_S (export time, not import time)."""
+    s = _latest_snapshot()
+    if not s:
+        return {"fresh": False, "age_s": None, "latest_gid": None}
+    age = time.time() - _epoch(s["real_time"] or s["received_at"])
+    return {"fresh": age < LIVE_MAX_AGE_S, "age_s": age, "latest_gid": s["game_id"]}
+
+
 def _gid() -> int:
-    r = one("SELECT game_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
-    return r["game_id"] if r else -1
+    live = _live_state()
+    with _select_lock:
+        sel = _selected_game["gid"]
+        if sel is not None and live["fresh"]:
+            _selected_game["gid"] = sel = None  # the game is back: show it
+    if sel is not None:
+        return sel
+    return live["latest_gid"] if live["latest_gid"] is not None else -1
+
+
+def select_game(body: dict) -> dict:
+    """POST /api/select_game {key} (or {key: null} to go back to the latest). Refused while the game is live."""
+    key = body.get("key")
+    with _select_lock:
+        if key is None:
+            _selected_game["gid"] = None
+            return {"ok": True, "selected": None}
+        if _live_state()["fresh"]:
+            raise ValueError("the game is running: it decides which save is shown")
+        r = one("SELECT game_id FROM game WHERE key=?", (str(key),))
+        if not r:
+            raise ValueError("unknown save")
+        _selected_game["gid"] = r["game_id"]
+        return {"ok": True, "selected": key}
 
 
 # ---------------------------------------------------------------- camera views (saved next to the database)
@@ -1428,7 +1477,11 @@ def edit_travellings(body: dict) -> dict:
 
 
 def _game_key() -> str | None:
-    r = one("SELECT g.key FROM game g JOIN snapshot s USING(game_id) ORDER BY s.snapshot_id DESC LIMIT 1") if DB_PATH.exists() else None
+    """Key of the game the pages show (see _gid)."""
+    if not DB_PATH.exists():
+        return None
+    gid = _gid()
+    r = one("SELECT key FROM game WHERE game_id=?", (gid,)) if gid >= 0 else None
     return r["key"] if r else None
 
 
@@ -1553,7 +1606,10 @@ def api_games(q: dict) -> dict:
                 item["bad"] = True
             backups.append(item)
     pending = (DB_PATH.parent / RESTORE_PENDING).exists()
-    return {"current": cur, "games": games, "backups": backups, "dir": str(bd), "restore_pending": pending}
+    live = _live_state()
+    latest = next((gm["key"] for gm in games if gm["game_id"] == live["latest_gid"]), None)
+    # current = the save the pages show; latest = the save the game last wrote; selectable while the game is closed
+    return {"current": cur, "latest": latest, "selectable": not live["fresh"], "games": games, "backups": backups, "dir": str(bd), "restore_pending": pending}
 
 
 def make_backup(body: dict) -> dict:
@@ -1794,7 +1850,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore", "/api/select_game"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
@@ -1815,11 +1871,13 @@ class Handler(BaseHTTPRequestHandler):
                 res = (edit_views if u.path == "/api/views" else edit_travellings)(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
-            if u.path in ("/api/backup", "/api/restore"):
-                fn = make_backup if u.path == "/api/backup" else restore_backup
+            if u.path in ("/api/backup", "/api/restore", "/api/select_game"):
+                fn = {"/api/backup": make_backup, "/api/restore": restore_backup, "/api/select_game": select_game}[u.path]
                 res = fn(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
+            if not _live_state()["fresh"]:
+                raise ValueError("the game is not running: nothing to command")
             res = write_command(str(body.get("cmd", "")), body.get("args") or {})
             console.say(f"command -> game: {body.get('cmd')} {json.dumps(body.get('args') or {})}", "info")
             self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")

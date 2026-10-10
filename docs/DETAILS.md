@@ -157,6 +157,15 @@ Three independent parts:
      (see "Time axis and reloads" below): logged in `game.reloads` (JSON, last 20), the branch recorded beyond it is
      deleted, the date tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`,
      `--forget-game ID`.
+   - **offline (game closed)**: the pages keep showing the last recorded situation of the shown save, with an amber bar
+     under the header ("Game closed - <save> as last recorded, <date> (<ago>)"). `server._live_state()`: fresh = the
+     newest snapshot's `real_time` (export time, not import time) is younger than `LIVE_MAX_AGE_S` = 120 s.
+     `/api/overview.live = {fresh, age_s, offline, selected, has_other}`; offline forces `commands.accepted = 0` and
+     `POST /api/cmd` is refused (nothing reads the command file). While offline the user may pick another save in
+     "Savegames & backups" ("View"): `POST /api/select_game {key}` sets `_selected_game` (server memory, shared by every
+     browser) which `_gid()` / `_game_key()` honour; every "latest snapshot" lookup is scoped to that game. The choice
+     is dropped as soon as a fresh snapshot arrives (the game decides what is shown). Tags: "current" (shown = last
+     played), "shown" / "last played" when they differ.
    - **backups** (settings panel, "Savegames & backups"; `POST /api/backup`): `db\backups\tf3-dashboard-<label>-<stamp>.zip`
      = consistent copy of the database (SQLite backup API, taken while the collector writes) + `camera_views.json` +
      `manifest.json`. Restore (`POST /api/restore {file, what}`): `views` merges the camera views at once (only for saves

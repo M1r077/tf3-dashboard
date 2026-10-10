@@ -123,6 +123,8 @@ window.I18N = {
     saves_restore_views_confirm: "Add the camera views of {f} to the current ones (only for savegames that have none)?",
     saves_restore_all_confirm: "Replace the whole history with {f}? The current database is kept as a copy. The change is applied by the collector at its next start: close and restart run_dashboard.cmd afterwards.",
     saves_restored: "Restored ({n} camera views merged)", saves_restore_pending: "A restored database is waiting: restart run_dashboard.cmd to apply it.",
+    saves_shown: "shown", saves_latest: "last played", saves_view: "View", saves_view_title: "Show this save on every page (the game is closed; its last recorded situation)",
+    offline_text: "Game closed - {save} as last recorded, {date} ({ago} ago). Figures for planning; commands return when the game writes again.", offline_pick: "Choose a save", commands_offline: "The game is closed: nothing to command.",
     saves_note: "One history per savegame (the game reuses the same key at every load of that save). Backups are zip files in the folder above: database + camera views; copy them anywhere.",
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
@@ -258,6 +260,8 @@ window.I18N = {
     saves_restore_views_confirm: "Ajouter les vues caméra de {f} aux vues actuelles (seulement pour les parties qui n'en ont pas) ?",
     saves_restore_all_confirm: "Remplacer tout l'historique par {f} ? La base actuelle est conservée en copie. Le changement est appliqué par le collecteur à son prochain démarrage : fermez puis relancez run_dashboard.cmd ensuite.",
     saves_restored: "Restauré ({n} vues caméra ajoutées)", saves_restore_pending: "Une base restaurée attend : relancez run_dashboard.cmd pour l'appliquer.",
+    saves_shown: "affichée", saves_latest: "dernière jouée", saves_view: "Voir", saves_view_title: "Afficher cette partie sur toutes les pages (jeu fermé ; sa dernière situation enregistrée)",
+    offline_text: "Jeu fermé - {save} au dernier enregistrement, {date} (il y a {ago}). Chiffres pour planifier ; les commandes reviennent quand le jeu écrira.", offline_pick: "Choisir une partie", commands_offline: "Le jeu est fermé : rien à piloter.",
     saves_note: "Un historique par sauvegarde (le jeu réutilise la même clé à chaque chargement de cette partie). Les copies sont des zip dans le dossier ci-dessus : base + vues caméra ; copiez-les où vous voulez.",
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
@@ -392,6 +396,8 @@ window.I18N = {
     saves_restore_views_confirm: "Die Kameraansichten aus {f} zu den aktuellen hinzufügen (nur für Spielstände ohne eigene)?",
     saves_restore_all_confirm: "Den ganzen Verlauf durch {f} ersetzen? Die aktuelle Datenbank bleibt als Kopie erhalten. Die Änderung übernimmt der Collector beim nächsten Start: danach run_dashboard.cmd schliessen und neu starten.",
     saves_restored: "Wiederhergestellt ({n} Kameraansichten übernommen)", saves_restore_pending: "Eine wiederhergestellte Datenbank wartet: run_dashboard.cmd neu starten, um sie zu übernehmen.",
+    saves_shown: "angezeigt", saves_latest: "zuletzt gespielt", saves_view: "Ansehen", saves_view_title: "Diesen Spielstand auf allen Seiten zeigen (Spiel geschlossen; letzter aufgezeichneter Stand)",
+    offline_text: "Spiel geschlossen - {save}, letzter Stand {date} (vor {ago}). Zahlen zum Planen; Befehle kehren zurück, sobald das Spiel wieder schreibt.", offline_pick: "Spielstand wählen", commands_offline: "Das Spiel ist geschlossen: nichts zu steuern.",
     saves_note: "Ein Verlauf pro Spielstand (das Spiel verwendet bei jedem Laden dieses Spielstands denselben Schlüssel). Sicherungen sind Zip-Dateien im obigen Ordner: Datenbank + Kameraansichten; beliebig kopierbar.",
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
@@ -542,6 +548,8 @@ window.I18N = {
     saves_restore_views_confirm: "Adicionar as visões de câmera de {f} às atuais (somente para jogos salvos que não têm nenhuma)?",
     saves_restore_all_confirm: "Substituir todo o histórico por {f}? O banco de dados atual é mantido como cópia. A mudança é aplicada pelo coletor na próxima inicialização: feche e reinicie o run_dashboard.cmd depois.",
     saves_restored: "Restaurado ({n} visões de câmera adicionadas)", saves_restore_pending: "Um banco de dados restaurado está aguardando: reinicie o run_dashboard.cmd para aplicá-lo.",
+    saves_shown: "exibido", saves_latest: "último jogado", saves_view: "Ver", saves_view_title: "Mostrar este jogo salvo em todas as páginas (jogo fechado; última situação registrada)",
+    offline_text: "Jogo fechado - {save} no último registro, {date} (há {ago}). Números para planejar; os comandos voltam quando o jogo gravar de novo.", offline_pick: "Escolher um jogo salvo", commands_offline: "O jogo está fechado: nada para comandar.",
     saves_note: "Um histórico por jogo salvo (o jogo reutiliza a mesma chave a cada carregamento desse jogo). Backups são arquivos zip na pasta acima: banco de dados + visões de câmera; copie-os para onde quiser.",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
@@ -645,6 +653,8 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   journal_upkeep_warehouses: "仓库维护成本", journal_other: "其他", journal_total: "结余", journal_periods: "{n} 个周期 · {a} → {b}", journal_result_chart: "每周期结果", journal_bank_chart: "银行账户",
   journal_view_window: "与游戏一致", journal_view_history: "整局游戏",  // settings
   saves_title: "存档与备份", saves_current: "当前", saves_game_date: "游戏日期", saves_backup_now: "立即备份", saves_backups: "备份", saves_restore: "恢复", saves_restore_views: "恢复镜头视角", saves_restore_all: "全部恢复",
+  saves_shown: "显示中", saves_latest: "最近游玩", saves_view: "查看", saves_view_title: "在所有页面显示此存档（游戏已关闭；最后记录的状态）",
+  offline_text: "游戏已关闭 - {save} 最后记录于 {date}（{ago}前）。数据供规划；游戏再次写入后指令恢复。", offline_pick: "选择存档", commands_offline: "游戏已关闭：无可控制。",
   settings: "设置", set_lang: "语言", set_icons: "图标大小", set_font: "文字大小", set_density: "表格密度", set_refresh: "刷新", set_default_tab: "起始页", set_reset: "恢复默认", set_layout: "面板",
   // enums
   state: { EN_ROUTE: "在途", AT_TERMINAL: "在站", IN_DEPOT: "在车库", GOING_TO_DEPOT: "返回车库" },

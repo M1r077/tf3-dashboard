@@ -161,7 +161,14 @@ body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8
 .mapruler .r i { display: inline-block; width: 10px; height: 3px; flex: none; align-self: center; border-radius: 1px; }
 .mapruler .r b { color: #fff; font-weight: 600; font-size: 13px; min-width: 64px; }
 .mapruler .r b.up { color: #f08080; } .mapruler .r b.down { color: #9ad39a; }
-.tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 260px; }
+.tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 320px; }
+/* cargo figures in the map tooltip: label column, then icon+figure pairs aligned on a baseline */
+.tipcargo { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.tipcargo .tr { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.tipcargo .tl { color: var(--muted); white-space: nowrap; min-width: 64px; }
+.tipcargo .tc { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.tipcargo .tc .ico { margin: 0; width: calc(var(--isz) * 0.65); height: calc(var(--isz) * 0.65); }
+.tipcargo .tc b { font-weight: 600; color: var(--text); }
 
 /* ---------------- toolbar */
 .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }

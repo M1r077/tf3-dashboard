@@ -2126,12 +2126,14 @@
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {
       const c = mapCargo.data && mapCargo.data[kind] && mapCargo.data[kind][String(id)]; if (!c) return "";
-      const li = (items, f) => items.map(it => `${cargoIcon({ cargo_key: it.key }, "sm")}${f(it)}`).join(" ");
+      // one row per layer: label, then icon+figure pairs that never break in the middle
+      const li = (items, f) => items.map(it => `<span class="tc">${cargoIcon({ cargo_key: it.key }, "sm")}<b>${f(it)}</b></span>`).join("");
+      const pc = (it) => it.rate == null ? "–" : Math.round(it.rate * 100) + "%";
       let s = "";
-      if (c.out.length) s += `<br><span class="muted">${t("map_prod")}</span> ${li(c.out, it => it.rate == null ? "" : Math.round(it.rate * 100) + "%")}`;
-      if (c.in.length) s += `<br><span class="muted">${t("map_need")}</span> ${li(c.in, it => it.rate == null ? "" : Math.round(it.rate * 100) + "%")}`;
-      if (c.stock.length) s += `<br><span class="muted">${t("map_stock")}</span> ${li(c.stock, it => it.capacity ? `${it.amount}/${it.capacity}` : String(it.amount))}`;
-      return s;
+      if (c.out.length) s += `<div class="tr"><span class="tl">${t("map_prod")}</span>${li(c.out, pc)}</div>`;
+      if (c.in.length) s += `<div class="tr"><span class="tl">${t("map_need")}</span>${li(c.in, pc)}</div>`;
+      if (c.stock.length) s += `<div class="tr"><span class="tl">${t("map_stock")}</span>${li(c.stock, it => it.capacity ? `${it.amount}/${it.capacity}` : String(it.amount))}</div>`;
+      return s ? `<div class="tipcargo">${s}</div>` : "";
     };
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}${cargoTip("industries", i.industry_id)}`));
     if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}${cargoTip("towns", tw.town_id)}`));

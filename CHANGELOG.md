@@ -2,7 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.6.4 - 11 October 2026 (mod 14 unchanged)
+
+Collector fix, important for anyone whose database was created before 0.6.1: the `boosters` column added then was missing from the migrations, so on such a database every slow cycle failed (lines, towns, stations, industries, depots were not recorded since 0.6.1 - the live part kept working, which hid it; `db/collector_errors.log` shows "table industry_state has 10 columns but 11 values were supplied"). The column is now added on start-up and every insert names its columns. Forget a save: deleted everything referencing the save (geo, finance journal, line paths were missed and the deletion failed on a foreign key; errors are now reported in the collector console).
+
+Start-up with the game closed: the collector says at once which save the dashboard shows and how old the last export is; the server pane stamps the icon extraction (20-40 s on first start); the page and the Savegames panel say "server starting" and retry instead of a red error. Charts: cargo pictures in the legend and tooltip of the industry and finance charts. Ruler: carrier icons on the road / rail rows, the box no longer sits over the legend.
 
 Game closed: the dashboard shows the last recorded situation of the save and says so in an amber bar under the header (save, game date, how long ago); the game-control buttons are off and commands are refused instead of piling up in a file nobody reads. With several saves in the database, Settings > Savegames gets a "View" button per save to look at another one offline; the live game takes over again as soon as it writes. Every "latest snapshot" lookup on the server is now scoped to the shown save.
 

@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (companion 0.6.2)
+## Companion 0.6.2 - 10 October 2026 (mod 14 unchanged)
 
 Operations: a "Busiest stations" card (waiting items against platforms + pool, the Stations table's thresholds), and the busiest lines turn orange above 80 % and red above 90 % (a line that full is short of vehicles). Layout edit: a star on the Finances cards pins them to the Operations page (the card moves there and keeps updating; the star again sends it home), so one page can hold everything you watch.
 

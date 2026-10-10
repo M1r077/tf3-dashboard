@@ -671,6 +671,9 @@ def api_map(q: dict) -> dict:
     ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
                   WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
                         (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state)))""", (gid,))
+    dep = rows("""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
+                  LEFT JOIN depot_state ds ON ds.depot_id=d.depot_id AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)
+                  WHERE d.game_id=? AND d.x IS NOT NULL""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
@@ -694,7 +697,7 @@ def api_map(q: dict) -> dict:
         d = lines.setdefault(p["line_id"], {"line_id": p["line_id"], "name": p["name"], "color_r": p["color_r"], "color_g": p["color_g"], "color_b": p["color_b"], "points": []})
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
-    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
+    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "depots": dep, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
 
 
 def api_map_cargo(q: dict) -> dict:

@@ -379,6 +379,8 @@ CREATE TABLE IF NOT EXISTS depot (
     depot_id   INTEGER NOT NULL,
     name       TEXT,
     carrier    TEXT,
+    x          REAL,                               -- world position (depot construction), NULL from old mods
+    y          REAL,
     PRIMARY KEY (game_id, depot_id)
 );
 

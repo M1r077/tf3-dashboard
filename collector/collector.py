@@ -151,6 +151,8 @@ class Store:
         ("line_stop", "alternatives", "TEXT"),
         ("line_stop", "waiting", "TEXT"),
         ("station", "is_pax", "INTEGER"),
+        ("depot", "x", "REAL"),
+        ("depot", "y", "REAL"),
         ("snapshot", "camera", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
@@ -715,10 +717,12 @@ class Store:
         for d in as_list(ds):
             if not isinstance(d, dict) or d.get("id") is None:
                 continue
+            x, y, _z = xyz(d.get("pos"))
             self.con.execute(
-                """INSERT INTO depot(game_id, depot_id, name, carrier) VALUES (?,?,?,?)
-                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier""",
-                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier"))),
+                """INSERT INTO depot(game_id, depot_id, name, carrier, x, y) VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier,
+                   x=COALESCE(excluded.x, depot.x), y=COALESCE(excluded.y, depot.y)""",
+                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO depot_state VALUES (?,?,?,?,?,?,?)",
                              (sid, d["id"], d.get("vehicles"), d.get("incoming"), d.get("maintenance_pool"), d.get("pool_max"), d.get("pool_avg")))

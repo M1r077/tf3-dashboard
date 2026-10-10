@@ -1059,6 +1059,18 @@ local function depotItem(d, ctx)
 				maintenance_pool = num(dep and dep.maintenancePool), pool_max = num(dep and dep.maxPoolUsage), pool_avg = num(dep and dep.averagePoolUsage) }
 			pcall(function() rec.vehicles = count(api.engine.system.transportVehicleSystem.getDepotVehicles(d)) end)
 			pcall(function() rec.incoming = count(api.engine.system.transportVehicleSystem.getGoingToDepotVehicles(d)) end)
+			pcall(function()
+				-- position = the depot construction's transform (same as stations)
+				local con = api.engine.system.streetConnectorSystem.getConstructionEntityForDepot(d)
+				local c = con and api.engine.getComponent(con, api.type.ComponentType.CONSTRUCTION)
+				if c then local m = c.transf; rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) } end
+			end)
+			if rec.pos == nil then
+				pcall(function()
+					local bv = api.engine.getComponent(d, api.type.ComponentType.BOUNDING_VOLUME)
+					if bv and bv.bbox then local mn, mx = bv.bbox.min, bv.bbox.max; rec.pos = { x = (num(mn.x) + num(mx.x)) / 2, y = (num(mn.y) + num(mx.y)) / 2, z = num(mn.z) } end
+				end)
+			end
 			return rec
 		end
 	end

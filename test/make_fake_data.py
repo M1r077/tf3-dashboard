@@ -179,7 +179,7 @@ for k in range(N):
                                        "producing": served or k % 7 == 0, "boost_rule": iid == 203, "boost_persons": False, "thrown_away": 0 if served else 30,
                                        "inputs": [{"cargo_type": c, "cargo": CARGO[c][1], "consumed_year": prod, "max_consumption_year": 400, "delivered_year": prod + 5} for c in ins],
                                        "outputs": [{"cargo_type": c, "cargo": CARGO[c][1], "produced_year": prod, "max_production_year": 400, "shipped_year": prod if served else 0} for c in outs]})
-        snap["depots"] = [{"id": did, "name": nm, "carrier": car, "vehicles": sum(1 for vv in vehicles if vv["state"] == "IN_DEPOT" and vv["carrier"] == car), "incoming": 0, "maintenance_pool": 12, "pool_max": 9, "pool_avg": 6.5} for did, nm, car in DEPOTS]
+        snap["depots"] = [{"id": did, "name": nm, "carrier": car, "vehicles": sum(1 for vv in vehicles if vv["state"] == "IN_DEPOT" and vv["carrier"] == car), "incoming": 0, "maintenance_pool": 12, "pool_max": 9, "pool_avg": 6.5, "pos": {"x": -1800 + 900 * k, "y": 1500 - 400 * k, "z": 400}} for k, (did, nm, car) in enumerate(DEPOTS)]
     store.ingest(snap)
 
 # retention: fold everything older than 2 h into per-minute aggregates (like the live collector does)

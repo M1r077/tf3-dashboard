@@ -358,7 +358,7 @@
     const cls = (c, i) => `${c.num ? "num" : ""} ${c.gauge ? "gauge" : ""} ${c.noicon ? "noicon" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
     // column widths chosen by the user (drag the right edge of a header), per table, in this browser
     const widths = colWidths(key);
-    const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}"${widths[c.key] ? ` style="width:${widths[c.key]}px;min-width:${widths[c.key]}px;max-width:${widths[c.key]}px"` : ""}><span class="thl">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</span>${c.key === "act" ? "" : '<span class="colgrip"></span>'}</th>`).join("")}</tr></thead>`;
+    const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ""}${widths[c.key] ? ` style="width:${widths[c.key]}px;min-width:${widths[c.key]}px;max-width:${widths[c.key]}px"` : ""}><span class="thl">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</span>${c.key === "act" ? "" : '<span class="colgrip"></span>'}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
     if (!sorted.length) {
@@ -1043,7 +1043,7 @@
       { key: "line_usage", label: t("th_public_transport"), icon: "line", num: true, render: x => x.line_usage == null ? "–" : bar(x.line_usage, 1, "ok") },
       { key: "traffic_speed", label: t("th_traffic"), icon: "veh_car", num: true, render: x => x.traffic_speed == null ? "–" : kmh(x.traffic_speed) },
       { key: "noise_db", label: t("th_noise"), icon: "noise", num: true, render: x => x.noise_db == null ? "–" : num(x.noise_db, 0) + " dB" },
-      { key: "pollution_db", label: t("th_pollution"), icon: "pollution", num: true, render: x => x.pollution_db == null ? "–" : num(x.pollution_db, 0) + " dB" },
+      { key: "pollution_db", label: t("th_pollution"), icon: "pollution", num: true, title: t("th_pollution_title"), render: x => x.pollution_db == null ? "–" : num(x.pollution_db, 0) },
       { key: "stations", label: t("th_stations"), icon: "station", num: true },
       { key: "development_active", label: t("th_growth"), icon: "town_growth", render: x => x.development_active ? `<span class="chip ok">${t("growth_active")}</span>` : `<span class="chip warn">${t("growth_frozen")}</span>` },
       { key: "act", label: "", render: x => entBtns(x.town_id) },

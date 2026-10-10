@@ -1473,7 +1473,11 @@ local GEO_MIN_INTERVAL = 60        -- s between two collections when the network
 local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
 local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
 local GEO_HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
-local GEO_SHORE_SUB = 4            -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (11 m on an 11 km map)
+local GEO_SHORE_SUB = 11           -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (4 m on an 11 km map,
+                                   -- the terrain resolution; ~1 400 cells x 121 = 170 000 isOnWater samples, ~4 s of frames)
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64C = {}
+for i = 1, 64 do B64C[i - 1] = B64:sub(i, i) end
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
 local geoSeq = 0
@@ -1630,7 +1634,7 @@ end
 
 -- shore refinement: once the coarse grid is complete, list the cells whose 4-neighbourhood mixes land and water,
 -- then sample each SUBxSUB; a cell = { col, row, mask } with bit k = sub-cell k (row-major, north-west first) on water.
--- A coast of 11 km on a 256 grid is ~1 500 boundary cells = 24 000 extra samples, a second of frames.
+-- A coast of 11 km on a 256 grid is ~1 400 boundary cells x 121 = 170 000 extra samples, a few seconds of frames.
 local function geoShoreStep(job)
 	local g = job.grid
 	if g.shoreList == nil then
@@ -1660,15 +1664,19 @@ local function geoShoreStep(job)
 		if i == nil then return true end
 		local col, row = i % g.nx, math.floor(i / g.nx)
 		local x0, y0 = b[1] + col * cw, b[4] - row * ch
-		local mask, bit = 0, 1
+		-- sub x sub bits do not fit a number past sub 7 (53-bit doubles): the mask is a string of base-64 digits,
+		-- 6 bits each, bit k of the mask = sub-cell k (row-major, north-west first) on water
+		local digits, acc, nb = {}, 0, 0
 		for sr = 0, sub - 1 do
 			for sc = 0, sub - 1 do
 				local p = Vec2f.new(x0 + (sc + 0.5) * cw / sub, y0 - (sr + 0.5) * ch / sub)
-				if api.engine.terrain.isOnWater(p) then mask = mask + bit end
-				bit = bit * 2
+				if api.engine.terrain.isOnWater(p) then acc = acc + 2 ^ nb end
+				nb = nb + 1
+				if nb == 6 then digits[#digits + 1] = B64C[acc]; acc, nb = 0, 0 end
 			end
 		end
-		g.shore[#g.shore + 1] = { col, row, mask }
+		if nb > 0 then digits[#digits + 1] = B64C[acc] end
+		g.shore[#g.shore + 1] = { col, row, table.concat(digits) }
 	end
 	return false
 end
@@ -1784,9 +1792,6 @@ local heightJob = nil
 local heightRevs = nil             -- revision signature of the terrain at the last export
 local lastHeightCheck = -1e9
 local heightCache = nil            -- { bands, tiles } of the last export
-local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-local B64C = {}
-for i = 1, 64 do B64C[i - 1] = B64:sub(i, i) end
 
 -- variable-length signed integer: digits of 5 payload bits, bit 6 (value 32) = another digit follows; sign in the low
 -- bit of the first digit (zigzag)

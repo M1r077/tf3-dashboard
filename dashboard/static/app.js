@@ -1779,6 +1779,9 @@
   // (2 817 x 2 817 on an 11 km map: ~60 ms), then drawn like the grid bitmap. Water = below the game's water level,
   // refined by the shore masks of the grid where they exist (the sea is below the level, lakes and rivers are meshes
   // that can sit above it).
+  // a shore mask is a number (older mods, sub <= 7) or a string of base-64 digits (6 bits each); bit k = sub-cell k on water
+  const B64IDX = (() => { const m = {}; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".split("").forEach((c, i) => m[c] = i); return m; })();
+  const maskBit = (mask, k) => typeof mask === "string" ? ((B64IDX[mask[Math.floor(k / 6)]] || 0) >> (k % 6)) & 1 : (mask / Math.pow(2, k)) & 1;
   const hmap = { meta: null, data: null, w: 0, h: 0, loading: false, revs: null };
   async function loadHeightmap() {
     if (hmap.loading) return;
@@ -1837,7 +1840,7 @@
           const col = Math.floor((wx - gw[0]) / (gw[2] - gw[0]) * nx), row = Math.floor((gw[3] - wy) / (gw[3] - gw[1]) * ny);
           if (col >= 0 && col < nx && row >= 0 && row < ny) {
             const mask = shore.get(row * nx + col);
-            if (mask != null) { const sc = Math.floor(((wx - gw[0]) / (gw[2] - gw[0]) * nx - col) * sub), sr = Math.floor(((gw[3] - wy) / (gw[3] - gw[1]) * ny - row) * sub); isW = ((mask >> (sr * sub + sc)) & 1) === 1; }
+            if (mask != null) { const sc = Math.min(sub - 1, Math.floor(((wx - gw[0]) / (gw[2] - gw[0]) * nx - col) * sub)), sr = Math.min(sub - 1, Math.floor(((gw[3] - wy) / (gw[3] - gw[1]) * ny - row) * sub)); isW = maskBit(mask, sr * sub + sc) === 1; }
             else isW = wat[row * nx + col] === 1;
           }
         }
@@ -1906,7 +1909,7 @@
         // snow on the dark themes too: a light cap above 90 % of the range
         if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
         for (let sr = 0; sr < sub; sr++) for (let sc = 0; sc < sub; sc++) {
-          const isW = mask != null ? ((mask >> (sr * sub + sc)) & 1) === 1 : wat[i] === 1;
+          const isW = mask != null ? maskBit(mask, sr * sub + sc) === 1 : wat[i] === 1;
           const o = ((row * sub + sr) * W + col * sub + sc) * 4;
           if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; }
           else { px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255; }

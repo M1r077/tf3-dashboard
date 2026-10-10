@@ -2,9 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (companion 0.6.1)
+## Unreleased (mod 14 / companion 0.6.1)
 
-Charts run on the game's simulation clock (x axis in game time, ticks by game month, or -6 months ... now while the calendar is paused). One timeline per save, like the game: reloading an older savegame deletes what was recorded beyond it (snapshots and minute aggregates); a one-shot cleanup applies the rule to existing databases and compacts them. Game-time ranges are one indexed query. The range bar is five buttons, one per question: since play (after the last pause or reload), 1 month, 1 year, 5 years, all; the real-minute ranges are gone (old links map to the nearest game range). Database audit: 46 columns and 3 views that no page ever showed are no longer stored and are dropped from existing databases at start-up.
+Full-resolution terrain on the map: the mod exports the game's 4 m heightmap tiles once per load (22 s in the background, ~0.2 ms per frame), the collector assembles a 16-bit PNG, the map shades it with a new satellite style (rock by slope, meadows by altitude, water). Charts run on the game's simulation clock (x axis in game time, ticks by game month, or -6 months ... now while the calendar is paused). One timeline per save, like the game: reloading an older savegame deletes what was recorded beyond it (snapshots and minute aggregates); a one-shot cleanup applies the rule to existing databases and compacts them. Game-time ranges are one indexed query. The range bar is five buttons, one per question: since play (after the last pause or reload), 1 month, 1 year, 5 years, all; the real-minute ranges are gone (old links map to the nearest game range). Database audit: 46 columns and 3 views that no page ever showed are no longer stored and are dropped from existing databases at start-up.
 
 ## Mod 13 / companion 0.6.0 - 10 October 2026
 

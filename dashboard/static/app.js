@@ -1755,7 +1755,7 @@
     atlas: { land: [96, 112, 92],  water: [58, 110, 160], street: "#c8c2b0", track: "#2e2e2e", bridge: "#111111", frame: "#3a4a3a", page: "#1a2024", ink: "#101418", halo: "rgba(255,255,255,.55)" },
     paper: { land: [214, 206, 188], water: [150, 184, 210], street: "#ffffff", track: "#5a5248", bridge: "#2a2622", frame: "#a09888", page: "#2a2a2a", ink: "#1a1612", halo: "rgba(255,255,255,.7)" },
     // the look of the game's own map preview: forest green by altitude, grey rock where the ground is steep, blue-grey water
-    satellite: { land: [78, 96, 58], water: [70, 96, 110], street: "#d8cfae", track: "#2a2a2a", bridge: "#111111", frame: "#2a3528", page: "#0b1015", ink: "#f0f4f8", halo: "rgba(0,0,0,.6)", sat: true },
+    satellite: { land: [96, 116, 66], water: [86, 112, 128], street: "#e6dcb8", track: "#262626", bridge: "#0e0e0e", frame: "#3a4a34", page: "#0b1015", ink: "#f4f6f8", halo: "rgba(0,0,0,.65)", sat: true },
   };
   const MAP_DEFAULTS = { theme: "dark", relief: 1, net: 1, lines: 1 };
   const mapPrefs = () => { try { const p = Object.assign({}, MAP_DEFAULTS, JSON.parse(localStorage.getItem("tf3.map") || "{}")); const q = new URLSearchParams(location.search).get("mapstyle"); if (q && MAP_THEMES[q]) p.theme = q; return p; } catch (e) { return { ...MAP_DEFAULTS }; } };  // ?mapstyle= for screenshots
@@ -1816,11 +1816,13 @@
       shore = new Map(); (g.shore || []).forEach(s => shore.set(s[1] * nx + s[0], s[2]));
     }
     // altitude ramp (metres above water): the satellite look is forest green low, lighter and drier high, snow at the top
+    // satellite: the game's preview tones - olive meadows low, lighter yellow-green higher, dry ochre near the tops,
+    // snow only at the very top; the rock comes from the slope, not from this ramp
     const ramp = th.sat
-      ? [[0, 70, 92, 52], [0.25, 96, 112, 62], [0.5, 128, 128, 80], [0.72, 150, 138, 104], [0.88, 170, 166, 160], [1, 240, 242, 244]]
+      ? [[0, 92, 116, 60], [0.2, 112, 132, 70], [0.45, 138, 148, 84], [0.7, 160, 150, 104], [0.9, 176, 168, 150], [1, 236, 238, 240]]
       : [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
     const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
-    const rock = [118, 114, 108], water = th.water, zx = 1.0 * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    const rock = [132, 128, 122], water = th.water, zx = (th.sat ? 1.4 : 1.0) * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
     const hAt = (x, y) => H[Math.max(0, Math.min(Hh - 1, y)) * W + Math.max(0, Math.min(W - 1, x))];
     const bw = m.bounds, gw = g && g.bounds ? g.bounds : bw;
     for (let y = 0; y < Hh; y++) {
@@ -1852,10 +1854,10 @@
           let base = rampAt(tH);
           if (th.sat) {
             // rock where the ground is steep (above ~35 %), blended in over 15 points of slope; bare earth tint on gentle slopes
-            const rk = Math.max(0, Math.min(1, (slope - 0.35) / 0.15));
+            const rk = Math.max(0, Math.min(1, (slope - 0.3) / 0.2));
             base = [base[0] + (rock[0] - base[0]) * rk, base[1] + (rock[1] - base[1]) * rk, base[2] + (rock[2] - base[2]) * rk];
           }
-          const k = (th.sat ? 0.95 : 0.75) + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k;
+          const k = th.sat ? 0.85 + 0.9 * (f - 0.6) : 0.75 + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k;
         } else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
         if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
         px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255;

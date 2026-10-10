@@ -154,6 +154,13 @@ canvas { width: 100%; display: block; }
 .panels.placed > .mapcard, .panels.placed > .tablecard, .panels.placed > .sticky { height: auto; max-height: none; position: relative; top: auto; }
 body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8px; top: 0; z-index: 8; margin: 8px 0; pointer-events: auto; }
 #map { width: 100%; height: 100%; cursor: grab; }
+/* ruler readout: fixed box under the map toolbar, same rows whatever is known, so it never moves over the drawing */
+.mapruler { position: absolute; left: 10px; top: 44px; z-index: 6; background: rgba(11,16,21,.92); border: 1px solid #e8b04b; border-radius: 6px; padding: 6px 10px; font-size: 12px; color: var(--muted); min-width: 260px; pointer-events: none; }
+.mapruler .hint { color: var(--text); }
+.mapruler .r { display: flex; align-items: baseline; gap: 8px; line-height: 18px; }
+.mapruler .r i { display: inline-block; width: 10px; height: 3px; flex: none; align-self: center; border-radius: 1px; }
+.mapruler .r b { color: #fff; font-weight: 600; font-size: 13px; min-width: 64px; }
+.mapruler .r b.up { color: #f08080; } .mapruler .r b.down { color: #9ad39a; }
 .tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 260px; }
 
 /* ---------------- toolbar */

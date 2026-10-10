@@ -1945,7 +1945,7 @@
   }
   const fmtDist = (m) => m >= 1000 ? (m / 1000).toFixed(2) + " km" : Math.round(m) + " m";
   function drawRuler(ctx, w, h, font, ink, halo) {
-    if (!ruler.on) return;
+    if (!ruler.on) { rulerPanel(null, null, null); return; }
     const a = ruler.a, b = ruler.b || ruler.hover;
     ctx.save(); ctx.strokeStyle = "#e8b04b"; ctx.fillStyle = "#e8b04b"; ctx.lineWidth = 2;
     const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
@@ -1968,51 +1968,31 @@
       if (!ruler.b) ctx.setLineDash([6, 5]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
       if (ruler.b) dot(b);
-      const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
-      // each line: a colour swatch (what it is on the map), the figure in white, the rest dimmed
-      const lines = [{ sw: "#e8b04b", v: fmtDist(dist), s: "" }];
-      if (ha != null && hb != null) {
-        // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
-        const dz = hb - ha;
-        lines.push({ sw: null, v: (dz >= 0 ? "+" : "") + Math.round(dz) + " m", s: t("ruler_height"), c: dz > 0 ? "#f08080" : "#9ad39a" });
-        lines.push({ sw: null, v: fmtDist(dist + 8 * Math.max(0, dz)), s: t("ruler_paid_as") });
-      }
-      if (net && net.available) {
-        // travel time at a flat cruising speed, ignoring stops and acceleration. Placeholder speeds (early game: steam
-        // locomotives ~80 km/h, trucks and buses ~50 km/h) until the vehicle catalogue is in the database, where the
-        // fastest vehicle available at the current date will replace them.
-        const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
-        // approach from A to the network, the way over it, approach to B: "A +300 m · 3.5 km · +23 m B"
-        const parts = (p, gap) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B` + (gap ? " " + t("ruler_gap") : "");
-        const netLine = (mode, sw, kmh) => net[mode] != null
-          ? { sw, v: fmtDist(net[mode]), s: trip(net[mode], kmh) + (net[mode + "_parts"] ? "   " + parts(net[mode + "_parts"], net[mode + "_gap"]) : "") }
-          : { sw, v: "", s: t("ruler_" + mode, { d: t("ruler_none") }) };
-        lines.push(netLine("road", "#f0a35e", RULER_SPEED.road));
-        lines.push(netLine("rail", "#7fb8ff", RULER_SPEED.rail));
-      }
-      // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
-      // over the relief)
-      const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / len, ny = (bx - ax) / len;
-      ctx.font = "600 13px " + font; ctx.textBaseline = "middle";
-      const vw = Math.max(...lines.map(l => ctx.measureText(l.v).width));
-      ctx.font = "500 12px " + font;
-      const sw = Math.max(...lines.map(l => ctx.measureText(l.s).width));
-      const lh = 18, swx = 14, pw = swx + vw + (sw ? 8 + sw : 0) + 18, ph = lines.length * lh + 8;
-      const px = mx + nx * 16 - (nx >= 0 ? 0 : pw), py = my + ny * 16 - ph / 2;
-      ctx.fillStyle = "rgba(11,16,21,.9)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, pw, ph, 6) : ctx.rect(px, py, pw, ph); ctx.fill(); ctx.stroke();
-      ctx.textAlign = "left";
-      lines.forEach((l, i) => {
-        const y = py + 4 + lh * (i + 0.5);
-        if (l.sw) { ctx.fillStyle = l.sw; ctx.fillRect(px + 8, y - 1.5, 9, 3); }
-        ctx.font = "600 13px " + font; ctx.fillStyle = l.c || "#ffffff"; ctx.fillText(l.v, px + 8 + swx, y);
-        ctx.font = "500 12px " + font; ctx.fillStyle = "#9aa7b4"; ctx.fillText(l.s, px + 8 + swx + vw + 8, y);
-      });
-      ctx.textBaseline = "alphabetic";
-    } else {
-      ctx.font = "12px " + font; ctx.textAlign = "left"; const s = t(a ? "ruler_hint_b" : "ruler_hint_a"); ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, 16, 20); ctx.fillStyle = ink; ctx.fillText(s, 16, 20);
-    }
+      rulerPanel(a, b, net);
+    } else rulerPanel(a, null, null);
     ctx.restore();
+  }
+  // The readout is an HTML box under the toolbar, always the same rows (placeholders until known) so it never
+  // jumps or hides what is being drawn. Rows: as the crow flies, height, paid as, by road, by rail.
+  function rulerPanel(a, b, net) {
+    const el = $("#map-ruler"); if (!el) return;
+    el.style.display = ruler.on ? "" : "none";
+    if (!ruler.on) return;
+    if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
+    const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
+    const dz = ha != null && hb != null ? hb - ha : null;
+    const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
+    const parts = (p, gap) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B` + (gap ? " " + t("ruler_gap") : "");
+    const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
+    const netRow = (mode, sw, kmh) => {
+      if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());
+      if (net[mode] == null) return row(sw, "–", t("ruler_" + mode, { d: t("ruler_none") }));
+      return row(sw, fmtDist(net[mode]), trip(net[mode], kmh) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
+    };
+    el.innerHTML = row("#e8b04b", fmtDist(dist), ruler.b ? "" : "…")
+      + row(null, dz != null ? (dz >= 0 ? "+" : "") + Math.round(dz) + " m" : "–", t("ruler_height"), dz > 0 ? "up" : "down")
+      + row(null, dz != null ? fmtDist(dist + 8 * Math.max(0, dz)) : fmtDist(dist), t("ruler_paid_as"))
+      + netRow("road", "#f0a35e", RULER_SPEED.road) + netRow("rail", "#7fb8ff", RULER_SPEED.rail);
   }
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
@@ -2069,6 +2049,7 @@
       ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
+    if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
     drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;

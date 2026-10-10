@@ -239,15 +239,14 @@ def api_finance(q: dict) -> dict:
     rng = _range(q)
     series = _merged_series(
         gid, rng, limit,
-        detail_sql="""SELECT snapshot_id, real_time, game_time_ms, year, month, day, balance, loan, earnings_ytd,
+        detail_sql="""SELECT snapshot_id, real_time, game_time_ms, year, month, day,
                       passengers_transported, cargo_transported FROM v_finance_series WHERE game_id=? AND real_time >= ?
                       ORDER BY snapshot_id DESC LIMIT ?""",
-        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, balance, loan, earnings_ytd, passengers_transported, cargo_transported
+        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, passengers_transported, cargo_transported
                    FROM agg_finance_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
     # company figures come with the slow export (one row per ~30 s, kept 14 days): same range as the charts above
-    comp = rows("""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day, c.total_score, c.total_assets, c.debt, c.number_of_lines,
-                   c.total_stations, c.track_length_m, c.road_length_m,
-                   c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
+    comp = rows("""SELECT s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day, c.total_score, c.total_assets, c.debt, c.number_of_lines,
+                   c.total_stations, c.track_length_m, c.road_length_m
                    FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ?
                    ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), limit))
     comp.reverse()
@@ -384,7 +383,7 @@ def api_lines(q: dict) -> dict:
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load, terminals, alternatives
+                           force_unload, no_load, max_load, terminals, alternatives
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
         for k in ("no_load", "max_load", "terminals", "alternatives"):
@@ -413,7 +412,7 @@ def api_lines(q: dict) -> dict:
 def api_line_history(q: dict) -> dict:
     lid = int(q["id"][0])
     gid = _gid()
-    hist = rows("""SELECT s.real_time, s.year, s.month, ls.vehicles, ls.persons_on_line, ls.pax_bad, ls.pax_total, ls.cargo_bad, ls.cargo_total,
+    hist = rows("""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, ls.vehicles, ls.persons_on_line, ls.pax_bad, ls.pax_total, ls.cargo_bad, ls.cargo_total,
                    ls.max_frequency, ls.throughput, ls.pax_avg_quality, ls.cargo_avg_quality FROM line_state ls JOIN snapshot s USING(snapshot_id)
                    WHERE s.game_id=? AND s.real_time >= ? AND ls.line_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), lid, _limit(q, 300)))
     hist.reverse()
@@ -461,13 +460,13 @@ def api_fleet(q: dict) -> dict:
     rng = _range(q)
     hist = _merged_series(
         gid, rng, _limit(q, 400),
-        detail_sql="""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day,
+        detail_sql="""SELECT s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day,
                       SUM(vs.state='EN_ROUTE') en_route, SUM(vs.state='AT_TERMINAL') at_terminal, SUM(vs.state='IN_DEPOT') in_depot,
                       SUM(vs.load) load, SUM(v.capacity) capacity, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) avg_speed, AVG(vs.maintenance) maint
                       FROM vehicle_state vs JOIN snapshot s USING(snapshot_id) JOIN vehicle v ON v.game_id=s.game_id AND v.vehicle_id=vs.vehicle_id
                       WHERE s.game_id=? AND s.real_time >= ?
                       GROUP BY s.snapshot_id ORDER BY s.snapshot_id DESC LIMIT ?""",
-        agg_sql="""SELECT bucket, n, year, month, day, en_route, at_terminal, in_depot, load, capacity, avg_speed, maint
+        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, en_route, at_terminal, in_depot, load, capacity, avg_speed, maint
                    FROM agg_fleet_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
     caps = rows("""SELECT SUM(v.capacity) capacity FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=? WHERE vs.snapshot_id=?""", (gid, sid))
     return {"by_carrier": by_carrier, "worn": worn, "idle": idle, "stuck": stuck, "history": hist, "capacity": caps[0]["capacity"] if caps else None, "range": rng}
@@ -479,10 +478,10 @@ def api_vehicle_history(q: dict) -> dict:
     rng = _range(q)
     hist = _merged_series(
         gid, rng, _limit(q, 300),
-        detail_sql="""SELECT s.real_time, s.year, s.month, s.day, vs.state, vs.speed_ms, vs.load, vs.maintenance, vs.x, vs.y, vs.line_id, vs.stop_index
+        detail_sql="""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, vs.state, vs.speed_ms, vs.load, vs.maintenance, vs.line_id, vs.stop_index
                       FROM vehicle_state vs JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ? AND vs.vehicle_id=?
                       ORDER BY s.snapshot_id DESC LIMIT ?""",
-        agg_sql="""SELECT bucket, n, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index
+        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, state, speed_ms, load, maintenance, line_id, stop_index
                    FROM agg_vehicle_min WHERE game_id=? AND bucket >= ? AND vehicle_id=? ORDER BY bucket""",
         extra=(vid,))
     v = one("SELECT v.*, vs.cargo, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
@@ -535,14 +534,13 @@ def api_towns(q: dict) -> dict:
     for c in cargo:
         cmap.setdefault(c["town_id"], []).append(c)
     # "supplied / needed" of the town window (mod schema 3+), whole town only (land_use 0); per land use stays in the DB
-    supply = rows("""SELECT town_id, cargo_id, v1, v2, v3 FROM town_supply
+    supply = rows("""SELECT town_id, cargo_id, v1, v2 FROM town_supply
                      WHERE land_use=0 AND snapshot_id=(SELECT MAX(snapshot_id) FROM town_supply)""")
     smap: dict[tuple, dict] = {(s["town_id"], s["cargo_id"]): s for s in supply}
     for c in cargo:
         s = smap.get((c["town_id"], c["cargo_id"]))
         c["supplied"] = s["v1"] if s else None
         c["needed"] = s["v2"] if s else None
-        c["supply_v3"] = s["v3"] if s else None
     top = rows("""SELECT tl.town_id, tl.line_id, l.name, tl.resident_unhappy, tl.resident_total, tl.nonresident_unhappy, tl.nonresident_total
                   FROM town_top_line tl LEFT JOIN line l ON l.game_id=? AND l.line_id=tl.line_id
                   WHERE tl.snapshot_id=(SELECT MAX(snapshot_id) FROM town_top_line)""", (gid,))
@@ -567,8 +565,8 @@ def api_towns(q: dict) -> dict:
 def api_town_history(q: dict) -> dict:
     tid = int(q["id"][0])
     gid = _gid()
-    hist = rows("""SELECT s.real_time, s.year, s.month, ts.cap_res, ts.cap_com, ts.cap_ind, ts.used_res, ts.used_com, ts.used_ind,
-                   ts.hap_inside_unhappy, ts.hap_inside_total, ts.line_usage, ts.noise_db, ts.pollution_db, ts.traffic_speed
+    hist = rows("""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, ts.cap_res, ts.cap_com, ts.cap_ind, ts.used_res, ts.used_com, ts.used_ind,
+                   ts.hap_inside_unhappy, ts.hap_inside_total, ts.line_usage, ts.noise_db, ts.traffic_speed
                    FROM town_state ts JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ? AND ts.town_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), tid, _limit(q, 300)))
     hist.reverse()
     _stamp(hist)
@@ -596,7 +594,7 @@ def api_industry_history(q: dict) -> dict:
     iid = int(q["id"][0])
     gid = _gid()
     since, limit = _since_iso(q), _limit(q, 300)
-    hist = rows("""SELECT s.snapshot_id, s.real_time, s.year, s.month, s.day, st.level, st.production_rating, st.producing, st.thrown_away, st.closure_time
+    hist = rows("""SELECT s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day, st.level, st.production_rating, st.producing, st.thrown_away, st.closure_time
                    FROM industry_state st JOIN snapshot s USING(snapshot_id)
                    WHERE s.game_id=? AND s.real_time >= ? AND st.industry_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, since, iid, limit))
     hist.reverse()
@@ -614,7 +612,7 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, s.construction, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
@@ -626,7 +624,7 @@ def api_station_history(q: dict) -> dict:
     """Waiting items, overflow and capacity of one station over the range, plus the lines calling there."""
     sid = int(q["id"][0])
     gid = _gid()
-    hist = rows("""SELECT s.real_time, s.year, s.month, s.day, ss.used, ss.overflow, ss.pool_capacity, ss.terminal_capacity, ss.lines
+    hist = rows("""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, ss.used, ss.overflow, ss.pool_capacity, ss.terminal_capacity, ss.lines
                    FROM station_state ss JOIN snapshot s USING(snapshot_id)
                    WHERE s.game_id=? AND s.real_time >= ? AND ss.station_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), sid, _limit(q, 300)))
     hist.reverse()
@@ -743,7 +741,7 @@ def api_geo(q: dict) -> dict:
     hundred KB, the map tab asks on every refresh)."""
     gid = _gid()
     try:
-        row = one("SELECT geo_seq, received_at, edge_count, water_count, data FROM geo WHERE game_id=?", (gid,))
+        row = one("SELECT geo_seq, received_at, data FROM geo WHERE game_id=?", (gid,))
     except sqlite3.OperationalError:  # collector older than 0.5.0 never created the table
         row = None
     if not row:
@@ -752,7 +750,7 @@ def api_geo(q: dict) -> dict:
     if have is not None and str(row["geo_seq"]) == str(have) and str(gid) == str(game):
         return {"geo_seq": row["geo_seq"], "game_id": gid, "available": True, "unchanged": True}
     data = json.loads(row["data"])
-    data.update({"available": True, "game_id": gid, "received_at": row["received_at"], "edge_count": row["edge_count"], "water_count": row["water_count"]})
+    data.update({"available": True, "game_id": gid, "received_at": row["received_at"]})
     return data
 
 
@@ -1108,46 +1106,99 @@ def api_line_paths(q: dict) -> dict:
 
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
-RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
-# game-time ranges (0.5.3, asked for on mod.io): so many months of SIMULATION time back from the latest snapshot.
-# The game has two clocks: the simulation (game_time_ms, which drives vehicles, running costs and the finance report:
-# one financial year = 365 days x 4 s = 1460 s of simulation, base/model_metadata_util.lua) and the calendar (the
-# date shown, for vehicle availability), which the player can slow down or pause while money keeps flowing. Ranges
-# follow the simulation, so "1 year" is a finance-report year whatever the calendar does. Resolved to a real-time
-# bound once per request (_range_secs), so every history query keeps filtering on real_time / bucket.
-GAME_RANGES = {"1gm": 1, "6gm": 6, "1gy": 12, "5gy": 60}
+# Ranges follow the SIMULATION clock. The game has two clocks: the simulation (game_time_ms, which drives vehicles,
+# running costs and the finance report: one financial year = 365 days x 4 s = 1460 s of simulation,
+# base/model_metadata_util.lua) and the calendar (the date shown, for vehicle availability), which the player can slow
+# down or pause while money keeps flowing. "1 year" is therefore a finance-report year whatever the calendar does, and
+# a paused game adds nothing to any range. One range per question the player asks:
+#   run  - "did my last change pay?"  since the game was last set running (speed 0 -> >0), or the last reload
+#   1gm  - "right now"                 the last month played
+#   1gy  - "this year"                 1460 s
+#   5gy  - "the trend"                 7300 s
+#   all  - everything recorded
+# The collector keeps one timeline per save (a reload deletes what was recorded beyond it), so the clock is monotonic
+# and a range is "snapshots whose clock is inside the window"; the first of them gives the real-time bound every
+# history query filters on. Every point also carries `gt` (simulation seconds), the x axis of the charts.
+GAME_RANGES = {"1gm": 1, "1gy": 12, "5gy": 60}
 GAME_YEAR_MS = 365 * 4 * 1000
+# earlier dashboards sent real-minute ranges and "6gm": map them so old links and saved settings keep working
+RANGE_ALIASES = {"5m": "1gm", "10m": "1gm", "15m": "1gm", "20m": "1gm", "30m": "1gm", "45m": "1gm", "1h": "1gy", "6gm": "1gy"}
+RANGES = {"run", "1gm", "1gy", "5gy", "all"}
 
 
 def _range(q: dict) -> str:
     r = q.get("range", ["all"])[0]
-    return r if r in RANGES or r in GAME_RANGES else "all"
+    r = RANGE_ALIASES.get(r, r)
+    return r if r in RANGES else "all"
 
 
 def _epoch(iso_str: str) -> float:
     return datetime.datetime.fromisoformat(iso_str).timestamp()
 
 
+def _run_start(gid: int) -> dict | None:
+    """First snapshot of the current run: the one after the latest pause (speed 0 while the simulation did not
+    advance) - or after the latest reload, whichever is later. Paused points before it are left out, so the chart
+    starts where the player pressed play."""
+    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    if not last:
+        return None
+    # latest snapshot whose clock is strictly below the previous one: impossible on a clean timeline, so instead
+    # look for the latest snapshot taken while paused and whose clock is below the current one (a pause the game
+    # has moved on from)
+    pause = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND speed=0 AND game_time_ms < ?""", (gid, last["game_time_ms"]))
+    return one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (gid, (pause and pause["sid"]) or 0))
+
+
 def _range_secs(rng: str) -> float:
     """Seconds of real time covered by the range (0 = everything). A game-time range is measured on the snapshots of
     the current game: the first one whose simulation clock is inside the window gives the bound."""
-    if rng in RANGES:
-        return RANGES[rng]
+    if rng == "all":
+        return 0
+    gid = _gid()
+    if rng == "run":
+        first = _run_start(gid)
+        return max(1.0, time.time() - _epoch(first["rt"])) if first and first["rt"] else 0
     months = GAME_RANGES.get(rng)
     if not months:
         return 0
-    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (_gid(),))
+    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
     if not last:
         return 0
     bound = last["game_time_ms"] - months * GAME_YEAR_MS // 12
-    # the simulation clock goes BACK when a save is reloaded: walk the current run only, i.e. the latest row whose
-    # clock is below the bound (or a rewind) ends the search; everything after it is inside the window
-    edge = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND snapshot_id <= ?
-                  AND (game_time_ms < ? OR game_time_ms > ?)""", (_gid(), last["snapshot_id"], bound, last["game_time_ms"]))
-    first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (_gid(), (edge and edge["sid"]) or 0))
+    if _timeline_clean():
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (gid, bound))
+        # a paused game (or one that just reloaded) has played little since: a window measured on the clock alone
+        # could hold a handful of identical points. Widen it until it holds at least 20 distinct clock values, so
+        # "1 month" always means the last month played, not the last month of a stopped pendulum.
+        n = one("SELECT COUNT(DISTINCT game_time_ms) AS n FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (gid, bound))
+        if n and n["n"] < 20:
+            wider = one("""SELECT MIN(real_time) AS rt FROM (SELECT real_time FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL
+                           GROUP BY game_time_ms ORDER BY game_time_ms DESC LIMIT 20)""", (gid,))
+            if wider and wider["rt"]:
+                first = wider
+    else:
+        # database not yet cleaned by a collector of this version (reloaded branches still inside): walk the current
+        # run only - the latest row whose clock is below the bound, or ahead of the last one, ends the search
+        edge = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND snapshot_id <= ?
+                      AND (game_time_ms < ? OR game_time_ms > ?)""", (gid, last["snapshot_id"], bound, last["game_time_ms"]))
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (gid, (edge and edge["sid"]) or 0))
     if not first or not first["rt"]:
         return 0
     return max(1.0, time.time() - _epoch(first["rt"]))
+
+
+_timeline_state = {"v": None, "at": 0.0}
+
+
+def _timeline_clean() -> bool:
+    """True once the collector applied the one-timeline rule (PRAGMA user_version >= 3); checked every 30 s."""
+    now = time.time()
+    if now - _timeline_state["at"] > 30:
+        r = one("PRAGMA user_version")
+        _timeline_state["v"] = (r or {}).get("user_version", 0)
+        _timeline_state["at"] = now
+    return (_timeline_state["v"] or 0) >= 3
 
 
 def _since_iso(q: dict) -> str:
@@ -1155,10 +1206,17 @@ def _since_iso(q: dict) -> str:
     return datetime.datetime.fromtimestamp(time.time() - secs).isoformat(timespec="seconds") if secs else "0000"
 
 
+def _gt(h: dict) -> None:
+    """Simulation seconds of a row (None when the snapshot had no clock): the x axis of the charts."""
+    g = h.get("game_time_ms")
+    h["gt"] = g / 1000 if isinstance(g, (int, float)) else None
+
+
 def _stamp(hist: list[dict]) -> None:
     for h in hist:
         h["ts"] = _epoch(h["real_time"])
         h["agg"] = 0
+        _gt(h)
 
 
 def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str, extra: tuple = ()) -> list[dict]:
@@ -1176,6 +1234,7 @@ def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str
     for d in detail:
         d["ts"] = _epoch(d["real_time"])
         d["agg"] = 0
+        _gt(d)
     if len(detail) > limit:
         step = len(detail) / limit
         detail = [detail[int(i * step)] for i in range(limit)] + [detail[-1]]
@@ -1188,6 +1247,7 @@ def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str
         a["ts"] = a["bucket"]
         a["agg"] = 60
         a["real_time"] = datetime.datetime.fromtimestamp(a["bucket"]).isoformat(timespec="seconds")
+        _gt(a)
         out.append(a)
     out.extend(detail)
     return out

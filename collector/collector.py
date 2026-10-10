@@ -121,6 +121,7 @@ class Store:
         self._game_cache: dict[str, int] = {}
         self._last_slow_seq: dict[int, int] = {}
         self._schema: int | float | None = None  # mod export schema of the snapshot being ingested
+        self.note: str | None = None  # one-line event for the console (set by ingest, printed by the loop)
 
     # columns added after the first release; CREATE TABLE IF NOT EXISTS does not add them to old DBs
     MIGRATIONS = (
@@ -143,8 +144,6 @@ class Store:
         ("line_stop", "max_add_wait", "REAL"),
         ("line_stop", "waypoints", "INTEGER"),
         ("line_stop", "force_unload", "INTEGER"),
-        ("line_stop", "destroy_for_config_change", "INTEGER"),
-        ("line_stop", "destroy_for_refresh", "INTEGER"),
         ("line_stop", "no_load", "TEXT"),
         ("line_stop", "max_load", "TEXT"),
         ("line_stop", "terminals", "TEXT"),
@@ -153,12 +152,13 @@ class Store:
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
-        ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot: detects a reload of an older save
-        ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day}]: each time the game date went backwards
+        ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
+        ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
+        ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
-    DATA_VERSION = 2
+    DATA_VERSION = 3
 
     def _migrate(self):
         # tables whose layout changed before any release and that the mod rewrites in full on its next file: when the
@@ -180,7 +180,88 @@ class Store:
             self.con.execute("DELETE FROM line_capacity WHERE IFNULL(used,0)=0 AND IFNULL(capacity,0)=0")
             self.con.execute("UPDATE line_capacity SET cargo_id = cargo_id - 1")
             self.con.execute("PRAGMA user_version = 1")
+        if v < 3:
+            # one timeline per save, like the game: measurements taken after a point the player later reloaded
+            # belong to a branch that no longer exists. Drop them once for what was recorded before this rule.
+            n = 0
+            for row in self.con.execute("SELECT game_id FROM game").fetchall():
+                n += self._drop_dead_branches(row["game_id"])
+            # per-vehicle minutes recorded before this version: take the clock of the fleet minute (same bucket)
+            self.con.execute("""UPDATE agg_vehicle_min SET game_time_ms = (SELECT f.game_time_ms FROM agg_fleet_min f
+                                WHERE f.game_id=agg_vehicle_min.game_id AND f.bucket=agg_vehicle_min.bucket) WHERE game_time_ms IS NULL""")
+            self.con.execute("PRAGMA user_version = 3")
+            self.con.commit()
+            if n:
+                self.con.execute("VACUUM")
+        if v < 4:
+            # columns the dashboard never showed (audit of 0.6.1): stop carrying them
+            self._drop_columns()
+            for view in ("v_line_latest", "v_vehicle_latest", "v_alert_latest"):
+                self.con.execute(f"DROP VIEW IF EXISTS {view}")
+            self.con.execute("DROP VIEW IF EXISTS v_finance_series")
+            self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))  # recreate the trimmed view
+            self.con.execute("PRAGMA user_version = 4")
+            self.con.commit()
+            self.con.execute("VACUUM")
         self.con.commit()
+
+    # (table, column) pairs removed by the 0.6.1 audit; dropped from databases created before it
+    DROPPED = (
+        ("game", "player_entity"), ("game", "note"),
+        ("snapshot", "slow_seq"), ("snapshot", "tick"), ("snapshot", "update_count"),
+        ("finance", "bank_balance"), ("company", "oldest_vehicle"),
+        ("vehicle", "first_seen"), ("vehicle_state", "z"), ("vehicle_state", "doors_open"), ("vehicle_state", "depot_id"),
+        ("line", "first_seen"), ("line", "last_seen"),
+        ("line_stop", "slow_seq"), ("line_stop", "destroy_for_config_change"), ("line_stop", "destroy_for_refresh"),
+        ("station", "construction"), ("station", "z"), ("station", "first_seen"), ("station", "last_seen"),
+        ("town", "z"), ("town", "first_seen"), ("town", "last_seen"),
+        ("town_state", "buildings"), ("town_state", "congestion_levels"), ("town_state", "hap_building_unhappy"), ("town_state", "hap_building_total"),
+        ("town_supply", "v3"),
+        ("industry", "z"), ("industry", "first_seen"), ("industry", "last_seen"), ("industry_state", "upgrade_progress"),
+        ("depot", "first_seen"), ("depot", "last_seen"),
+        ("alert", "z"), ("alert", "detail"),
+        ("agg_fleet_min", "vehicles"), ("agg_fleet_min", "to_depot"), ("agg_fleet_min", "stuck"),
+        ("agg_vehicle_min", "x"), ("agg_vehicle_min", "y"),
+        ("agg_finance_min", "balance"), ("agg_finance_min", "loan"), ("agg_finance_min", "earnings_ytd"),
+        ("geo", "edge_count"), ("geo", "water_count"),
+    )
+
+    def _drop_columns(self) -> None:
+        # views that mention a column block its removal: drop them first, the schema script recreates them
+        for view in ("v_latest_snapshot", "v_finance_series", "v_line_latest", "v_vehicle_latest", "v_alert_latest"):
+            self.con.execute(f"DROP VIEW IF EXISTS {view}")
+        for table, col in self.DROPPED:
+            cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
+            if col in cols:
+                self.con.execute(f"ALTER TABLE {table} DROP COLUMN {col}")
+
+    def _drop_dead_branches(self, gid: int) -> int:
+        """Walk the snapshots of a game from the latest backwards and delete every one whose simulation clock is
+        ahead of a later snapshot (recorded, then abandoned by a reload). Returns the number deleted."""
+        rows = self.con.execute("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC", (gid,)).fetchall()
+        floor, dead = None, []
+        for r in rows:
+            if floor is not None and r["game_time_ms"] > floor:
+                dead.append(r["snapshot_id"])
+            else:
+                floor = r["game_time_ms"]
+        for chunk in _chunks(dead, 500):
+            marks = ",".join("?" * len(chunk))
+            self.con.execute(f"DELETE FROM snapshot WHERE snapshot_id IN ({marks})", chunk)
+        # the per-minute aggregates carry the clock too: same walk, by minute; the dead minutes are removed from the
+        # three aggregate tables (per-vehicle minutes older than this version have no clock and stay)
+        aggs = self.con.execute("SELECT bucket, game_time_ms FROM agg_finance_min WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY bucket DESC", (gid,)).fetchall()
+        floor, dead_min = None, []
+        for r in aggs:
+            if floor is not None and r["game_time_ms"] > floor:
+                dead_min.append(r["bucket"])
+            else:
+                floor = r["game_time_ms"]
+        for chunk in _chunks(dead_min, 500):
+            marks = ",".join("?" * len(chunk))
+            for table in ("agg_fleet_min", "agg_finance_min", "agg_vehicle_min"):
+                self.con.execute(f"DELETE FROM {table} WHERE game_id=? AND bucket IN ({marks})", [gid, *chunk])
+        return len(dead) + len(dead_min)
 
     # ------------------------------------------------------------ game
     def game_id(self, snap: dict, now: str) -> int:
@@ -198,32 +279,39 @@ class Store:
             self.con.execute("UPDATE game SET last_seen=? WHERE game_id=?", (now, gid))
         else:
             cur = self.con.execute(
-                "INSERT INTO game(key, player_entity, first_seen, last_seen) VALUES (?,?,?,?)", (key, player, now, now)
+                "INSERT INTO game(key, first_seen, last_seen) VALUES (?,?,?)", (key, now, now)
             )
             gid = cur.lastrowid
         self._game_cache[key] = gid
         return gid
 
-    def _track_game_day(self, gid: int, t: dict, now: str) -> None:
-        """Remember the game date of the last snapshot. When it goes backwards by more than a day for the same
-        save, the player reloaded an older savegame: log it in game.reloads (the history is kept, the dashboard
-        shows a marker). The same key (player entity) is reused by the game for every load of that save."""
-        y, m, d = t.get("year"), t.get("month"), t.get("day")
-        if not all(isinstance(v, (int, float)) for v in (y, m, d)):
+    def _track_reload(self, gid: int, sid: int, t: dict, now: str) -> None:
+        """One timeline per save, the way the game keeps its own history. The simulation clock (game_time_ms) only
+        goes backwards when the player reloads an older savegame; everything recorded beyond that point was a branch
+        the player abandoned, so it is deleted (snapshot children cascade, aggregates by their clock). The reload is
+        logged in game.reloads for the date tile. The same key (player entity) is reused for every load of a save."""
+        gt = t.get("game_time_ms")
+        if not isinstance(gt, (int, float)):
             return
-        day = int(y) * 10000 + int(m) * 100 + int(d)
-        row = self.con.execute("SELECT last_game_day, reloads FROM game WHERE game_id=?", (gid,)).fetchone()
-        last = row["last_game_day"] if row else None
-        if last is not None and day < last - 1:
+        prev = self.con.execute("SELECT game_time_ms FROM snapshot WHERE game_id=? AND snapshot_id<? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid, sid)).fetchone()
+        y, m, d = t.get("year"), t.get("month"), t.get("day")
+        day = int(y) * 10000 + int(m) * 100 + int(d) if all(isinstance(v, (int, float)) for v in (y, m, d)) else None
+        if prev and prev["game_time_ms"] > gt:
+            row = self.con.execute("SELECT last_game_day, reloads FROM game WHERE game_id=?", (gid,)).fetchone()
+            deleted = self.con.execute("DELETE FROM snapshot WHERE game_id=? AND snapshot_id<? AND game_time_ms > ?", (gid, sid, gt)).rowcount
+            for table in ("agg_fleet_min", "agg_finance_min", "agg_vehicle_min"):
+                self.con.execute(f"DELETE FROM {table} WHERE game_id=? AND game_time_ms > ?", (gid, gt))
             try:
-                reloads = json.loads(row["reloads"]) if row["reloads"] else []
+                reloads = json.loads(row["reloads"]) if row and row["reloads"] else []
             except ValueError:
                 reloads = []
-            reloads.append({"at": now, "from_day": last, "to_day": day})
-            reloads = reloads[-20:]
-            self.con.execute("UPDATE game SET reloads=? WHERE game_id=?", (json.dumps(reloads), gid))
-        if last != day:
-            self.con.execute("UPDATE game SET last_game_day=? WHERE game_id=?", (day, gid))
+            reloads.append({"at": now, "from_day": row["last_game_day"] if row else None, "to_day": day,
+                            "game_time_ms": int(gt), "deleted": deleted})
+            self.con.execute("UPDATE game SET reloads=? WHERE game_id=?", (json.dumps(reloads[-20:]), gid))
+            back = (prev["game_time_ms"] - gt) / 1000
+            self.note = f"savegame reloaded ({back:.0f} s of simulation back): {deleted} snapshots of the abandoned branch removed"
+        if day is not None:
+            self.con.execute("UPDATE game SET last_game_day=? WHERE game_id=? AND IFNULL(last_game_day,-1)<>?", (day, gid, day))
 
     def _label_game(self, gid: int, towns: Any) -> None:
         """game.label = '<first town> · <first seen year>' once towns are known (slow section)."""
@@ -261,8 +349,8 @@ class Store:
         seq = (row["geo_seq"] or 0) + 1 if row else 1
         data["geo_seq"], data["digest"] = seq, digest
         self.con.execute(
-            "INSERT OR REPLACE INTO geo(game_id, geo_seq, received_at, edge_count, water_count, data) VALUES (?,?,?,?,?,?)",
-            (gid, seq, iso(), len(edges), len(water), json.dumps(data, separators=(",", ":"))))
+            "INSERT OR REPLACE INTO geo(game_id, geo_seq, received_at, data) VALUES (?,?,?,?)",
+            (gid, seq, iso(), json.dumps(data, separators=(",", ":"))))
         self.con.commit()
         return True
 
@@ -343,12 +431,11 @@ class Store:
         ack = snap.get("cmd_ack")
         cam = snap.get("camera")  # mod rev 7+: {x, y, dist, angle, pitch, follow?}; absent with rev 6
         cur = self.con.execute(
-            """INSERT INTO snapshot(game_id, seq, slow_seq, real_time, received_at, game_time_ms, year, month, day,
-               time_of_day_s, speed, millis_per_day, tick, update_count, n_errors, accept_commands, cmd_ack, camera)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (gid, seq, snap.get("slow_seq"), real_time, now, t.get("game_time_ms"), t.get("year"), t.get("month"),
-             t.get("day"), t.get("time_of_day_sec"), t.get("speed"), t.get("millis_per_day"), t.get("tick"),
-             t.get("update_count"), len(as_list(snap.get("errors"))),
+            """INSERT INTO snapshot(game_id, seq, real_time, received_at, game_time_ms, year, month, day,
+               time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (gid, seq, real_time, now, t.get("game_time_ms"), t.get("year"), t.get("month"),
+             t.get("day"), t.get("time_of_day_sec"), t.get("speed"), t.get("millis_per_day"), len(as_list(snap.get("errors"))),
              b(snap.get("accept_commands")) if snap.get("accept_commands") is not None else None,
              json.dumps(ack) if isinstance(ack, dict) else None,
              json.dumps(cam) if isinstance(cam, dict) else None),
@@ -356,7 +443,7 @@ class Store:
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:
             self.con.execute("UPDATE game SET lang=? WHERE game_id=? AND (lang IS NULL OR lang<>?)", (t["lang"], gid, t["lang"]))
-        self._track_game_day(gid, t, now)
+        self._track_reload(gid, sid, t, now)
         for e in as_list(snap.get("errors")):
             self.con.execute("INSERT INTO snapshot_error(snapshot_id, section, error) VALUES (?,?,?)",
                              (sid, g(e, "section"), g(e, "error")))
@@ -385,8 +472,8 @@ class Store:
         if not isinstance(f, dict):
             return
         self.con.execute(
-            "INSERT OR REPLACE INTO finance VALUES (?,?,?,?,?,?,?)",
-            (sid, f.get("balance"), f.get("bank_balance"), f.get("loan"), f.get("earnings_year_to_date"),
+            "INSERT OR REPLACE INTO finance VALUES (?,?,?,?,?,?)",
+            (sid, f.get("balance"), f.get("loan"), f.get("earnings_year_to_date"),
              f.get("passengers_transported"), f.get("cargo_transported")),
         )
 
@@ -397,15 +484,15 @@ class Store:
             """INSERT OR REPLACE INTO company (snapshot_id, total_score, rail_vehicles, trams, road_vehicles, aircrafts, ships,
                    track_length_m, track_electric_m, bridge_length_m, tunnel_length_m, road_length_m, supplied_towns,
                    connected_industries, number_of_lines, total_stations, rail_stations, tram_stations, road_stations,
-                   aircraft_stations, ship_stations, top_speed, top_length, oldest_vehicle, total_assets, debt,
+                   aircraft_stations, ship_stations, top_speed, top_length, total_assets, debt,
                    hq_x, hq_y, hq_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (sid, c.get("totalScore"), c.get("railVehicles"), c.get("trams"), c.get("roadVehicles"), c.get("aircrafts"),
              c.get("ships"), c.get("trackTotalLength"), c.get("trackElectricLength"), c.get("bridgeTotalLength"),
              c.get("tunnelTotalLength"), c.get("roadTotalLength"), c.get("suppliedTowns"), c.get("connectedIndustries"),
              c.get("numberOfLines"), c.get("totalStations"), c.get("railStations"), c.get("tramStations"),
              c.get("roadStations"), c.get("aircraftStations"), c.get("shipStations"), c.get("topSpeed"),
-             c.get("topLength"), c.get("oldestTransportVehicle"), c.get("totalAssets"), c.get("debt"),
+             c.get("topLength"), c.get("totalAssets"), c.get("debt"),
              c.get("headquarterX"), c.get("headquarterY"), c.get("headquarterId")),
         )
 
@@ -421,27 +508,26 @@ class Store:
     def _alerts(self, sid: int, a: Any):
         if not isinstance(a, dict):
             return
-        ins = "INSERT INTO alert(snapshot_id, kind, entity_id, related_id, type_code, stop_index, amount, x, y, z, detail) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        ins = "INSERT INTO alert(snapshot_id, kind, entity_id, related_id, type_code, stop_index, amount, x, y) VALUES (?,?,?,?,?,?,?,?,?)"
         for p in as_list(a.get("line_problems")):
-            x, y, z = xyz(g(p, "pos"))
-            self.con.execute(ins, (sid, "line_problem", g(p, "line"), None, g(p, "type"), None, None, x, y, z, None))
+            x, y, _z = xyz(g(p, "pos"))
+            self.con.execute(ins, (sid, "line_problem", g(p, "line"), None, g(p, "type"), None, None, x, y))
         for p in as_list(a.get("line_issues")):
-            self.con.execute(ins, (sid, "line_issue", g(p, "line"), g(p, "cargo_type"), g(p, "type"), g(p, "stop"), None, None, None, None, None))
+            self.con.execute(ins, (sid, "line_issue", g(p, "line"), g(p, "cargo_type"), g(p, "type"), g(p, "stop"), None, None, None))
         for p in as_list(a.get("vehicle_problems")):
             for v in as_list(g(p, "vehicles")):
-                self.con.execute(ins, (sid, "vehicle_problem", v, None, g(p, "type"), None, None, None, None, None, None))
+                self.con.execute(ins, (sid, "vehicle_problem", v, None, g(p, "type"), None, None, None, None))
         for p in as_list(a.get("blocked_trains")):
-            self.con.execute(ins, (sid, "blocked_train", g(p, "train"), g(p, "blocked_by"), None, None, None, None, None, None, None))
+            self.con.execute(ins, (sid, "blocked_train", g(p, "train"), g(p, "blocked_by"), None, None, None, None, None))
         for v in as_list(a.get("no_path_vehicles")):
-            self.con.execute(ins, (sid, "no_path_vehicle", v, None, None, None, None, None, None, None, None))
+            self.con.execute(ins, (sid, "no_path_vehicle", v, None, None, None, None, None, None))
         for p in as_list(a.get("town_problems")):
             for tn in as_list(g(p, "towns")):
-                self.con.execute(ins, (sid, "town_problem", tn, None, g(p, "type"), None, None, None, None, None, None))
+                self.con.execute(ins, (sid, "town_problem", tn, None, g(p, "type"), None, None, None, None))
         for p in as_list(a.get("closing_industries")):
-            self.con.execute(ins, (sid, "closing_industry", g(p, "industry"), None, None, None, None, None, None, None,
-                                   json.dumps({"name": g(p, "name")})))
+            self.con.execute(ins, (sid, "closing_industry", g(p, "industry"), None, None, None, None, None, None))
         for p in as_list(a.get("thrown_away_cargo")):
-            self.con.execute(ins, (sid, "thrown_away_cargo", g(p, "stock_list"), None, None, None, g(p, "amount"), None, None, None, None))
+            self.con.execute(ins, (sid, "thrown_away_cargo", g(p, "stock_list"), None, None, None, g(p, "amount"), None, None))
 
     def _vehicles(self, sid: int, gid: int, now: str, vs: Any):
         for v in as_list(vs):
@@ -450,27 +536,27 @@ class Store:
             vid = v["id"]
             caps = v.get("capacities")
             self.con.execute(
-                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, first_seen, last_seen, icon_type, model, model_key, parts, capacities)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, last_seen, icon_type, model, model_key, parts, capacities)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=COALESCE(excluded.name, vehicle.name),
                    carrier=COALESCE(excluded.carrier, vehicle.carrier), capacity=COALESCE(excluded.capacity, vehicle.capacity),
                    last_seen=excluded.last_seen,
                    icon_type=COALESCE(excluded.icon_type, vehicle.icon_type), model=COALESCE(excluded.model, vehicle.model),
                    model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts),
                    capacities=COALESCE(excluded.capacities, vehicle.capacities)""",
-                (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now, now,
+                (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now,
                  clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts"),
                  json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None),
             )
-            x, y, z = xyz(v.get("pos"))
+            x, y, _z = xyz(v.get("pos"))
             cargo = v.get("cargo")
             self.con.execute(
-                """INSERT OR REPLACE INTO vehicle_state(snapshot_id, vehicle_id, line_id, state, stop_index, x, y, z, speed_ms, load,
-                   maintenance, running_cost, value, user_stopped, no_path, doors_open, depot_id, days_in_depot, days_at_terminal, closest_town, cargo)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (sid, vid, v.get("line"), clean_enum(v.get("state")), v.get("stop_index"), x, y, z, v.get("speed"), v.get("load"),
+                """INSERT OR REPLACE INTO vehicle_state(snapshot_id, vehicle_id, line_id, state, stop_index, x, y, speed_ms, load,
+                   maintenance, running_cost, value, user_stopped, no_path, days_in_depot, days_at_terminal, closest_town, cargo)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (sid, vid, v.get("line"), clean_enum(v.get("state")), v.get("stop_index"), x, y, v.get("speed"), v.get("load"),
                  v.get("maintenance"), v.get("running_cost"), v.get("value"), b(v.get("user_stopped")), b(v.get("no_path")),
-                 b(v.get("doors_open")), v.get("depot"), v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town"),
+                 v.get("days_in_depot"), v.get("days_at_terminal"), v.get("closest_town"),
                  json.dumps(cargo, separators=(",", ":")) if isinstance(cargo, dict) and cargo else None),
             )
 
@@ -481,11 +567,11 @@ class Store:
             lid = l["id"]
             c = l.get("color") or {}
             self.con.execute(
-                """INSERT INTO line(game_id, line_id, name, color_r, color_g, color_b, transport_modes, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?)
+                """INSERT INTO line(game_id, line_id, name, color_r, color_g, color_b, transport_modes)
+                   VALUES (?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, line_id) DO UPDATE SET name=excluded.name, color_r=excluded.color_r, color_g=excluded.color_g,
-                   color_b=excluded.color_b, transport_modes=excluded.transport_modes, last_seen=excluded.last_seen""",
-                (gid, lid, l.get("name"), c.get("x"), c.get("y"), c.get("z"), json.dumps(as_list(l.get("transport_modes"))), now, now),
+                   color_b=excluded.color_b, transport_modes=excluded.transport_modes""",
+                (gid, lid, l.get("name"), c.get("x"), c.get("y"), c.get("z"), json.dumps(as_list(l.get("transport_modes")))),
             )
             q = l.get("quality") or {}
             self.con.execute(
@@ -508,13 +594,13 @@ class Store:
                     terminals = [x for x in as_list(g(s, "terminals")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     alternatives = [x for x in as_list(g(s, "alternatives")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     self.con.execute(
-                        """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name, slow_seq,
-                           load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load,
+                        """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name,
+                           load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, no_load, max_load,
                            terminals, alternatives)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"), slow_seq,
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"),
                          g(s, "load_mode"), g(s, "min_wait"), g(s, "max_wait"), g(s, "max_add_wait"), g(s, "waypoints"),
-                         _bool(g(s, "force_unload")), _bool(g(s, "destroy_for_config_change")), _bool(g(s, "destroy_for_refresh")),
+                         _bool(g(s, "force_unload")),
                          json.dumps([x for x in no_load if isinstance(x, (int, float))]) if no_load else None,
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
                          json.dumps(terminals) if terminals else None,
@@ -527,13 +613,13 @@ class Store:
         for s in as_list(ss):
             if not isinstance(s, dict) or s.get("id") is None:
                 continue
-            x, y, z = xyz(s.get("pos"))
+            x, y, _z = xyz(s.get("pos"))
             self.con.execute(
-                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, construction, x, y, z, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, x, y)
+                   VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
-                   is_cargo=excluded.is_cargo, construction=excluded.construction, x=excluded.x, y=excluded.y, z=excluded.z, last_seen=excluded.last_seen""",
-                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), s.get("construction"), x, y, z, now, now),
+                   is_cargo=excluded.is_cargo, x=excluded.x, y=excluded.y""",
+                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO station_state VALUES (?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))
@@ -546,21 +632,21 @@ class Store:
             if not isinstance(t, dict) or t.get("id") is None:
                 continue
             tid = t["id"]
-            x, y, z = xyz(t.get("pos"))
+            x, y, _z = xyz(t.get("pos"))
             self.con.execute(
-                """INSERT INTO town(game_id, town_id, name, x, y, z, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?)
-                   ON CONFLICT(game_id, town_id) DO UPDATE SET name=excluded.name, x=excluded.x, y=excluded.y, z=excluded.z, last_seen=excluded.last_seen""",
-                (gid, tid, t.get("name"), x, y, z, now, now),
+                """INSERT INTO town(game_id, town_id, name, x, y) VALUES (?,?,?,?,?)
+                   ON CONFLICT(game_id, town_id) DO UPDATE SET name=excluded.name, x=excluded.x, y=excluded.y""",
+                (gid, tid, t.get("name"), x, y),
             )
             usage = as_list(t.get("usage"))
             used = [g(u, "used") for u in usage] + [None] * 3
             h = t.get("happiness") or {}
             r = t.get("reach") or {}
             vals = [sid, tid, b(t.get("development_active")), t.get("cap_res"), t.get("cap_com"), t.get("cap_ind"),
-                    used[0], used[1], used[2], t.get("stations"), t.get("buildings"), t.get("noise_db"), t.get("pollution_db"),
-                    t.get("area_km2"), t.get("line_usage"), t.get("traffic_speed"), json.dumps(as_list(t.get("congestion_levels"))),
+                    used[0], used[1], used[2], t.get("stations"), t.get("noise_db"), t.get("pollution_db"),
+                    t.get("area_km2"), t.get("line_usage"), t.get("traffic_speed"),
                     r.get("com_private"), r.get("com_public"), r.get("ind_private"), r.get("ind_public")]
-            for k in ("inside", "at_building", "by_car", "walking", "to_resident", "to_non_resident", "from_resident", "from_non_resident"):
+            for k in ("inside", "by_car", "walking", "to_resident", "to_non_resident", "from_resident", "from_non_resident"):
                 vals.extend(pair(h.get(k)))
             self.con.execute("INSERT OR REPLACE INTO town_state VALUES (" + ",".join("?" * len(vals)) + ")", vals)
             for sc in as_list(t.get("stock")):
@@ -569,8 +655,8 @@ class Store:
                                      (sid, tid, sc["cargo_type"], sc.get("stock"), sc.get("capacity")))
             for sp in as_list(t.get("supply")):  # mod schema 3+
                 if isinstance(sp, dict) and sp.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO town_supply VALUES (?,?,?,?,?,?,?)",
-                                     (sid, tid, sp.get("land_use") or 0, sp["cargo_type"], sp.get("v1"), sp.get("v2"), sp.get("v3")))
+                    self.con.execute("INSERT OR REPLACE INTO town_supply VALUES (?,?,?,?,?,?)",
+                                     (sid, tid, sp.get("land_use") or 0, sp["cargo_type"], sp.get("v1"), sp.get("v2")))
             for tl in as_list(t.get("top_lines")):
                 if isinstance(tl, dict) and tl.get("line") is not None:
                     ru, rt = pair(tl.get("resident"))
@@ -582,17 +668,17 @@ class Store:
             if not isinstance(i, dict) or i.get("id") is None:
                 continue
             iid = i["id"]
-            x, y, z = xyz(i.get("pos"))
+            x, y, _z = xyz(i.get("pos"))
             self.con.execute(
-                """INSERT INTO industry(game_id, industry_id, name, construction, stock_list, max_level, x, y, z, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO industry(game_id, industry_id, name, construction, stock_list, max_level, x, y)
+                   VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, industry_id) DO UPDATE SET name=excluded.name, construction=excluded.construction,
-                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y, z=excluded.z, last_seen=excluded.last_seen""",
-                (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y, z, now, now),
+                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y""",
+                (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y),
             )
             self.con.execute(
-                "INSERT OR REPLACE INTO industry_state VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (sid, iid, i.get("level"), i.get("upgrade_progress"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
+                "INSERT OR REPLACE INTO industry_state VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
                  b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away")),
             )
             for c in as_list(i.get("inputs")):
@@ -609,9 +695,9 @@ class Store:
             if not isinstance(d, dict) or d.get("id") is None:
                 continue
             self.con.execute(
-                """INSERT INTO depot(game_id, depot_id, name, carrier, first_seen, last_seen) VALUES (?,?,?,?,?,?)
-                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier, last_seen=excluded.last_seen""",
-                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier")), now, now),
+                """INSERT INTO depot(game_id, depot_id, name, carrier) VALUES (?,?,?,?)
+                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier""",
+                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier"))),
             )
             self.con.execute("INSERT OR REPLACE INTO depot_state VALUES (?,?,?,?,?,?,?)",
                              (sid, d["id"], d.get("vehicles"), d.get("incoming"), d.get("maintenance_pool"), d.get("pool_max"), d.get("pool_avg")))
@@ -678,31 +764,30 @@ class Store:
         bucket = f"(CAST(strftime('%s', s.real_time) AS INTEGER) - {off}) / 60 * 60"
         where = f"s.game_id=? AND {bucket} >= ? AND {bucket} < ?"
         c.execute(f"""
-            INSERT OR REPLACE INTO agg_fleet_min(game_id, bucket, n, game_time_ms, year, month, day, vehicles, en_route, at_terminal, in_depot, to_depot,
-                                                 load, capacity, avg_speed, maint, stuck)
-            SELECT ?, b, COUNT(*), MAX(game_time_ms), MAX(year), MAX(month), MAX(day), AVG(vehicles), AVG(en_route), AVG(at_terminal), AVG(in_depot), AVG(to_depot),
-                   AVG(load), AVG(capacity), AVG(avg_speed), AVG(maint), AVG(stuck)
+            INSERT OR REPLACE INTO agg_fleet_min(game_id, bucket, n, game_time_ms, year, month, day, en_route, at_terminal, in_depot,
+                                                 load, capacity, avg_speed, maint)
+            SELECT ?, b, COUNT(*), MAX(game_time_ms), MAX(year), MAX(month), MAX(day), AVG(en_route), AVG(at_terminal), AVG(in_depot),
+                   AVG(load), AVG(capacity), AVG(avg_speed), AVG(maint)
             FROM (
-              SELECT {bucket} b, s.game_time_ms, s.year, s.month, s.day, COUNT(*) vehicles,
-                     SUM(vs.state='EN_ROUTE') en_route, SUM(vs.state='AT_TERMINAL') at_terminal, SUM(vs.state='IN_DEPOT') in_depot, SUM(vs.state='GOING_TO_DEPOT') to_depot,
-                     SUM(vs.load) load, SUM(v.capacity) capacity, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) avg_speed, AVG(vs.maintenance) maint,
-                     SUM(CASE WHEN vs.state='EN_ROUTE' AND vs.speed_ms < 0.5 THEN 1 ELSE 0 END) stuck
+              SELECT {bucket} b, s.game_time_ms, s.year, s.month, s.day,
+                     SUM(vs.state='EN_ROUTE') en_route, SUM(vs.state='AT_TERMINAL') at_terminal, SUM(vs.state='IN_DEPOT') in_depot,
+                     SUM(vs.load) load, SUM(v.capacity) capacity, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) avg_speed, AVG(vs.maintenance) maint
               FROM snapshot s JOIN vehicle_state vs USING(snapshot_id) JOIN vehicle v ON v.game_id=s.game_id AND v.vehicle_id=vs.vehicle_id
               WHERE {where} GROUP BY s.snapshot_id)
             GROUP BY b""", (gid, gid, lo, hi))
         n = c.execute("SELECT changes()").fetchone()[0]
         c.execute(f"""
-            INSERT OR REPLACE INTO agg_vehicle_min(game_id, vehicle_id, bucket, n, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index)
-            SELECT s.game_id, vs.vehicle_id, {bucket} b, COUNT(*), MAX(s.year), MAX(s.month), MAX(s.day),
+            INSERT OR REPLACE INTO agg_vehicle_min(game_id, vehicle_id, bucket, n, game_time_ms, year, month, day, state, speed_ms, load, maintenance, line_id, stop_index)
+            SELECT s.game_id, vs.vehicle_id, {bucket} b, COUNT(*), MAX(s.game_time_ms), MAX(s.year), MAX(s.month), MAX(s.day),
                    (SELECT state FROM vehicle_state q JOIN snapshot sq USING(snapshot_id) WHERE q.vehicle_id=vs.vehicle_id AND sq.game_id=s.game_id
                       AND (CAST(strftime('%s', sq.real_time) AS INTEGER) - {off}) / 60 * 60 = {bucket} GROUP BY state ORDER BY COUNT(*) DESC LIMIT 1),
-                   AVG(vs.speed_ms), AVG(vs.load), AVG(vs.maintenance), AVG(vs.x), AVG(vs.y), MAX(vs.line_id), MAX(vs.stop_index)
+                   AVG(vs.speed_ms), AVG(vs.load), AVG(vs.maintenance), MAX(vs.line_id), MAX(vs.stop_index)
             FROM snapshot s JOIN vehicle_state vs USING(snapshot_id)
             WHERE {where} GROUP BY vs.vehicle_id, b""", (gid, lo, hi))
         c.execute(f"""
-            INSERT OR REPLACE INTO agg_finance_min(game_id, bucket, n, game_time_ms, year, month, day, balance, loan, earnings_ytd, passengers_transported, cargo_transported)
+            INSERT OR REPLACE INTO agg_finance_min(game_id, bucket, n, game_time_ms, year, month, day, passengers_transported, cargo_transported)
             SELECT s.game_id, {bucket} b, COUNT(*), MAX(s.game_time_ms), MAX(s.year), MAX(s.month), MAX(s.day),
-                   AVG(f.balance), AVG(f.loan), AVG(f.earnings_ytd), MAX(f.passengers_transported), MAX(f.cargo_transported)
+                   MAX(f.passengers_transported), MAX(f.cargo_transported)
             FROM snapshot s JOIN finance f USING(snapshot_id)
             WHERE {where} GROUP BY b""", (gid, lo, hi))
         return n
@@ -1052,6 +1137,10 @@ def main(argv: list[str] | None = None) -> int:
                         snap = slow_files.merge(snap)
                     try:
                         sid = store.ingest(snap)
+                        if store.note:
+                            flush_minute()
+                            say(store.note, "warn")
+                            store.note = None
                     except Exception as e:  # noqa: BLE001 - one bad snapshot must not kill the collector
                         import traceback
                         store.con.rollback()

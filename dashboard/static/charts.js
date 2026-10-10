@@ -79,8 +79,8 @@
   // Same call shape as before: lineChart(canvas, series, labels, opts). The <canvas> is used as an anchor:
   // a <div class="uchart"> is created right after it (once) and uPlot renders there; the canvas stays hidden.
   //   series: [{ name, values, color, area, axis:'left'|'right', unit, dash, width, step }]
-  //   opts:   { ts: [unix s], aggFrom: index|null, zeroBase, rightAxis, unit, rightUnit, percent, stacked, yMin, yMax,
-  //             badges, syncKey, onSelect(fromTs, toTs) }
+  //   opts:   { ts: [x values: unix s, or game seconds when `real` is given], real: [unix s]|null, aggFrom: index|null,
+  //             zeroBase, rightAxis, unit, rightUnit, percent, stacked, yMin, yMax, badges, syncKey, onSelect(fromTs, toTs) }
   // Features: drag-to-zoom (double-click to reset), legend click to hide a series, synchronized cursor
   // across charts with the same syncKey, hatched band over the aggregated (per-minute) part of the series.
   const I18N_T = (k, d) => (window.__t ? window.__t(k) : null) || d;
@@ -204,21 +204,31 @@
     if (opts.stacked) { const acc = new Array(n).fill(0); data = data.map(vals => vals.map((v, i) => { acc[i] += v || 0; return acc[i]; })); }
     const { w, h } = hostSize(canvas, host);
     const hid = hidden[key] || (hidden[key] = new Set());
-    const span = timeAxis ? xs[n - 1] - xs[0] : 0;
-    // opts.gameOnly: the x values are game time, not wall-clock (journal): the label alone says it all
-    const getLabel = (i) => opts.gameOnly ? (labels && labels[i] != null ? String(labels[i]) : "") : timeAxis ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(xs[i], span)}` : fmtTime(xs[i], span)) : dateTick(labels, i) || "#" + i;
-    // game dates on the axis: it still runs on real time underneath (even spacing, aggregate shading) but the ticks
-    // read the game month, one tick where each month begins. A window inside a single month (a few real minutes)
-    // falls back to the per-sample day labels so the axis still says something.
+    // the wall-clock of each sample, for the tooltip: the x values themselves when they are real time, opts.real
+    // when the x axis runs on the game clock
+    const real = opts.real && opts.real.length === n ? opts.real : (timeAxis && !opts.gameOnly ? xs : null);
+    const span = real ? real[n - 1] - real[0] : 0;
+    // opts.gameOnly: the x values are game time and there is no wall-clock to add (journal): the label alone says it all
+    const getLabel = (i) => opts.gameOnly ? (labels && labels[i] != null ? String(labels[i]) : "") : real ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(real[i], span)}` : fmtTime(real[i], span)) : dateTick(labels, i) || "#" + i;
+    // game dates on the axis: the ticks read the game month, one tick where each month begins. A window inside a
+    // single month falls back to the per-sample day labels so the axis still says something.
     const gameTicks = timeAxis && opts.xGame && opts.xGame.length === n;
     let monthStarts = gameTicks ? xs.filter((x, i) => opts.xGame[i] && (i === 0 || opts.xGame[i] !== opts.xGame[i - 1])) : [];
     let tickLabels = opts.xGame;
     if (gameTicks && monthStarts.length < 2 && labels && labels.length === n) { tickLabels = labels; monthStarts = xs.filter((x, i) => labels[i] && (i === 0 || labels[i] !== labels[i - 1])); }
+    // the calendar can be paused while the simulation runs (the date never changes, money and wear do): on a game
+    // clock axis, label the simulation time itself when the calendar gave fewer than two ticks
+    let simTicks = false;
+    if (opts.real && monthStarts.length < 2 && xs[n - 1] - xs[0] > 60) { simTicks = true; monthStarts = []; tickLabels = null; }
+    const SIM_MONTH = 365 * 4 / 12;  // one financial year = 1460 s of simulation
+    const fmtSim = (dx) => dx >= SIM_MONTH * 11.5 ? I18N_T("sim_years", "{n} y").replace("{n}", (dx / (SIM_MONTH * 12)).toFixed(dx >= SIM_MONTH * 24 ? 0 : 1)) : dx >= SIM_MONTH * 0.9 ? I18N_T("sim_months", "{n} mo").replace("{n}", Math.round(dx / SIM_MONTH)) : I18N_T("sim_days", "{n} d").replace("{n}", Math.round(dx / 4));
+    const simSplits = (u) => { const lo = u.scales.x.min, hi = u.scales.x.max, end = xs[n - 1]; const steps = [4 * 7, SIM_MONTH, SIM_MONTH * 3, SIM_MONTH * 6, SIM_MONTH * 12, SIM_MONTH * 60]; const px = u.bbox.width / devicePixelRatio; let step = steps[steps.length - 1]; for (const s of steps) { if ((hi - lo) / s * 70 <= px) { step = s; break; } } const out = []; for (let x = end; x >= lo; x -= step) if (x <= hi) out.unshift(x); return out; };
+    const simValues = (u, vals) => vals.map(v => { const dx = xs[n - 1] - v; return dx < 1 ? I18N_T("sim_now", "now") : "-" + fmtSim(dx); });
     // keep a month start only when it lands >= 70 px right of the previous one kept (the latest months win, since the
     // reader looks at the right end), so labels never overlap even across a save-reload jump
     const minGap = tickLabels === opts.xGame ? 44 : 70;  // month names are short
     const gameSplits = (u) => { const out = []; let lastPx = Infinity; for (let i = monthStarts.length - 1; i >= 0; i--) { const px = u.valToPos(monthStarts[i], "x"); if (lastPx - px >= minGap) { out.unshift(monthStarts[i]); lastPx = px; } } return out; };
-    const labelAt = new Map(); if (gameTicks) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, tickLabels[i]); });
+    const labelAt = new Map(); if (gameTicks && tickLabels) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, tickLabels[i]); });
     const gameAxisValues = (u, vals) => vals.map(v => labelAt.get(v) || "");
 
     const yRange = (u, min, max, scaleKey) => {
@@ -239,14 +249,14 @@
       select: { show: true },
       legend: { show: true, live: false, markers: { width: 2 } },
       scales: {
-        x: { time: timeAxis },
+        x: { time: timeAxis && !opts.real && !opts.gameOnly },  // game seconds are plain numbers, not dates
         y: { range: (u, mn, mx) => yRange(u, mn, mx, "y") },
         r: { range: (u, mn, mx) => yRange(u, mn, mx, "r") },
       },
       axes: [
         { stroke: css("--muted"), grid: { stroke: css("--border"), width: 1 }, ticks: { stroke: css("--border"), width: 1 }, font: `11px ${FONT()}`, gap: 6, size: 28,
-          values: gameTicks ? gameAxisValues : timeAxis ? (u, vals) => vals.map(v => fmtTime(v, span)) : (u, vals) => vals.map(v => Number.isInteger(v) ? dateTick(labels, v) : ""),
-          space: 90, incrs: timeAxis ? undefined : [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000], splits: gameTicks ? gameSplits : undefined },
+          values: simTicks ? simValues : gameTicks ? gameAxisValues : timeAxis && !opts.real ? (u, vals) => vals.map(v => fmtTime(v, span)) : timeAxis ? (u, vals) => vals.map(v => "") : (u, vals) => vals.map(v => Number.isInteger(v) ? dateTick(labels, v) : ""),
+          space: 90, incrs: timeAxis ? undefined : [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000], splits: simTicks ? simSplits : gameTicks ? gameSplits : undefined },
         { scale: "y", stroke: css("--muted"), grid: { stroke: css("--border"), width: 1 }, ticks: { show: false }, font: `11px ${FONT()}`, size: 56, gap: 4,
           values: (u, vals) => vals.map(v => fmtShort(v, opts.unit)) },
         ...(hasRight ? [{ scale: "r", side: 1, stroke: css("--muted"), grid: { show: false }, ticks: { show: false }, font: `11px ${FONT()}`, size: 60, gap: 4,

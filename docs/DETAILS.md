@@ -141,9 +141,10 @@ Three independent parts:
    - **savegames**: one `game` row per save, key = `player:<entity>` (the game reuses the same player entity at every
      load of that save, so the history continues across sessions; two different saves get two rows and the dashboard
      shows the one with the latest snapshot). `game.label` = first town (alphabetical) + date first seen; `last_game_day`
-     = the game date of the last snapshot; when a snapshot arrives with a game date older than that by more than a
-     day, the player reloaded an older save: logged in `game.reloads` (JSON, last 20), the history is kept, the date
-     tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`, `--forget-game ID`.
+     = the game date of the last snapshot (for the UI). A reload of an older save is detected on the simulation clock
+     (see "Time axis and reloads" below): logged in `game.reloads` (JSON, last 20), the branch recorded beyond it is
+     deleted, the date tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`,
+     `--forget-game ID`.
    - **backups** (settings panel, "Savegames & backups"; `POST /api/backup`): `db\backups\tf3-dashboard-<label>-<stamp>.zip`
      = consistent copy of the database (SQLite backup API, taken while the collector writes) + `camera_views.json` +
      `manifest.json`. Restore (`POST /api/restore {file, what}`): `views` merges the camera views at once (only for saves
@@ -356,8 +357,27 @@ Three independent parts:
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
-     between the charts of one tab. Time range (5 min ... 1 h, all) right of the tabs; the older part (per-minute
-     averages, see retention) is hatched and marked "1 min average" in the tooltip.
+     between the charts of one tab. Time range right of the tabs, one per question the player asks, all in simulation
+     time (`game_time_ms`; one financial year = 1460 s whatever the calendar does, a paused game adds nothing):
+     **since play** (did my last change pay? - since the game was last set running after a pause or a reload:
+     first snapshot after the latest `speed = 0` row whose clock is below the current one), **1 month** (right
+     now - the last month played, widened to the last 20 distinct clock values when less was played), **1 year**,
+     **5 years**, **all**. Real-minute ranges were dropped in 0.6.1: at speed 1 they duplicated the game ranges,
+     paused they were empty, at speed 4 they lied; `?range=5m..1h` and `6gm` still resolve to the nearest game range.
+     The older part (per-minute averages, see retention) is hatched and marked "1 min average" in the tooltip.
+   - **Time axis and reloads** (companion 0.6.1): the x axis of every history chart is the game's simulation clock
+     (`gt`, seconds of `game_time_ms`), like the game's own charts - a pause is a point, not a plateau, and a second
+     of simulation is the same width whatever the speed. Ticks read the game month; when the calendar is paused while
+     the simulation runs (the date never changes, money and wear do) the axis says "-6 months ... now" instead. The
+     tooltip adds the wall-clock time of the sample. The game keeps one history per save: reloading an older savegame
+     makes everything played after it vanish. The collector does the same (`_track_reload`): when the simulation clock
+     of a new snapshot is below the previous one, every snapshot of that game whose clock is beyond it is deleted
+     (children cascade; the minute aggregates by their own clock), the event is logged in `game.reloads`
+     (`{at, from_day, to_day, game_time_ms, deleted}`, last 20, shown by the amber date tile) and the console says how
+     many snapshots went. The clock is therefore monotonic per game, a game range is one indexed query, and the
+     database stays small (a test save with 62 reloads went from 310 MB to 63 MB when the rule was applied once at
+     start-up, `PRAGMA user_version 3`, followed by a VACUUM). Dimension rows (vehicles, lines bought in an abandoned
+     branch) are not touched: they age out with the usual retention. Snapshots without a clock keep a real-time axis.
    - **Panel layout** (pencil top right, or Settings > Panels): in each tab, drag a panel by its handle to reorder,
      pull the right edge (width, in 12ths of the grid) or the bottom edge (fixed height: charts and lists fill the card),
      -/+ buttons and auto height, hide a panel (it comes back through the "Hidden panels" bar). Esc or Done to leave.
@@ -420,13 +440,20 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
 
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
+- rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and
+  drawn by the dashboard; what the mod exports and nothing displays is not stored. Columns dropped by the audit
+  (`Store.DROPPED`, removed from older databases at start-up, `PRAGMA user_version 4`): positions' `z`, `first_seen`
+  / `last_seen` of dimensions other than `game`, `snapshot.tick/update_count/slow_seq`, `finance.bank_balance`,
+  `company.oldest_vehicle`, `vehicle_state.doors_open/depot_id`, `line_stop.destroy_*`, `station.construction`,
+  `town_state.buildings/congestion_levels/hap_building_*`, `town_supply.v3`, `industry_state.upgrade_progress`,
+  `alert.detail`, the fleet/finance aggregates nobody plotted, the unused views.
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - per game, not per snapshot: `geo` (map geography), `line_path` (legs driven), `finance_journal` / `finance_journal_col`
   (the game's finance table, replaced at each monthly write of the mod, never purged)
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
-- views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
+- views: `v_latest_snapshot`, `v_finance_series`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);
   `PRAGMA user_version` on the database side (1 = fix applied to already stored `line_capacity`). The collector fixes
   on the fly the exports of a mod still on schema 1 (+1 offset: a bus "carried vehicles").

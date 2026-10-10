@@ -9,10 +9,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS game (
     game_id        INTEGER PRIMARY KEY,
     key            TEXT NOT NULL UNIQUE,          -- stable key: player entity + first seen date
-    player_entity  INTEGER,
     first_seen     TEXT NOT NULL,                 -- ISO real time
     last_seen      TEXT NOT NULL,
-    note           TEXT,
     lang           TEXT                           -- game UI language code (fr, en, de, zh_CN...)
 );
 
@@ -23,8 +21,6 @@ CREATE TABLE IF NOT EXISTS geo (
     game_id        INTEGER PRIMARY KEY REFERENCES game(game_id),
     geo_seq        INTEGER,
     received_at    TEXT NOT NULL,
-    edge_count     INTEGER,
-    water_count    INTEGER,
     data           TEXT NOT NULL
 );
 
@@ -73,7 +69,6 @@ CREATE TABLE IF NOT EXISTS snapshot (
     snapshot_id    INTEGER PRIMARY KEY,
     game_id        INTEGER NOT NULL REFERENCES game(game_id),
     seq            INTEGER NOT NULL,              -- mod sequence number (restarts with the game)
-    slow_seq       INTEGER,                       -- seq at which the slow sections were collected
     real_time      TEXT NOT NULL,                 -- ISO, from os.time() in the mod
     received_at    TEXT NOT NULL,                 -- ISO, collector clock
     game_time_ms   INTEGER,
@@ -83,8 +78,6 @@ CREATE TABLE IF NOT EXISTS snapshot (
     time_of_day_s  INTEGER,
     speed          INTEGER,                       -- 0 = paused
     millis_per_day INTEGER,
-    tick           INTEGER,
-    update_count   INTEGER,
     n_errors       INTEGER NOT NULL DEFAULT 0,
     accept_commands INTEGER,                      -- mod param: dashboard -> game commands allowed
     cmd_ack        TEXT,                          -- JSON {id, cmd, ok, error, real_time} of the last executed command
@@ -104,7 +97,6 @@ CREATE TABLE IF NOT EXISTS snapshot_error (
 CREATE TABLE IF NOT EXISTS finance (
     snapshot_id            INTEGER PRIMARY KEY REFERENCES snapshot(snapshot_id) ON DELETE CASCADE,
     balance                INTEGER,
-    bank_balance           INTEGER,
     loan                   INTEGER,
     earnings_ytd           INTEGER,
     passengers_transported INTEGER,
@@ -135,7 +127,6 @@ CREATE TABLE IF NOT EXISTS company (
     ship_stations        INTEGER,
     top_speed            REAL,
     top_length           REAL,
-    oldest_vehicle       INTEGER,
     total_assets         INTEGER,
     debt                 INTEGER,
     hq_x                 REAL,
@@ -164,7 +155,6 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
     capacities  TEXT,                             -- mod rev 8+: JSON {"<cargo id>": capacity} = what the vehicle can carry
-    first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)
 );
@@ -175,7 +165,7 @@ CREATE TABLE IF NOT EXISTS vehicle_state (
     line_id          INTEGER,
     state            TEXT,                       -- IN_DEPOT / EN_ROUTE / AT_TERMINAL / GOING_TO_DEPOT
     stop_index       INTEGER,
-    x REAL, y REAL, z REAL,
+    x REAL, y REAL,
     speed_ms         REAL,
     load             INTEGER,
     maintenance      REAL,
@@ -183,8 +173,6 @@ CREATE TABLE IF NOT EXISTS vehicle_state (
     value            INTEGER,
     user_stopped     INTEGER,
     no_path          INTEGER,
-    doors_open       INTEGER,
-    depot_id         INTEGER,
     days_in_depot    INTEGER,
     days_at_terminal INTEGER,
     closest_town     INTEGER,
@@ -200,8 +188,6 @@ CREATE TABLE IF NOT EXISTS line (
     name       TEXT,
     color_r REAL, color_g REAL, color_b REAL,
     transport_modes TEXT,                         -- JSON array of mode ids
-    first_seen TEXT NOT NULL,
-    last_seen  TEXT NOT NULL,
     custom_filters INTEGER,                       -- line uses per-stop cargo filters
     reservation_priority REAL,                    -- 1 standard, 2 high, 3 very high
     PRIMARY KEY (game_id, line_id)
@@ -241,7 +227,6 @@ CREATE TABLE IF NOT EXISTS line_stop (
     station       INTEGER,
     terminal      INTEGER,
     name          TEXT,
-    slow_seq      INTEGER,                        -- last refresh
     -- departure configuration (editable from the dashboard via line_set_stop)
     load_mode     INTEGER,                        -- 0 load if available, 1 full load any, 2 full load all
     min_wait      REAL,                           -- seconds
@@ -249,8 +234,6 @@ CREATE TABLE IF NOT EXISTS line_stop (
     max_add_wait  REAL,                           -- seconds
     waypoints     INTEGER,                        -- number of waypoints after this stop
     force_unload  INTEGER,
-    destroy_for_config_change INTEGER,
-    destroy_for_refresh INTEGER,
     no_load       TEXT,                           -- JSON list of cargo ids NOT loaded here (NULL = everything allowed)
     max_load      TEXT,                           -- JSON list of {cargo_type, max} for cargo limited below 100 %
     terminals     TEXT,                           -- JSON list of the station group terminals {n, station, terminal, pax, cargo, class, class_name, class_color, length, speed_mod, compatible, overlength}
@@ -266,10 +249,7 @@ CREATE TABLE IF NOT EXISTS station (
     town_id       INTEGER,
     station_group INTEGER,
     is_cargo      INTEGER,
-    construction  TEXT,
-    x REAL, y REAL, z REAL,
-    first_seen    TEXT NOT NULL,
-    last_seen     TEXT NOT NULL,
+    x REAL, y REAL,
     PRIMARY KEY (game_id, station_id)
 );
 
@@ -289,9 +269,7 @@ CREATE TABLE IF NOT EXISTS town (
     game_id    INTEGER NOT NULL REFERENCES game(game_id),
     town_id    INTEGER NOT NULL,
     name       TEXT,
-    x REAL, y REAL, z REAL,
-    first_seen TEXT NOT NULL,
-    last_seen  TEXT NOT NULL,
+    x REAL, y REAL,
     PRIMARY KEY (game_id, town_id)
 );
 
@@ -302,17 +280,14 @@ CREATE TABLE IF NOT EXISTS town_state (
     cap_res INTEGER, cap_com INTEGER, cap_ind INTEGER,
     used_res INTEGER, used_com INTEGER, used_ind INTEGER,
     stations           INTEGER,
-    buildings          INTEGER,
     noise_db           REAL,
     pollution_db       REAL,
     area_km2           REAL,
     line_usage         REAL,                      -- fraction of people using lines
     traffic_speed      REAL,
-    congestion_levels  TEXT,                      -- JSON array
     reach_com_private INTEGER, reach_com_public INTEGER, reach_ind_private INTEGER, reach_ind_public INTEGER,
     -- happiness: unhappy / total per mode
     hap_inside_unhappy INTEGER, hap_inside_total INTEGER,
-    hap_building_unhappy INTEGER, hap_building_total INTEGER,
     hap_car_unhappy INTEGER, hap_car_total INTEGER,
     hap_walk_unhappy INTEGER, hap_walk_total INTEGER,
     hap_to_res_unhappy INTEGER, hap_to_res_total INTEGER,
@@ -341,7 +316,6 @@ CREATE TABLE IF NOT EXISTS town_supply (
     cargo_id    INTEGER NOT NULL,
     v1          REAL,
     v2          REAL,
-    v3          REAL,
     PRIMARY KEY (snapshot_id, town_id, land_use, cargo_id)
 );
 
@@ -362,9 +336,7 @@ CREATE TABLE IF NOT EXISTS industry (
     construction  TEXT,
     stock_list    INTEGER,
     max_level     INTEGER,
-    x REAL, y REAL, z REAL,
-    first_seen    TEXT NOT NULL,
-    last_seen     TEXT NOT NULL,
+    x REAL, y REAL,
     PRIMARY KEY (game_id, industry_id)
 );
 
@@ -372,7 +344,6 @@ CREATE TABLE IF NOT EXISTS industry_state (
     snapshot_id       INTEGER NOT NULL REFERENCES snapshot(snapshot_id) ON DELETE CASCADE,
     industry_id       INTEGER NOT NULL,
     level             INTEGER,
-    upgrade_progress  REAL,
     closure_time      INTEGER,
     manual            INTEGER,
     producing         INTEGER,
@@ -403,8 +374,6 @@ CREATE TABLE IF NOT EXISTS depot (
     depot_id   INTEGER NOT NULL,
     name       TEXT,
     carrier    TEXT,
-    first_seen TEXT NOT NULL,
-    last_seen  TEXT NOT NULL,
     PRIMARY KEY (game_id, depot_id)
 );
 
@@ -429,12 +398,14 @@ CREATE TABLE IF NOT EXISTS alert (
     type_code   INTEGER,                          -- game enum value when available
     stop_index  INTEGER,
     amount      INTEGER,
-    x REAL, y REAL, z REAL,
-    detail      TEXT                              -- JSON for anything else
+    x REAL, y REAL
 );
 CREATE INDEX IF NOT EXISTS ix_alert_snapshot ON alert(snapshot_id, kind);
 
 -- ---------------------------------------------------------------- aggregates (retention)
+-- One timeline per save, like the game: when the simulation clock (snapshot.game_time_ms) goes backwards the player
+-- reloaded an older savegame, and everything recorded beyond that point is deleted (collector, _track_reload). The
+-- clock is therefore monotonic within a game and the charts use it as their time axis.
 -- Detail rows (one per snapshot, every ~2 s) are kept for `detail_hours`; older snapshots are rolled up into
 -- one row per minute bucket (bucket = unix minute of real_time) and the detail rows are deleted (CASCADE).
 -- The aggregates are filled continuously by the collector (for closed minutes), so charts can read
@@ -449,8 +420,8 @@ CREATE TABLE IF NOT EXISTS agg_fleet_min (
     bucket       INTEGER NOT NULL,              -- unix time (s) of the minute start
     n            INTEGER NOT NULL,              -- snapshots folded into this bucket
     game_time_ms INTEGER, year INTEGER, month INTEGER, day INTEGER,   -- from the last snapshot of the minute
-    vehicles     REAL, en_route REAL, at_terminal REAL, in_depot REAL, to_depot REAL,
-    load         REAL, capacity REAL, avg_speed REAL, maint REAL, stuck REAL,
+    en_route REAL, at_terminal REAL, in_depot REAL,
+    load         REAL, capacity REAL, avg_speed REAL, maint REAL,
     PRIMARY KEY (game_id, bucket)
 );
 
@@ -459,10 +430,10 @@ CREATE TABLE IF NOT EXISTS agg_vehicle_min (
     vehicle_id   INTEGER NOT NULL,
     bucket       INTEGER NOT NULL,
     n            INTEGER NOT NULL,
+    game_time_ms INTEGER,                       -- simulation clock at the end of the minute
     year INTEGER, month INTEGER, day INTEGER,
     state        TEXT,                          -- dominant state of the minute
-    speed_ms     REAL, load REAL, maintenance REAL,
-    x REAL, y REAL, line_id INTEGER, stop_index INTEGER,
+    speed_ms     REAL, load REAL, maintenance REAL, line_id INTEGER, stop_index INTEGER,
     PRIMARY KEY (game_id, vehicle_id, bucket)
 );
 CREATE INDEX IF NOT EXISTS ix_agg_vehicle_bucket ON agg_vehicle_min(game_id, bucket);
@@ -472,7 +443,7 @@ CREATE TABLE IF NOT EXISTS agg_finance_min (
     bucket       INTEGER NOT NULL,
     n            INTEGER NOT NULL,
     game_time_ms INTEGER, year INTEGER, month INTEGER, day INTEGER,
-    balance REAL, loan REAL, earnings_ytd REAL, passengers_transported REAL, cargo_transported REAL,
+    passengers_transported REAL, cargo_transported REAL,
     PRIMARY KEY (game_id, bucket)
 );
 
@@ -483,21 +454,6 @@ CREATE VIEW IF NOT EXISTS v_latest_snapshot AS
 
 CREATE VIEW IF NOT EXISTS v_finance_series AS
     SELECT s.game_id, s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day,
-           f.balance, f.loan, f.earnings_ytd, f.passengers_transported, f.cargo_transported
+           f.passengers_transported, f.cargo_transported
     FROM snapshot s JOIN finance f USING (snapshot_id);
 
-CREATE VIEW IF NOT EXISTS v_line_latest AS
-    SELECT l.game_id, l.line_id, l.name, ls.*
-    FROM line l
-    JOIN line_state ls ON ls.line_id = l.line_id
-    WHERE ls.snapshot_id = (SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id = l.line_id);
-
-CREATE VIEW IF NOT EXISTS v_vehicle_latest AS
-    SELECT v.game_id, v.vehicle_id, v.name, v.carrier, v.capacity, vs.*
-    FROM vehicle v
-    JOIN vehicle_state vs ON vs.vehicle_id = v.vehicle_id
-    WHERE vs.snapshot_id = (SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id = v.vehicle_id);
-
-CREATE VIEW IF NOT EXISTS v_alert_latest AS
-    SELECT a.* FROM alert a
-    WHERE a.snapshot_id = (SELECT MAX(snapshot_id) FROM snapshot);

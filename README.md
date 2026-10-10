@@ -116,6 +116,9 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   soundtrack is offered too, read straight from the game's `music.zip`.
 - **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
   satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
+- Every history chart runs on the **game's simulation clock** (a pause is a point, not a plateau; ranges in game
+  months and years), and like the game the companion keeps **one timeline per save**: reloading an older savegame
+  removes what had been recorded beyond it.
 - **Finances** — balance, yearly result, transported, network size and company value over time, and the **game's own
   finance journal** (mod revision 13): the same table as the game's Finances window, by financial year, with every
   line (running costs and maintenance by carrier, upkeep of roads, tracks, buildings, income, construction and

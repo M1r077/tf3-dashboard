@@ -1890,7 +1890,7 @@
   }
   const cargoImg = (key) => mapIcon("cargo/" + (CARGO_ICON_FILES.has(key) ? key : "_mixed"));
   function drawCargoLayers(ctx, d) {
-    const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.08) return;
+    const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.06) return;
     const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
     const row = (items, cx, cy, side, sizer, alpha) => {
       if (!items || !items.length) return;
@@ -1904,11 +1904,11 @@
       items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
       ctx.globalAlpha = 1;
     };
-    const fixed = () => 16;
-    const grow = (it) => 12 + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);
+    const fixed = () => 20;
+    const grow = (it) => 14 + Math.min(18, Math.sqrt(it.amount || 0) * 1.2);
     const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
-    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(201,209,217,.45)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 12); else if (side === "below") ctx.lineTo(cx, cy + 12); else ctx.lineTo(cx + 12, cy); ctx.stroke(); };
+    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 12); else if (side === "below") ctx.lineTo(cx, cy + 12); else ctx.lineTo(cx + 12, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
       const c = cd[kind][String(o[idKey])]; if (!c) return;
       let [x, y] = P(o.x, o.y);
@@ -1919,7 +1919,7 @@
       if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
-      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 20 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
     });
     if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
     if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);

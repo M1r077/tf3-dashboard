@@ -660,7 +660,11 @@ def api_map(q: dict) -> dict:
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
     st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
-    ind = rows("SELECT industry_id, name, x, y FROM industry WHERE game_id=? AND x IS NOT NULL", (gid,))
+    # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
+    # (closed, renamed, earlier saves), which would litter the map with ghosts
+    ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
+                  WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
+                        (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state)))""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position

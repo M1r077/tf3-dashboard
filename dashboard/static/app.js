@@ -1991,7 +1991,7 @@
   // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size, dimmed
   // when the rate is low (produced vs max production, delivered vs need); stock icons grow with the amount (square
   // root, 10 to 26 px). Each row sits on a dark pill so it reads over the relief. Only from a zoom where the rows do
-  // not collide (the `big` threshold of the map).
+  // not collide (the `big` threshold of the map); a row that would still overlap an earlier one is left out.
   const mapCargo = { data: null, at: 0 };
   const townRadius = (tw) => Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10)));
   const cargoAny = () => $("#map-prod").checked || $("#map-need").checked || $("#map-stock").checked;
@@ -2002,17 +2002,23 @@
   function drawCargoLayers(ctx, d) {
     const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.06) return;
     const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
+    // pills already placed this frame: a new one that would overlap an earlier one is skipped (owners are drawn
+    // biggest first, so at a middle zoom the small neighbours give way instead of piling up)
+    const placed = [];
+    const free = (x, y, w, h) => { for (const p of placed) if (x < p[0] + p[2] && x + w > p[0] && y < p[1] + p[3] && y + h > p[1]) return false; placed.push([x, y, w, h]); return true; };
     const row = (items, cx, cy, side, sizer, alpha) => {
-      if (!items || !items.length) return;
+      if (!items || !items.length) return false;
       const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
       let x0, y0;  // top-left of the row
       if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 * k - hmax; }
       else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17 * k; }
       else { x0 = cx + 17 * k; y0 = cy - hmax / 2; }
+      if (!free(x0 - 3, y0 - 3, w + 6, hmax + 6)) return false;
       ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
       let x = x0;
       items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
       ctx.globalAlpha = 1;
+      return true;
     };
     const k = isz();
     const fixed = () => 16 * k;
@@ -2026,14 +2032,17 @@
       if (x < -200 || y < -200 || x > ctx.canvas.clientWidth + 200 || y > ctx.canvas.clientHeight + 200) return;
       // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
       const dy = offset ? offset(o) : 0;
-      if (prod && c.out.length) { stroke(x, y, "above"); row(c.out, x, y, "above", fixed, rateAlpha); }
-      if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
+      if (prod && c.out.length && row(c.out, x, y, "above", fixed, rateAlpha)) stroke(x, y, "above");
+      const needShown = need && c.in.length && row(c.in, x, y + dy, "below", fixed, rateAlpha);
+      if (needShown && !dy) stroke(x, y, "below");
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
-      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+      if (st.length && row(st, x, y + dy + (needShown ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha) && !dy) stroke(x, y, "right");
     });
-    if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
-    if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
+    // biggest owners first: at a middle zoom the small neighbours yield
+    const bySize = (list, sz) => list.slice().sort((a, b) => sz(b) - sz(a));
+    if ($("#map-ind").checked) draw("industries", bySize(d.industries, i => (i.level || 1) * 10 + (cd.industries[String(i.industry_id)] || { out: [], in: [] }).out.length), "industry_id");
+    if ($("#map-towns").checked) draw("towns", bySize(d.towns, tw => tw.size || 0), "town_id", (tw) => townRadius(tw) + 2);
   }
   function drawIcon(ctx, name, x, y, size, color) {
     const im = mapIcon(name); if (!im.complete || !im.naturalWidth) return false;

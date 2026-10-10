@@ -23,6 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import console  # noqa: E402
+import heightmap  # noqa: E402
 import luatable  # noqa: E402
 import tf3paths  # noqa: E402
 
@@ -934,6 +935,16 @@ class SlowFiles:
         """tf3dash_journal.lua (mod rev 13): the game's accounting journal since the start of the game."""
         return self._changed_file("journal", "journal")
 
+    def height_bands(self) -> list[dict]:
+        """tf3dash_height_<k>.lua (mod rev 14): the bands of the full-resolution heightmap that changed since last read."""
+        out = []
+        for p in sorted(self.dir.glob(f"{self.prefix}height_*.lua")):
+            name = p.stem[len(self.prefix):]
+            d = self._changed_file(name, "tiles")
+            if d is not None:
+                out.append(d)
+        return out
+
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
         ss = snap.get("slow_seq")
@@ -985,6 +996,7 @@ def main(argv: list[str] | None = None) -> int:
     tf3paths.apply_pending_restore(args.db)
 
     store = Store(args.db)
+    height_asm = heightmap.HeightAssembler()
     if args.status:
         print(store.status())
         return 0
@@ -1176,6 +1188,15 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"journal ingest failed: {e!r}", "error")
+                        # full-resolution heightmap (mod rev 14): band files -> db/height_<game>.png once complete
+                        try:
+                            for band in slow_files.height_bands():
+                                if height_asm.add(band):
+                                    gid = store.game_id(snap, iso())
+                                    meta = height_asm.write_png(args.db.parent / f"height_{gid}.png")
+                                    say(f"heightmap: {meta['width']}x{meta['height']} px at {meta['step']:.0f} m, {meta['bytes'] / 1e6:.1f} MB", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            say(f"heightmap failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

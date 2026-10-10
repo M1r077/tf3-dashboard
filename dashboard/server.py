@@ -735,6 +735,18 @@ def api_map_cargo(q: dict) -> dict:
     return out
 
 
+def api_heightmap(q: dict) -> dict:
+    """Full-resolution terrain (mod rev 14): the sidecar of db/height_<game>.png written by the collector, plus the
+    URL of the picture. `available: false` until the mod has exported the map once."""
+    gid = _gid()
+    side = DB_PATH.parent / f"height_{gid}.json"
+    if not side.is_file():
+        return {"available": False}
+    meta = json.loads(side.read_text(encoding="utf-8"))
+    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={meta.get('revs', '')}"})
+    return meta
+
+
 def api_geo(q: dict) -> dict:
     """Map geography (mod rev 11): bounds, water contours, street/track network for the current game. The browser
     passes the geo_seq it already has; when nothing changed only {geo_seq} comes back (the full payload is a few
@@ -1638,7 +1650,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/heightmap": api_heightmap, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 
@@ -1690,6 +1702,23 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
                 except OSError:
                     pass
+            return
+        if u.path.startswith("/height/") and u.path.endswith(".png"):
+            # the terrain picture next to the database (collector output); cached for a day, the URL carries a version
+            gid = u.path[8:-4]
+            f = (DB_PATH.parent / f"height_{gid}.png").resolve() if gid.isdigit() else None
+            if not f or not f.is_file():
+                self._send(404, b"not found", "text/plain")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(f.stat().st_size))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            try:
+                self.wfile.write(f.read_bytes())
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
             return
         if u.path.startswith("/music/"):
             # audio for the travelling, whole file (browsers cope without range requests for local files)

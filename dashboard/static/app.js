@@ -1662,7 +1662,7 @@
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings();
     map.data = await api("/api/map");
-    await loadGeo(); await loadLinePaths(); await loadMapCargo();
+    await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1754,6 +1754,8 @@
     night: { land: [20, 24, 30],   water: [10, 22, 44],   street: "#2a323c", track: "#6a7684", bridge: "#98a4b0", frame: "#1e262e", page: "#07090c" },
     atlas: { land: [96, 112, 92],  water: [58, 110, 160], street: "#c8c2b0", track: "#2e2e2e", bridge: "#111111", frame: "#3a4a3a", page: "#1a2024", ink: "#101418", halo: "rgba(255,255,255,.55)" },
     paper: { land: [214, 206, 188], water: [150, 184, 210], street: "#ffffff", track: "#5a5248", bridge: "#2a2622", frame: "#a09888", page: "#2a2a2a", ink: "#1a1612", halo: "rgba(255,255,255,.7)" },
+    // the look of the game's own map preview: forest green by altitude, grey rock where the ground is steep, blue-grey water
+    satellite: { land: [78, 96, 58], water: [70, 96, 110], street: "#d8cfae", track: "#2a2a2a", bridge: "#111111", frame: "#2a3528", page: "#0b1015", ink: "#f0f4f8", halo: "rgba(0,0,0,.6)", sat: true },
   };
   const MAP_DEFAULTS = { theme: "dark", relief: 1, net: 1, lines: 1 };
   const mapPrefs = () => { try { const p = Object.assign({}, MAP_DEFAULTS, JSON.parse(localStorage.getItem("tf3.map") || "{}")); const q = new URLSearchParams(location.search).get("mapstyle"); if (q && MAP_THEMES[q]) p.theme = q; return p; } catch (e) { return { ...MAP_DEFAULTS }; } };  // ?mapstyle= for screenshots
@@ -1772,7 +1774,98 @@
   // terrain bitmap at `sub` x the grid resolution (the shore cells carry a sub x sub land/water mask: 11 m on an
   // 11 km map), built once per geography. Land: hillshade on the theme tone, plus on the light themes a height ramp
   // (green - ochre - grey - snow) so the mountains read as mountains. Water: theme blue.
+  // ---- full-resolution terrain (mod rev 14): db/height_<game>.png, a 16-bit grayscale picture at 4 m written by the
+  // collector; metres = raw * res_z + offset_z. Decoded once into a Uint16Array, shaded once per theme into a bitmap
+  // (2 817 x 2 817 on an 11 km map: ~60 ms), then drawn like the grid bitmap. Water = below the game's water level,
+  // refined by the shore masks of the grid where they exist (the sea is below the level, lakes and rivers are meshes
+  // that can sit above it).
+  const hmap = { meta: null, data: null, w: 0, h: 0, loading: false, revs: null };
+  async function loadHeightmap() {
+    if (hmap.loading) return;
+    hmap.loading = true;
+    try {
+      const m = await api("/api/heightmap");
+      if (!m || !m.available || m.revs === hmap.revs) return;
+      // decoded by hand: a canvas would keep only the high byte of the 16-bit grey (2 m steps that band the shading).
+      // The collector writes the simplest PNG there is (one IDAT, filter 0 on every row), inflated with the
+      // browser's DecompressionStream.
+      const buf = new Uint8Array(await (await fetch(m.url)).arrayBuffer());
+      const dv = new DataView(buf.buffer); let p = 8, w = 0, h = 0; const idat = [];
+      while (p < buf.length) { const len = dv.getUint32(p), tag = String.fromCharCode(buf[p + 4], buf[p + 5], buf[p + 6], buf[p + 7]); if (tag === "IHDR") { w = dv.getUint32(p + 8); h = dv.getUint32(p + 12); } else if (tag === "IDAT") idat.push(buf.subarray(p + 8, p + 8 + len)); p += 12 + len; }
+      const z = new Blob(idat).stream().pipeThrough(new DecompressionStream("deflate"));
+      const raw = new Uint8Array(await new Response(z).arrayBuffer());
+      const n = w * h, out = new Float32Array(n), stride = 1 + w * 2;
+      for (let y = 0; y < h; y++) { const ro = y * stride + 1, oo = y * w; for (let x = 0; x < w; x++) { const q = ro + x * 2; out[oo + x] = (raw[q] << 8) | raw[q + 1]; } }
+      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.revs;
+      geo.bmSeq = null; geo.layer = null; geo.key = "";
+      if (state.tab === "map") drawMap($("#map"));
+    } catch (e) { /* no heightmap yet */ } finally { hmap.loading = false; }
+  }
+  function terrainBitmapHD(g, withWater) {
+    const m = hmap.meta, H = hmap.data; if (!m || !H) return null;
+    const W = hmap.w, Hh = hmap.h, th = mapTheme(), relief = mapPrefs().relief, light = th.land[0] > 80 || th.sat;
+    const c = document.createElement("canvas"); c.width = W; c.height = Hh;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(W, Hh), px = img.data;
+    const toM = (v) => v * m.res_z + m.offset_z, waterRaw = (m.water_level - m.offset_z) / m.res_z;
+    const hmin = toM(m.raw_min), hmax = toM(m.raw_max), step = m.step || 4;
+    // the land/water grid of the geography, for the shore detail (lakes above the water level)
+    let wat = null, nx = 0, ny = 0, sub = 1, shore = null;
+    if (g && g.grid && g.water_rows) {
+      [nx, ny] = g.grid; sub = g.shore_sub || 1; wat = new Uint8Array(nx * ny);
+      for (let row = 0; row < ny; row++) { const runs = String(g.water_rows[row] || "").split(",").map(Number); let col = 0, on = false; for (const k of runs) { if (on) for (let q = 0; q < k && col + q < nx; q++) wat[row * nx + col + q] = 1; col += k; on = !on; } }
+      shore = new Map(); (g.shore || []).forEach(s => shore.set(s[1] * nx + s[0], s[2]));
+    }
+    // altitude ramp (metres above water): the satellite look is forest green low, lighter and drier high, snow at the top
+    const ramp = th.sat
+      ? [[0, 70, 92, 52], [0.25, 96, 112, 62], [0.5, 128, 128, 80], [0.72, 150, 138, 104], [0.88, 170, 166, 160], [1, 240, 242, 244]]
+      : [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
+    const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
+    const rock = [118, 114, 108], water = th.water, zx = 1.0 * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    const hAt = (x, y) => H[Math.max(0, Math.min(Hh - 1, y)) * W + Math.max(0, Math.min(W - 1, x))];
+    const bw = m.bounds, gw = g && g.bounds ? g.bounds : bw;
+    for (let y = 0; y < Hh; y++) {
+      // the picture runs north (row 0) to south like the grid; world y of this row
+      const wy = bw[3] - (y + 0.5) / Hh * (bw[3] - bw[1]);
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x, o = i * 4, raw = H[i];
+        const wx = bw[0] + (x + 0.5) / W * (bw[2] - bw[0]);
+        // water: below the level, or a grid/shore cell says so (lakes above the level)
+        let isW = raw <= waterRaw + 0.5;
+        if (!isW && wat) {
+          const col = Math.floor((wx - gw[0]) / (gw[2] - gw[0]) * nx), row = Math.floor((gw[3] - wy) / (gw[3] - gw[1]) * ny);
+          if (col >= 0 && col < nx && row >= 0 && row < ny) {
+            const mask = shore.get(row * nx + col);
+            if (mask != null) { const sc = Math.floor(((wx - gw[0]) / (gw[2] - gw[0]) * nx - col) * sub), sr = Math.floor(((gw[3] - wy) / (gw[3] - gw[1]) * ny - row) * sub); isW = ((mask >> (sr * sub + sc)) & 1) === 1; }
+            else isW = wat[row * nx + col] === 1;
+          }
+        }
+        if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
+        // slope from the neighbours (metres per metre) and a west-north-west light
+        const dzdx = (hAt(x + 1, y) - hAt(x - 1, y)) * m.res_z / (2 * step), dzdy = (hAt(x, y + 1) - hAt(x, y - 1)) * m.res_z / (2 * step);
+        const slope = Math.sqrt(dzdx * dzdx + dzdy * dzdy);
+        const sx = dzdx * zx, sy = dzdy * zx, nl = 1 / Math.sqrt(sx * sx + sy * sy + 1);
+        const shade = Math.max(0, (-sx * lx - sy * ly + lz) * nl);
+        const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;
+        const hm = toM(raw), tH = Math.max(0, Math.min(1, (hm - Math.max(hmin, m.water_level)) / Math.max(1, hmax - Math.max(hmin, m.water_level))));
+        let r, gg, b;
+        if (light) {
+          let base = rampAt(tH);
+          if (th.sat) {
+            // rock where the ground is steep (above ~35 %), blended in over 15 points of slope; bare earth tint on gentle slopes
+            const rk = Math.max(0, Math.min(1, (slope - 0.35) / 0.15));
+            base = [base[0] + (rock[0] - base[0]) * rk, base[1] + (rock[1] - base[1]) * rk, base[2] + (rock[2] - base[2]) * rk];
+          }
+          const k = (th.sat ? 0.95 : 0.75) + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k;
+        } else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
+        if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
+        px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
   function terrainBitmap(g, withWater) {
+    if (hmap.data) { const hd = terrainBitmapHD(g, withWater); if (hd) return hd; }
     if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
     const [nx, ny] = g.grid, sub = g.shore_sub || 1, W = nx * sub, Hh = ny * sub;
     const c = document.createElement("canvas"); c.width = W; c.height = Hh;
@@ -1831,7 +1924,8 @@
     // the terrain: the sampled land/water bitmap stretched over the bounds (smoothed by the browser), else a plain
     // slightly lighter rectangle so the map's edge is visible
     if (g.bounds) {
-      const [ax, ay] = P(g.bounds[0], g.bounds[3]), [bx, by] = P(g.bounds[2], g.bounds[1]);
+      const hb = hmap.data && hmap.meta ? hmap.meta.bounds : g.bounds;  // the HD picture covers its own bounds
+      const [ax, ay] = P(hb[0], hb[3]), [bx, by] = P(hb[2], hb[1]);
       const bmKey = showW ? "bmW" : "bmL";
       if (!geo[bmKey] || geo.bmSeq !== geo.seq) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = geo.seq; }
       if (geo[bmKey]) { ctx.imageSmoothingEnabled = true; ctx.drawImage(geo[bmKey], ax, ay, bx - ax, by - ay); }

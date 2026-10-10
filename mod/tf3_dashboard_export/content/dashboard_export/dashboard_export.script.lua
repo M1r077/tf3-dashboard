@@ -1768,6 +1768,115 @@ local function geoJobRun(budget)
 	return nil
 end
 
+-- ---------------------------------------------------------------- heightmap (full resolution)
+-- The terrain is stored tile by tile (256 m, TERRAIN_TILE_HEIGHTMAP: 65x65 integers at 4 m, metres = raw * baseResolution.z
+-- + offsetZ, 5 cm steps), readable in Lua at no cost (the array is already in memory, ~0 ms per tile measured). The
+-- whole map (44x44 tiles = 7.9 M values on an 11 km map) does not fit one Lua file, so the tiles go out in band files
+-- tf3dash_height_<band>.lua of HEIGHT_BAND tile rows each, one tile per frame, each tile one printable string: the
+-- first height in full, then the difference to the previous vertex (row-major), both as variable-length base-64 digits
+-- (6 bits per character, the low bit of the first digit is the sign, the top bit of every digit says "more digits").
+-- Flat land is 1 character per vertex: ~5 KB per tile, ~10 MB for the map, written once per load and again when the
+-- terrain changed (getTerrainEntityRevisions, the game's own change counter, checked with the geo edge count).
+local HEIGHT_PREFIX = PREFIX .. "height_"
+local HEIGHT_BAND = 4              -- tile rows per file (44 tiles x 4 rows x ~5 KB = ~1 MB per file)
+local HEIGHT_TILES_PER_STEP = 2    -- tiles encoded per frame (~1 ms each: 4 225 values through the encoder)
+local heightJob = nil
+local heightRevs = nil             -- revision signature of the terrain at the last export
+local lastHeightCheck = -1e9
+local heightCache = nil            -- { bands, tiles } of the last export
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64C = {}
+for i = 1, 64 do B64C[i - 1] = B64:sub(i, i) end
+
+-- variable-length signed integer: digits of 5 payload bits, bit 6 (value 32) = another digit follows; sign in the low
+-- bit of the first digit (zigzag)
+local function vint(out, v)
+	local z = v >= 0 and v * 2 or (-v * 2 - 1)
+	repeat
+		local d = z % 32
+		z = (z - d) / 32
+		if z > 0 then d = d + 32 end
+		out[#out + 1] = B64C[d]
+	until z == 0
+end
+
+local function heightRevSignature()
+	local ok, revs = pcall(api.engine.terrain.getTerrainEntityRevisions)
+	if not ok or type(revs) ~= "table" then return nil end
+	local acc, n = 0, 0
+	for e, r in pairs(revs) do
+		local a = num(r and r.num and r.num[1]) or 0
+		local b = num(r and r.num and r.num[2]) or 0
+		acc = (acc + (num(e) or 0) * 31 + a * 7 + b) % 2147483647
+		n = n + 1
+	end
+	return string.format("%d:%d", n, acc)
+end
+
+local function heightJobStart()
+	local world = api.engine.util.getWorld()
+	local tr = api.engine.getComponent(world, api.type.ComponentType.TERRAIN)
+	if not tr then return false end
+	local sz = vec2(tr.size)
+	if not sz or sz.x <= 0 or sz.y <= 0 then return false end
+	-- tile indices are centred on the map: -n/2 .. n/2-1 (probe: tile -1,-1 exists, tile 43,43 does not on 44x44)
+	local tx0, ty0 = -math.floor(sz.x / 2), -math.floor(sz.y / 2)
+	heightJob = { nx = sz.x, ny = sz.y, tx0 = tx0, ty0 = ty0, i = 0, band = {}, bandNo = 0, bands = 0, tiles = 0, started = os.clock(),
+		meta = { schema = SCHEMA, mod = MOD_ID, grid = { sz.x, sz.y }, origin = { tx0, ty0 }, side = 65, step = num(tr.baseResolution.x) or 4,
+			res_z = num(tr.baseResolution.z) or 0.05, offset_z = num(tr.offsetZ) or 0, water_level = num(tr.waterLevel) or 0,
+			band_rows = HEIGHT_BAND, revs = heightRevSignature() } }
+	return true
+end
+
+-- one band file: { meta..., band = k, rows = {first tile row, last}, tiles = { "<encoded>", ... row-major } }
+local function heightBandWrite(job)
+	local k = job.bandNo
+	local data = { band = k, row0 = k * HEIGHT_BAND, tiles = job.band }
+	for key, v in pairs(job.meta) do data[key] = v end
+	data.bands = math.ceil(job.ny / HEIGHT_BAND)
+	local ok, err = pcall(app.saveUserdata, DIR, HEIGHT_PREFIX .. k, data)
+	if not ok then log("saveUserdata failed for heightmap band " .. k .. ":", tostring(err)) end
+	job.band = {}
+	job.bandNo = k + 1
+	job.bands = job.bands + 1
+	return ok
+end
+
+-- returns true when the whole map is out
+local function heightJobRun()
+	local job = heightJob
+	if job == nil then return false end
+	local Vec2i = api.type.Vec2i
+	for _ = 1, HEIGHT_TILES_PER_STEP do
+		local total = job.nx * job.ny
+		if job.i >= total then
+			if #job.band > 0 then heightBandWrite(job) end
+			heightCache = { bands = job.bands, tiles = job.tiles }
+			log(string.format("heightmap written: %d tiles in %d files, %.1fs", job.tiles, job.bands, os.clock() - job.started))
+			heightJob = nil
+			return true
+		end
+		local col, row = job.i % job.nx, math.floor(job.i / job.nx)
+		local ok, e = pcall(api.engine.terrain.getHeightmapEntity, Vec2i.new(job.tx0 + col, job.ty0 + row))
+		local hm = ok and e and api.engine.getComponent(e, api.type.ComponentType.TERRAIN_TILE_HEIGHTMAP)
+		local out = {}
+		if hm and hm.vertices then
+			local prev = nil
+			for _, v in pairs(hm.vertices) do
+				local iv = math.floor(num(v) or 0)
+				if prev == nil then vint(out, iv) else vint(out, iv - prev) end
+				prev = iv
+			end
+		end
+		job.band[#job.band + 1] = table.concat(out)
+		job.tiles = job.tiles + 1
+		job.i = job.i + 1
+		-- a band is complete when its last tile row is done
+		if col == job.nx - 1 and (row + 1) % HEIGHT_BAND == 0 then heightBandWrite(job); return false end
+	end
+	return false
+end
+
 local function geoWrite(job)
 	local t0 = os.clock()
 	local ok, err = pcall(app.saveUserdata, DIR, GEO_FILE, job.geo)
@@ -2342,6 +2451,22 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		local okG, done = pcall(geoJobRun, active and ACTIVITY_BUDGET or SLOW_BUDGET)
 		if not okG then log("geo collection failed:", tostring(done)); geoJob = nil
 		elseif done then pcall(geoWrite, done); return end  -- not in the same frame as live.lua (a big write)
+	end
+	-- full-resolution heightmap: after the geography, once per load, and again when the terrain revisions changed
+	-- (the player raised or dug ground); checked with the geo minute tick above, two tiles per frame meanwhile
+	if heightJob == nil and geoJob == nil and geoCache ~= nil and now - lastHeightCheck >= GEO_MIN_INTERVAL then
+		lastHeightCheck = now
+		local sig = heightRevSignature()
+		if heightCache == nil or (sig ~= nil and sig ~= heightRevs) then
+			heightRevs = sig
+			local okH, startedH = pcall(heightJobStart)
+			if not okH then log("heightmap export failed to start:", tostring(startedH)); heightJob = nil end
+		end
+	end
+	if heightJob ~= nil then
+		local okH, doneH = pcall(heightJobRun)
+		if not okH then log("heightmap export failed:", tostring(doneH)); heightJob = nil
+		elseif doneH then return end
 	end
 
 	if now - lastFast < o.interval_fast then return end

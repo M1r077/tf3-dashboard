@@ -651,11 +651,19 @@ def api_map(q: dict) -> dict:
     gid = _gid()
     sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
     sid = sid["sid"] if sid else None
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity,
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity, vs.cargo,
                   l.color_r, l.color_g, l.color_b, l.name AS line_name
                   FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=?
                   LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
                   WHERE vs.snapshot_id=? AND vs.x IS NOT NULL""", (gid, gid, sid)) if sid else []
+    # what is on board, by cargo key: {"grain": 205, "fertilizer": 11}
+    ckeys = {str(r["cargo_id"]): r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
+    for v in veh:
+        try:
+            raw = json.loads(v.pop("cargo") or "{}")
+        except (TypeError, ValueError):
+            raw = {}
+        v["cargo"] = {ckeys.get(k, k): n for k, n in raw.items() if n}
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.cap_res+ts.cap_com+ts.cap_ind AS size FROM town t
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))

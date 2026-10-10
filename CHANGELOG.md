@@ -1,10 +1,14 @@
-# Changelog
+﻿# Changelog
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
 ## Unreleased
 
 Game closed: the dashboard shows the last recorded situation of the save and says so in an amber bar under the header (save, game date, how long ago); the game-control buttons are off and commands are refused instead of piling up in a file nobody reads. With several saves in the database, Settings > Savegames gets a "View" button per save to look at another one offline; the live game takes over again as soon as it writes. Every "latest snapshot" lookup on the server is now scoped to the shown save.
+
+Line detail: the link from a stop now opens its station (it carried the station group id and landed on the Stations tab without a selection).
+
+The database stays small and the history stays for good: beyond the 2-hour detail window the slow history (lines, towns, stations, industries, depots, ~20 KB per snapshot) is thinned to one point per game day and then kept for as long as the save exists (it used to be kept in full for 14 days and then purged). Per-vehicle minutes are kept for 7 days (the fleet and finance minutes stay), and the collector compacts the file once an hour (WAL truncated, VACUUM when a quarter of the file is free). A 0.5 GB database was reported; the same data takes a few megabytes. Operations keeps its charts when no detail is left (after a long pause) by reading the minute aggregates. Travellings: a saved chain keeps its own list of views (it was dropped on save and fell back to every view).
 
 ## Companion 0.6.3 - 10 October 2026 (mod 14 unchanged)
 
@@ -45,7 +49,7 @@ Revision 9 + companion program 0.3.2 (8 October 2026): required after the game's
 
 ## Mod 8 / companion 0.3.1 - October 2026
 
-Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); Português (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
+Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); PortuguÃªs (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 ## Earlier
 

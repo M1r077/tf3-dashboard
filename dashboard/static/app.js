@@ -331,7 +331,7 @@
     $$(".goto[data-line], .goto[data-veh], .goto[data-st]", root).forEach(a => a.addEventListener("click", e => {
       e.stopPropagation(); e.preventDefault();
       if (a.dataset.line) { state.selLine = +a.dataset.line; showTab("lines"); }
-      else if (a.dataset.st) { state.selSt = +a.dataset.st; showTab("stations"); }
+      else if (a.dataset.st) { state.selStGroup = +a.dataset.st; state.selSt = null; showTab("stations"); }  // a stop names its station GROUP; resolved to the station row once the list is loaded
       else { state.selVeh = +a.dataset.veh; showTab("vehicles"); }
     }));
   }
@@ -1259,6 +1259,11 @@
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
     const stations = s.stations || []; state.cache.stations = stations;
+    if (state.selStGroup) {  // link from a line's stop: the stop knows the station group, the table is by station (a group may hold several)
+      const grp = state.selStGroup; state.selStGroup = null;
+      const hit = stations.find(x => x.station_group === grp) || stations.find(x => x.station_id === grp);
+      if (hit) state.selSt = hit.station_id;
+    }
     if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     renderTable($("#st-table"), [
       { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },

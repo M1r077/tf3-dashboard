@@ -254,6 +254,27 @@ def api_finance(q: dict) -> dict:
     return {"series": series, "company": comp}
 
 
+def api_journal(q: dict) -> dict:
+    """The game's accounting journal (mod rev 13): every column since the start of the game.
+    {cols: [{col, label, start_ms, interval_ms}], lines: {"transport/1/5/2/6": [amounts per col], "total": [...], ...}}
+    Sparse per line: missing columns are 0. A whole 70-year game is ~500 columns x ~30 lines: one small payload."""
+    gid = _gid()
+    cols = rows("SELECT col, label, start_ms, interval_ms FROM finance_journal_col WHERE game_id=? ORDER BY col", (gid,))
+    if not cols:
+        return {"cols": [], "lines": {}}
+    n = cols[-1]["col"] + 1
+    lines: dict[str, list[int]] = {}
+    for r in rows("SELECT col, kind, carrier, key, amount FROM finance_journal WHERE game_id=?", (gid,)):
+        name = r["kind"] if r["carrier"] < 0 and not r["key"] else (
+            f"{r['kind']}/{r['carrier']}/{r['key']}" if r["carrier"] >= 0 else f"{r['kind']}/{r['key']}")
+        arr = lines.get(name)
+        if arr is None:
+            arr = lines[name] = [0] * n
+        if 0 <= r["col"] < n:
+            arr[r["col"]] = r["amount"]
+    return {"cols": cols, "lines": lines}
+
+
 def api_alerts(q: dict) -> dict:
     snap = one("SELECT snapshot_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
     if not snap:
@@ -1341,7 +1362,7 @@ def api_diag(q: dict) -> dict:
 
 
 ROUTES = {
-    "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
+    "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,

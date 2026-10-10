@@ -1185,16 +1185,75 @@
   }
 
   // ------------------------------------------------------------ finance (secondary)
+  // ---- the game's accounting journal (mod rev 13). Keys are the engine's "type/maintenance/construction" numbers,
+  // checked line by line against the Finances window (see docs). Carriers: 0 road 1 rail 2 tram 3 other 4 air 5 water.
+  const JOURNAL_CARRIERS = [[0, "ROAD"], [1, "RAIL"], [2, "TRAM"], [5, "WATER"], [4, "AIR"], [3, "OTHER"]];
+  const JOURNAL_LINES = [  // in the game's order within a carrier
+    ["4/0/6", "journal_running"], ["4/3/6", "journal_maint_vehicles"], ["4/1/0", "journal_upkeep_roads"], ["4/1/1", "journal_upkeep_tracks"],
+    ["4/1/6", "journal_upkeep_buildings"], ["4/1/7", "journal_upkeep_warehouses"], ["5/2/6", "journal_income"], ["7/2/6", "journal_other"],
+  ];
+  const JOURNAL_INVEST = [["3/2/6", "journal_buy_vehicles"], ["2/2/0", "journal_build_roads"], ["2/2/1", "journal_build_tracks"], ["2/2/6", "journal_build_buildings"], ["2/2/7", "journal_other"]];
+  const journalUi = { cols: 8, open: new Set(["1"]), data: null };
+  // the game prints "$-35,6 M": sign after the currency, one decimal, K / M / B
+  const moneyGame = (n) => {
+    if (n == null) return "–";
+    const a = Math.abs(n), sgn = n < 0 ? "-" : "";
+    const num = (v, d) => v.toLocaleString(loc(), { minimumFractionDigits: d, maximumFractionDigits: d });
+    if (a >= 1e9) return `$${sgn}${num(a / 1e9, 2)} B`;
+    if (a >= 1e6) return `$${sgn}${num(a / 1e6, a >= 1e7 ? 1 : 2)} M`;
+    if (a >= 1e3) return `$${sgn}${num(a / 1e3, 0)} K`;
+    return `$${sgn}${num(a, 0)}`;
+  };
+  $$("#journal-cols button").forEach(b => b.addEventListener("click", () => { journalUi.cols = +b.dataset.n; $$("#journal-cols button").forEach(x => x.classList.toggle("active", x === b)); renderJournalTable(); }));
+  function renderJournalTable() {
+    const j = journalUi.data, tbl = $("#journal-table");
+    if (!j || !j.cols.length) { tbl.innerHTML = `<tr><td class="empty">${t("no_data_yet")}</td></tr>`; return; }
+    const n = j.cols.length, from = journalUi.cols ? Math.max(0, n - journalUi.cols) : 0, idx = [];
+    for (let i = from; i < n; i++) idx.push(i);
+    const L = j.lines, zero = new Array(n).fill(0);
+    const row = (vals) => vals || zero;
+    const cells = (vals, strong) => idx.map(i => { const v = row(vals)[i]; return `<td class="${v === 0 ? "zero" : v < 0 ? "neg" : "pos"}">${moneyGame(v)}</td>`; }).join("");
+    const sum = (keys) => { const out = new Array(n).fill(0); keys.forEach(k => (L[k] || []).forEach((v, i) => out[i] += v)); return out; };
+    let h = `<thead><tr><th></th>${idx.map(i => `<th>${esc(j.cols[i].label)}</th>`).join("")}</tr></thead><tbody>`;
+    // transport, one block per carrier with lines in the game's order; carriers without a single entry are skipped
+    JOURNAL_CARRIERS.forEach(([c, name]) => {
+      const keys = JOURNAL_LINES.map(([k]) => `transport/${c}/${k}`).filter(k => L[k]);
+      if (!keys.length) return;
+      const open = journalUi.open.has(String(c));
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="${c}"><td><span class="chev"></span>${ico(ICON_BY_CARRIER[name])}${CA(name)}</td>${cells(sum(keys))}</tr>`;
+      if (open) JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) h += `<tr class="detail"><td>${t(label)}</td>${cells(L[key])}</tr>`; });
+    });
+    // investments, only the lines that exist
+    const inv = JOURNAL_INVEST.filter(([k]) => L[`investment/${k}`]);
+    if (inv.length) {
+      const open = journalUi.open.has("inv");
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="inv"><td><span class="chev"></span>${ico("station")}${t("journal_investments")}</td>${cells(sum(inv.map(([k]) => `investment/${k}`)))}</tr>`;
+      if (open) inv.forEach(([k, label]) => h += `<tr class="detail"><td>${t(label)}</td>${cells(L[`investment/${k}`])}</tr>`);
+    }
+    h += `<tr class="section"><td colspan="${idx.length + 1}">${t("journal_summary")}<i></i></td></tr>`;
+    h += `<tr class="summary strong"><td>${t("journal_income")}</td>${cells(L.total)}</tr>`;
+    const loansOpen = journalUi.open.has("loan");
+    h += `<tr class="carrier ${loansOpen ? "open" : ""}" data-c="loan"><td><span class="chev"></span>${ico("money")}${t("journal_loans")}</td>${cells(sum(["loanBorrowing", "loanRepayment", "interest"]))}</tr>`;
+    if (loansOpen) { h += `<tr class="detail"><td>${t("journal_new_loans")}</td>${cells(L.loanBorrowing)}</tr><tr class="detail"><td>${t("journal_repay")}</td>${cells(L.loanRepayment)}</tr><tr class="detail"><td>${t("journal_interest")}</td>${cells(L.interest)}</tr>`; }
+    h += `<tr class="summary"><td>${t("journal_bank")}</td>${cells(L.balance)}</tr>`;
+    h += `<tr class="summary"><td>${t("journal_debt")}</td>${cells(L.loan)}</tr></tbody>`;
+    tbl.innerHTML = h;
+    $$("tr.carrier", tbl).forEach(tr => tr.addEventListener("click", () => { const c = tr.dataset.c; if (journalUi.open.has(c)) journalUi.open.delete(c); else journalUi.open.add(c); renderJournalTable(); }));
+    $("#journal-range").textContent = t("journal_periods", { n, a: j.cols[0].label, b: j.cols[n - 1].label });
+  }
+
   async function renderFinance(o) {
     const fin = await api("/api/finance", { limit: Math.max(600, settings.history), range: settings.range });
     const ser = fin.series || [], labels = ser.map(x => dateLabel(x));
     const tx = tsOpts(ser, "fin");
+    // journal: the game's table, and its summary lines as curves over the whole game (one point per column)
+    const j = await api("/api/journal"); journalUi.data = j; renderJournalTable();
+    const jl = (j.cols || []).map(c => c.label), jx = (j.cols || []).map(c => c.start_ms / 1000);
     Charts.lineChart($("#chart-balance"), [
-      { name: t("balance"), values: ser.map(x => x.balance), color: "#4f8a8a", area: true, unit: "$" },
-      { name: t("debt"), values: ser.map(x => x.loan), color: "#d62560", dash: [6, 4], unit: "$" },
-    ], labels, { unit: "$", ...tx });
-    $("#fin-range").textContent = ser.length ? t("balance_range", { n: ser.length, a: date(ser[0]), b: date(ser[ser.length - 1]) }) : "";
-    Charts.lineChart($("#chart-earn"), [{ name: t("earnings_ytd"), values: ser.map(x => x.earnings_ytd), color: "#e8b04b", area: true, unit: "$" }], labels, { zeroBase: true, unit: "$", ...tx });
+      { name: t("journal_bank"), values: j.lines && j.lines.balance || [], color: "#4f8a8a", area: true, unit: "$" },
+      { name: t("journal_debt"), values: j.lines && j.lines.loan || [], color: "#d62560", dash: [6, 4], unit: "$" },
+    ], jl, { unit: "$", ts: jx, xGame: jl });
+    Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: j.lines && j.lines.total || [], color: "#e8b04b", area: true, unit: "$", step: true }], jl, { zeroBase: true, unit: "$", ts: jx, xGame: jl });
     Charts.lineChart($("#chart-transport"), [
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
       { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },

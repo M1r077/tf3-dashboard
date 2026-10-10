@@ -276,6 +276,43 @@ class Store:
         self.con.commit()
         return len(rows)
 
+    def ingest_journal(self, snap: dict, jf: dict) -> int:
+        """Upsert the game's accounting journal (mod rev 13, tf3dash_journal.lua) for the game `snap` belongs to.
+        Returns the number of columns stored."""
+        j = jf.get("journal")
+        if not isinstance(j, dict):
+            return 0
+        gid = self.game_id(snap, iso())
+        now = iso()
+        periods = [str(p) for p in as_list(j.get("periods"))]
+        interval = int(j.get("interval_ms") or 0)
+        count = len(periods)
+        rows: list[tuple] = []
+
+        def series(kind: str, carrier: int, key: str, vals: Any) -> None:
+            for i, v in enumerate(as_list(vals)[:count]):
+                if isinstance(v, (int, float)):
+                    rows.append((gid, i, kind, carrier, key, int(v)))
+
+        for carrier, by_key in (j.get("transport") or {}).items():
+            if isinstance(by_key, dict):
+                for key, vals in by_key.items():
+                    series("transport", int(carrier), str(key), vals)
+        for key, vals in (j.get("investment") or {}).items():
+            series("investment", -1, str(key), vals)
+        for key, vals in (j.get("other") or {}).items():
+            series("other", -1, str(key), vals)
+        for kind in ("loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance"):
+            if kind in j:
+                series(kind, -1, "", j[kind])
+        self.con.executemany(
+            "INSERT OR REPLACE INTO finance_journal(game_id, col, kind, carrier, key, amount) VALUES (?,?,?,?,?,?)", rows)
+        self.con.executemany(
+            "INSERT OR REPLACE INTO finance_journal_col(game_id, col, label, start_ms, interval_ms, received_at) VALUES (?,?,?,?,?,?)",
+            [(gid, i, p, i * interval, interval, now) for i, p in enumerate(periods)])
+        self.con.commit()
+        return count
+
     def ingest(self, snap: dict) -> int | None:
         now = iso()
         real_time = iso(snap.get("real_time")) if isinstance(snap.get("real_time"), (int, float)) else now
@@ -794,6 +831,10 @@ class SlowFiles:
         """tf3dash_line_paths.lua (mod rev 11): the network edges each line leg runs on."""
         return self._changed_file("line_paths", "items")
 
+    def journal(self) -> dict | None:
+        """tf3dash_journal.lua (mod rev 13): the game's accounting journal since the start of the game."""
+        return self._changed_file("journal", "journal")
+
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
         ss = snap.get("slow_seq")
@@ -1024,6 +1065,14 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"line paths ingest failed: {e!r}", "error")
+                        try:
+                            jf = slow_files.journal()
+                            if jf is not None:
+                                n = store.ingest_journal(snap, jf)
+                                say(f"finance journal: {n} periods", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"journal ingest failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

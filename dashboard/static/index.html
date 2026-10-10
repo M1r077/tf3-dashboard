@@ -228,12 +228,17 @@
   <!-- ------------------------------------------------ finance (secondary) -->
   <section id="tab-finance" class="tab">
     <div class="panels" data-layout="finance">
+      <div class="card" data-panel="journal" data-w="12">
+        <h2><i class="ico" data-ico="money"></i><span data-i18n="journal_title"></span> <small id="journal-range"></small>
+          <span class="h2-tools"><span data-i18n="journal_cols"></span> <span class="seg" id="journal-cols"><button data-n="4">4</button><button data-n="8" class="active">8</button><button data-n="12">12</button><button data-n="24">24</button><button data-n="0" data-i18n="journal_cols_all"></button></span></span></h2>
+        <div class="journal-wrap"><table class="journal" id="journal-table"></table></div>
+      </div>
       <div class="card" data-panel="balance" data-w="7">
-        <h2><i class="ico" data-ico="money"></i><span data-i18n="balance"></span> <small id="fin-range"></small></h2>
+        <h2><i class="ico" data-ico="money"></i><span data-i18n="journal_bank_chart"></span></h2>
         <canvas id="chart-balance" data-h="240"></canvas>
       </div>
       <div class="card" data-panel="earnings" data-w="5">
-        <h2><i class="ico" data-ico="chart"></i><span data-i18n="earnings_title"></span></h2>
+        <h2><i class="ico" data-ico="chart"></i><span data-i18n="journal_result_chart"></span></h2>
         <canvas id="chart-earn" data-h="240"></canvas>
       </div>
       <div class="card" data-panel="transport" data-w="4">

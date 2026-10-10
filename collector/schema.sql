@@ -40,6 +40,34 @@ CREATE TABLE IF NOT EXISTS line_path (
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 
+-- the game's own accounting journal (mod rev 13, tf3dash_journal.lua): the table behind the Finances window, asked
+-- with one column per period of simulation time since the start of the game. Every column is upserted whenever the
+-- mod rewrites the file (once per game month): past columns do not change, the current one grows. Never purged:
+-- one row per column x line, i.e. a few hundred rows per game year.
+--   kind: 'transport' (carrier 0 road 1 rail 2 tram 3 other 4 air 5 water), 'investment', 'other', or a summary
+--         ('loan', 'interest', 'loanBorrowing', 'loanRepayment', 'total', 'balance')
+--   key:  "type/maintenance/construction" numbers as unfolded by the engine; see JOURNAL_KEYS in the dashboard
+CREATE TABLE IF NOT EXISTS finance_journal (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    col            INTEGER NOT NULL,                -- column index, 0 = first period of the game
+    kind           TEXT NOT NULL,
+    carrier        INTEGER NOT NULL DEFAULT -1,
+    key            TEXT NOT NULL DEFAULT '',
+    amount         INTEGER NOT NULL,
+    PRIMARY KEY (game_id, col, kind, carrier, key)
+);
+
+-- the columns of finance_journal: label as the game prints it, start of the period in simulation time
+CREATE TABLE IF NOT EXISTS finance_journal_col (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    col            INTEGER NOT NULL,
+    label          TEXT NOT NULL,
+    start_ms       INTEGER NOT NULL,
+    interval_ms    INTEGER NOT NULL,
+    received_at    TEXT NOT NULL,
+    PRIMARY KEY (game_id, col)
+);
+
 CREATE TABLE IF NOT EXISTS snapshot (
     snapshot_id    INTEGER PRIMARY KEY,
     game_id        INTEGER NOT NULL REFERENCES game(game_id),

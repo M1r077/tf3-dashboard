@@ -110,7 +110,7 @@ window.I18N = {
     set_clock: "Game clock", set_clock_hint: "show the time of day next to the date", line_throughput: "Transported / yr", line_pax_rating: "Pax rating", line_cargo_rating: "Cargo rating",
     // savegames & backups (settings panel)
     saves_title: "Savegames & backups", saves_current: "current", saves_game_date: "Game date", saves_seen: "seen {a} → {b}", saves_counts: "{s} snapshots · {l} lines · {v} vehicles · {c} camera views",
-    saves_reloads: "Reloaded {n}× from an older save, last time {from} → {to} ({at}). The history is kept.",
+    saves_reloads: "Reloaded {n}× from an older save, last time {from} → {to} ({at}). What was recorded beyond that point was removed: one timeline per save, like the game.",
     saves_backup_now: "Back up now", saves_backup_done: "Backup written: {f}", saves_backups: "Backups", saves_no_backup: "No backup yet.",
     saves_restore: "Restore", saves_restore_views: "Restore the camera views", saves_restore_all: "Restore everything",
     saves_restore_views_confirm: "Add the camera views of {f} to the current ones (only for savegames that have none)?",
@@ -120,8 +120,8 @@ window.I18N = {
     set_default_tab: "Start tab", set_reset: "Reset to defaults", set_note: "Settings are stored in this browser only.", samples_unit: "{n} samples", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 month", "6gm": "6 months", "1gy": "1 year", "5gy": "5 years", all: "all" }, range_title: "Time range of the charts: real minutes, or months and years of simulation time, the clock of the game's finance report (one year = 1460 s of simulation, whatever the calendar speed; the displayed date can be slowed down or paused, the money keeps flowing)",
-    samples_range: "{n} points · {r}", chart_agg: "1-min average", chart_one_point: "1 point — the curve appears with the next sample", no_data_yet: "no data yet",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 month", "6gm": "6 months", "1gy": "1 year", "5gy": "5 years", all: "all" }, range_title: "Time range of the charts: real minutes, or months and years of simulation time. The x axis is the game clock (one financial year = 1460 s of simulation, whatever the calendar speed; the date can be paused while money keeps flowing). One timeline per save: reloading an older save removes what was recorded beyond it.",
+    samples_range: "{n} points · {r}", sim_years: "{n} y", sim_months: "{n} mo", sim_days: "{n} d", sim_now: "now", chart_agg: "1-min average", chart_one_point: "1 point — the curve appears with the next sample", no_data_yet: "no data yet",
     chart_hint: "drag: zoom · double-click: reset · click a legend entry: hide/show",
     network_growth: "Network", company_growth: "Company value",
     set_layout: "Panels", layout_edit: "Arrange panels", layout_reset_all: "Reset all tabs", layout_reset_tab: "Reset this tab", layout_done: "Done",
@@ -237,7 +237,7 @@ window.I18N = {
     set_refresh: "Rafraîchissement", set_history: "Historique affiché", set_finance: "Finances", set_finance_hint: "afficher l'onglet Finances et la trésorerie", set_keys: "Raccourcis", set_keys_hint: "Espace = pause, 1/2/3 = vitesse",
     set_clock: "Horloge du jeu", set_clock_hint: "afficher l'heure à côté de la date", line_throughput: "Transporté / an", line_pax_rating: "Note passagers", line_cargo_rating: "Note fret",
     saves_title: "Sauvegardes et copies", saves_current: "en cours", saves_game_date: "Date du jeu", saves_seen: "vue {a} → {b}", saves_counts: "{s} instantanés · {l} lignes · {v} véhicules · {c} vues caméra",
-    saves_reloads: "Rechargée {n}× depuis une sauvegarde plus ancienne, la dernière fois {from} → {to} ({at}). L'historique est conservé.",
+    saves_reloads: "Rechargée {n}× depuis une sauvegarde plus ancienne, la dernière fois {from} → {to} ({at}). Ce qui avait été enregistré au-delà a été retiré : une seule ligne de temps par sauvegarde, comme le jeu.",
     saves_backup_now: "Faire une copie maintenant", saves_backup_done: "Copie écrite : {f}", saves_backups: "Copies", saves_no_backup: "Aucune copie pour l'instant.",
     saves_restore: "Restaurer", saves_restore_views: "Restaurer les vues caméra", saves_restore_all: "Tout restaurer",
     saves_restore_views_confirm: "Ajouter les vues caméra de {f} aux vues actuelles (seulement pour les parties qui n'en ont pas) ?",
@@ -247,8 +247,8 @@ window.I18N = {
     set_default_tab: "Onglet au démarrage", set_reset: "Valeurs par défaut", set_note: "Les réglages sont mémorisés dans ce navigateur uniquement.", samples_unit: "{n} relevés", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mois", "6gm": "6 mois", "1gy": "1 an", "5gy": "5 ans", all: "tout" }, range_title: "Plage de temps des graphiques : minutes réelles, ou mois et années de simulation, l'horloge du rapport financier du jeu (une année = 1460 s de simulation, quelle que soit la vitesse du calendrier ; la date affichée peut être ralentie ou en pause, l'argent continue de tomber)",
-    samples_range: "{n} points · {r}", chart_agg: "moyenne 1 min", chart_one_point: "1 point — la courbe apparaît au prochain relevé", no_data_yet: "pas encore de données",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mois", "6gm": "6 mois", "1gy": "1 an", "5gy": "5 ans", all: "tout" }, range_title: "Plage de temps des graphiques : minutes réelles, ou mois et années de temps de simulation. L'axe des X est l'horloge du jeu (une année financière = 1460 s de simulation, quelle que soit la vitesse du calendrier ; la date peut être en pause pendant que l'argent circule). Une seule ligne de temps par sauvegarde : recharger une sauvegarde plus ancienne retire ce qui avait été enregistré au-delà.",
+    samples_range: "{n} points · {r}", sim_years: "{n} a", sim_months: "{n} mois", sim_days: "{n} j", sim_now: "maintenant", chart_agg: "moyenne 1 min", chart_one_point: "1 point — la courbe apparaît au prochain relevé", no_data_yet: "pas encore de données",
     chart_hint: "glisser : zoom · double-clic : réinitialiser · clic sur la légende : masquer/afficher",
     network_growth: "Réseau", company_growth: "Valeur de la compagnie",
     set_layout: "Panneaux", layout_edit: "Organiser les panneaux", layout_reset_all: "Réinitialiser tous les onglets", layout_reset_tab: "Réinitialiser cet onglet", layout_done: "Terminé",
@@ -363,7 +363,7 @@ window.I18N = {
     set_refresh: "Aktualisierung", set_history: "Angezeigter Verlauf", set_finance: "Finanzen", set_finance_hint: "Finanzen-Tab und Kontostand anzeigen", set_keys: "Tastenkürzel", set_keys_hint: "Leertaste = Pause, 1/2/3 = Tempo",
     set_clock: "Spieluhr", set_clock_hint: "Uhrzeit neben dem Datum anzeigen", line_throughput: "Befördert / Jahr", line_pax_rating: "Bewertung Passagiere", line_cargo_rating: "Bewertung Fracht",
     saves_title: "Spielstände & Sicherungen", saves_current: "aktuell", saves_game_date: "Spieldatum", saves_seen: "gesehen {a} → {b}", saves_counts: "{s} Schnappschüsse · {l} Linien · {v} Fahrzeuge · {c} Kameraansichten",
-    saves_reloads: "{n}× von einem älteren Spielstand geladen, zuletzt {from} → {to} ({at}). Der Verlauf bleibt erhalten.",
+    saves_reloads: "{n}× von einem älteren Spielstand geladen, zuletzt {from} → {to} ({at}). Was danach aufgezeichnet war, wurde entfernt: eine Zeitlinie je Spielstand, wie im Spiel.",
     saves_backup_now: "Jetzt sichern", saves_backup_done: "Sicherung geschrieben: {f}", saves_backups: "Sicherungen", saves_no_backup: "Noch keine Sicherung.",
     saves_restore: "Wiederherstellen", saves_restore_views: "Kameraansichten wiederherstellen", saves_restore_all: "Alles wiederherstellen",
     saves_restore_views_confirm: "Die Kameraansichten aus {f} zu den aktuellen hinzufügen (nur für Spielstände ohne eigene)?",
@@ -373,8 +373,8 @@ window.I18N = {
     set_default_tab: "Start-Tab", set_reset: "Standardwerte", set_note: "Einstellungen werden nur in diesem Browser gespeichert.", samples_unit: "{n} Messungen", seconds_unit: "{n} s",
     // panel layout
     // time range / charts
-    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", "1gm": "1 Monat", "6gm": "6 Monate", "1gy": "1 Jahr", "5gy": "5 Jahre", all: "alles" }, range_title: "Zeitbereich der Diagramme: echte Minuten oder Monate und Jahre Simulationszeit, die Uhr des Finanzberichts im Spiel (ein Jahr = 1460 s Simulation, unabhängig von der Kalendergeschwindigkeit; das angezeigte Datum kann verlangsamt oder pausiert sein, das Geld fliesst weiter)",
-    samples_range: "{n} Punkte · {r}", chart_agg: "1-Min-Mittel", chart_one_point: "1 Punkt — die Kurve erscheint mit der nächsten Messung", no_data_yet: "noch keine Daten",
+    range: { "5m": "5 Min", "10m": "10 Min", "15m": "15 Min", "20m": "20 Min", "30m": "30 Min", "45m": "45 Min", "1h": "1 h", "1gm": "1 Monat", "6gm": "6 Monate", "1gy": "1 Jahr", "5gy": "5 Jahre", all: "alles" }, range_title: "Zeitbereich der Diagramme: echte Minuten oder Monate und Jahre Simulationszeit. Die X-Achse ist die Spieluhr (ein Geschäftsjahr = 1460 s Simulation, unabhängig von der Kalendergeschwindigkeit; das Datum kann pausieren, während das Geld weiterfliesst). Eine Zeitlinie je Spielstand: das Laden eines älteren Spielstands entfernt, was danach aufgezeichnet wurde.",
+    samples_range: "{n} Punkte · {r}", sim_years: "{n} J", sim_months: "{n} Mo", sim_days: "{n} T", sim_now: "jetzt", chart_agg: "1-Min-Mittel", chart_one_point: "1 Punkt — die Kurve erscheint mit der nächsten Messung", no_data_yet: "noch keine Daten",
     chart_hint: "Ziehen: Zoom · Doppelklick: zurücksetzen · Klick auf Legende: ein-/ausblenden",
     network_growth: "Netz", company_growth: "Unternehmenswert",
     set_layout: "Panels", layout_edit: "Panels anordnen", layout_reset_all: "Alle Tabs zurücksetzen", layout_reset_tab: "Diesen Tab zurücksetzen", layout_done: "Fertig",
@@ -505,7 +505,7 @@ window.I18N = {
     set_refresh: "Atualização", set_history: "Histórico exibido", set_finance: "Finanças", set_finance_hint: "mostrar a aba Finanças e o saldo", set_keys: "Atalhos", set_keys_hint: "Espaço = pausa, 1/2/3 = velocidade",
     set_clock: "Relógio do jogo", set_clock_hint: "mostrar a hora ao lado da data", line_throughput: "Transportado / ano", line_pax_rating: "Avaliação passageiros", line_cargo_rating: "Avaliação carga",
     saves_title: "Jogos salvos e backups", saves_current: "atual", saves_game_date: "Data do jogo", saves_seen: "visto {a} → {b}", saves_counts: "{s} snapshots · {l} linhas · {v} veículos · {c} visões de câmera",
-    saves_reloads: "Recarregado {n}× de um jogo salvo mais antigo, a última vez {from} → {to} ({at}). O histórico é mantido.",
+    saves_reloads: "Recarregado {n}× de um jogo salvo mais antigo, a última vez {from} → {to} ({at}). O que foi registrado depois desse ponto foi removido: uma linha do tempo por jogo salvo, como no jogo.",
     saves_backup_now: "Fazer backup agora", saves_backup_done: "Backup gravado: {f}", saves_backups: "Backups", saves_no_backup: "Nenhum backup ainda.",
     saves_restore: "Restaurar", saves_restore_views: "Restaurar as visões de câmera", saves_restore_all: "Restaurar tudo",
     saves_restore_views_confirm: "Adicionar as visões de câmera de {f} às atuais (somente para jogos salvos que não têm nenhuma)?",
@@ -514,8 +514,8 @@ window.I18N = {
     saves_note: "Um histórico por jogo salvo (o jogo reutiliza a mesma chave a cada carregamento desse jogo). Backups são arquivos zip na pasta acima: banco de dados + visões de câmera; copie-os para onde quiser.",
     set_default_tab: "Aba inicial", set_reset: "Restaurar padrões", set_note: "As configurações ficam salvas somente neste navegador.", samples_unit: "{n} amostras", seconds_unit: "{n} s",
     // time range / charts
-    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mês", "6gm": "6 meses", "1gy": "1 ano", "5gy": "5 anos", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos: minutos reais, ou meses e anos de tempo de simulação, o relógio do relatório financeiro do jogo (um ano = 1460 s de simulação, seja qual for a velocidade do calendário; a data exibida pode ser desacelerada ou pausada, o dinheiro continua entrando)",
-    samples_range: "{n} pontos · {r}", chart_agg: "média de 1 min", chart_one_point: "1 ponto — a curva aparece com a próxima amostra", no_data_yet: "ainda sem dados",
+    range: { "5m": "5 min", "10m": "10 min", "15m": "15 min", "20m": "20 min", "30m": "30 min", "45m": "45 min", "1h": "1 h", "1gm": "1 mês", "6gm": "6 meses", "1gy": "1 ano", "5gy": "5 anos", all: "tudo" }, range_title: "Intervalo de tempo dos gráficos: minutos reais, ou meses e anos de tempo de simulação. O eixo X é o relógio do jogo (um ano financeiro = 1460 s de simulação, seja qual for a velocidade do calendário; a data pode ficar pausada enquanto o dinheiro continua a fluir). Uma linha do tempo por jogo salvo: recarregar um jogo salvo mais antigo remove o que foi registrado depois dele.",
+    samples_range: "{n} pontos · {r}", sim_years: "{n} a", sim_months: "{n} m", sim_days: "{n} d", sim_now: "agora", chart_agg: "média de 1 min", chart_one_point: "1 ponto — a curva aparece com a próxima amostra", no_data_yet: "ainda sem dados",
     chart_hint: "arrastar: zoom · clique duplo: redefinir · clique em um item da legenda: ocultar/mostrar",
     network_growth: "Rede", company_growth: "Valor da empresa",
     // panel layout
@@ -543,6 +543,9 @@ window.I18N = {
    (载具, 线路, 车站, 车库...); everything else stays in English until a native speaker completes it (see README,
    "Translating"). Built on top of "en" so no key is ever missing. */
 window.I18N.zh = Object.assign({}, window.I18N.en, {
+  range_title: "图表的时间范围：真实分钟，或模拟时间的月与年。X 轴为游戏时钟（一个财年 = 1460 秒模拟时间，与日历速度无关；日期可暂停而资金仍在流动）。每个存档只有一条时间线：读取较早的存档会移除其后记录的数据。",
+  saves_reloads: "已从较早的存档重新读取 {n} 次，最近一次 {from} → {to}（{at}）。该点之后记录的数据已移除：每个存档一条时间线，与游戏一致。",
+  sim_years: "{n} 年", sim_months: "{n} 个月", sim_days: "{n} 天", sim_now: "现在",
     trv_kind_view: "围绕视角", trv_kind_chain: "视角链", trv_kind_line: "线路巡游", trv_chain_n: "{n} 个视角的链",
     trv_title: "é•œå¤´å·¡æ¸¸", trv_draft: "è‰ç¨¿", trv_play: "æ’­æ”¾", trv_save: "ä¿å­˜", trv_edit: "è®¾ç½®", trv_done: "å®Œæˆ", trv_alt: "é«˜åº¦", trv_music_game: "æ¸¸æˆåŽŸå£°",
   _locale: "zh-CN", _ymd: true, _months: ["", "1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],

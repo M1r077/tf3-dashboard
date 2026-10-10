@@ -85,8 +85,10 @@
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
   $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
-  /** uPlot options for a server series: real-time x axis (even spacing, aggregate shading) whose ticks read the
-   *  GAME month, whatever the range: a player thinks in game dates, not in the clock on the wall (xGame = labels). */
+  /** uPlot options for a server series. The x axis is the SIMULATION clock (gt, seconds of game time: the clock
+   *  of vehicles, running costs and the finance report), like the game's own charts: a pause is a point, not a
+   *  plateau, and the collector keeps one timeline per save, so the axis never runs backwards. Ticks read the game
+   *  month; the tooltip adds the wall-clock time of the sample (real). Rows without a clock fall back to real time. */
   // month only, no year: the year boundary shows by itself (the year-to-date result drops to zero), and a month label
   // per tick stays short enough to read on a small chart
   const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.month}月` : MON()[s.month] || "";
@@ -94,7 +96,10 @@
     if (!hist.length || hist[0].ts == null) return {};
     let aggFrom = 0; while (aggFrom < hist.length && hist[aggFrom].agg) aggFrom++;
     const months = hist.map(monthLabel);
-    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: months.some(Boolean) ? months : null };
+    const game = hist.every(h => h.gt != null);
+    // consecutive samples on the same game second (game paused) share an x: uPlot needs strictly increasing x, keep the last
+    if (game) for (let i = 1; i < hist.length; i++) if (hist[i].gt <= hist[i - 1].gt) hist[i].gt = hist[i - 1].gt + 0.001;
+    return { ts: hist.map(h => game ? h.gt : h.ts), real: game ? hist.map(h => h.ts) : null, aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: months.some(Boolean) ? months : null };
   }
 
   // ------------------------------------------------------------ icons

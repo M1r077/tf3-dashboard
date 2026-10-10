@@ -141,9 +141,10 @@ Three independent parts:
    - **savegames**: one `game` row per save, key = `player:<entity>` (the game reuses the same player entity at every
      load of that save, so the history continues across sessions; two different saves get two rows and the dashboard
      shows the one with the latest snapshot). `game.label` = first town (alphabetical) + date first seen; `last_game_day`
-     = the game date of the last snapshot; when a snapshot arrives with a game date older than that by more than a
-     day, the player reloaded an older save: logged in `game.reloads` (JSON, last 20), the history is kept, the date
-     tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`, `--forget-game ID`.
+     = the game date of the last snapshot (for the UI). A reload of an older save is detected on the simulation clock
+     (see "Time axis and reloads" below): logged in `game.reloads` (JSON, last 20), the branch recorded beyond it is
+     deleted, the date tile turns amber for 24 h and the tooltip says "reloaded from … to …". `--list-games`,
+     `--forget-game ID`.
    - **backups** (settings panel, "Savegames & backups"; `POST /api/backup`): `db\backups\tf3-dashboard-<label>-<stamp>.zip`
      = consistent copy of the database (SQLite backup API, taken while the collector writes) + `camera_views.json` +
      `manifest.json`. Restore (`POST /api/restore {file, what}`): `views` merges the camera views at once (only for saves
@@ -356,8 +357,23 @@ Three independent parts:
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
-     between the charts of one tab. Time range (5 min ... 1 h, all) right of the tabs; the older part (per-minute
-     averages, see retention) is hatched and marked "1 min average" in the tooltip.
+     between the charts of one tab. Time range right of the tabs: real minutes (5 min ... 1 h), simulation time
+     (1 month, 6 months, 1 year, 5 years: one financial year = 1460 s of simulation, `game_time_ms`, whatever the
+     calendar does) or all. The older part (per-minute averages, see retention) is hatched and marked "1 min average"
+     in the tooltip.
+   - **Time axis and reloads** (companion 0.6.1): the x axis of every history chart is the game's simulation clock
+     (`gt`, seconds of `game_time_ms`), like the game's own charts - a pause is a point, not a plateau, and a second
+     of simulation is the same width whatever the speed. Ticks read the game month; when the calendar is paused while
+     the simulation runs (the date never changes, money and wear do) the axis says "-6 months ... now" instead. The
+     tooltip adds the wall-clock time of the sample. The game keeps one history per save: reloading an older savegame
+     makes everything played after it vanish. The collector does the same (`_track_reload`): when the simulation clock
+     of a new snapshot is below the previous one, every snapshot of that game whose clock is beyond it is deleted
+     (children cascade; the minute aggregates by their own clock), the event is logged in `game.reloads`
+     (`{at, from_day, to_day, game_time_ms, deleted}`, last 20, shown by the amber date tile) and the console says how
+     many snapshots went. The clock is therefore monotonic per game, a game range is one indexed query, and the
+     database stays small (a test save with 62 reloads went from 310 MB to 63 MB when the rule was applied once at
+     start-up, `PRAGMA user_version 3`, followed by a VACUUM). Dimension rows (vehicles, lines bought in an abandoned
+     branch) are not touched: they age out with the usual retention. Snapshots without a clock keep a real-time axis.
    - **Panel layout** (pencil top right, or Settings > Panels): in each tab, drag a panel by its handle to reorder,
      pull the right edge (width, in 12ths of the grid) or the bottom edge (fixed height: charts and lists fill the card),
      -/+ buttons and auto height, hide a panel (it comes back through the "Hidden panels" bar). Esc or Done to leave.

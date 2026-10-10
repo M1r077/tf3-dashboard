@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (companion 0.6.1)
+
+Charts run on the game's simulation clock (x axis in game time, ticks by game month, or -6 months ... now while the calendar is paused). One timeline per save, like the game: reloading an older savegame deletes what was recorded beyond it (snapshots and minute aggregates); a one-shot cleanup applies the rule to existing databases and compacts them. Game-time ranges are one indexed query.
+
 ## Mod 13 / companion 0.6.0 - 10 October 2026
 
 Also companion 0.5.2 (10 October, mod 12): the map ruler (air distance, height difference, the distance the game pays).

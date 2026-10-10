@@ -4,7 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased (companion 0.6.1)
 
-Charts run on the game's simulation clock (x axis in game time, ticks by game month, or -6 months ... now while the calendar is paused). One timeline per save, like the game: reloading an older savegame deletes what was recorded beyond it (snapshots and minute aggregates); a one-shot cleanup applies the rule to existing databases and compacts them. Game-time ranges are one indexed query.
+Charts run on the game's simulation clock (x axis in game time, ticks by game month, or -6 months ... now while the calendar is paused). One timeline per save, like the game: reloading an older savegame deletes what was recorded beyond it (snapshots and minute aggregates); a one-shot cleanup applies the rule to existing databases and compacts them. Game-time ranges are one indexed query. The range bar is five buttons, one per question: since play (after the last pause or reload), 1 month, 1 year, 5 years, all; the real-minute ranges are gone (old links map to the nearest game range).
 
 ## Mod 13 / companion 0.6.0 - 10 October 2026
 

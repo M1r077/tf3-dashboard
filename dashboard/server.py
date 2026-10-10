@@ -1108,58 +1108,83 @@ def api_line_paths(q: dict) -> dict:
 
 
 DETAIL_FETCH_CAP = 20000  # 2 h at 2 s = 3600 rows per series; generous bound for the SQL
-RANGES = {"5m": 300, "10m": 600, "15m": 900, "20m": 1200, "30m": 1800, "45m": 2700, "1h": 3600, "all": 0}
-# game-time ranges (asked for on mod.io): so many months of SIMULATION time back from the latest snapshot.
-# The game has two clocks: the simulation (game_time_ms, which drives vehicles, running costs and the finance report:
-# one financial year = 365 days x 4 s = 1460 s of simulation, base/model_metadata_util.lua) and the calendar (the
-# date shown, for vehicle availability), which the player can slow down or pause while money keeps flowing. Ranges
-# follow the simulation, so "1 year" is a finance-report year whatever the calendar does. The collector keeps one
-# timeline per save (a reload deletes what was recorded beyond it), so the simulation clock is monotonic in the
-# database and a game range is simply "snapshots whose clock is inside the window"; the first of them gives the
-# real-time bound every history query filters on. Every point also carries `gt` (simulation seconds), the x axis
-# of the charts.
-GAME_RANGES = {"1gm": 1, "6gm": 6, "1gy": 12, "5gy": 60}
+# Ranges follow the SIMULATION clock. The game has two clocks: the simulation (game_time_ms, which drives vehicles,
+# running costs and the finance report: one financial year = 365 days x 4 s = 1460 s of simulation,
+# base/model_metadata_util.lua) and the calendar (the date shown, for vehicle availability), which the player can slow
+# down or pause while money keeps flowing. "1 year" is therefore a finance-report year whatever the calendar does, and
+# a paused game adds nothing to any range. One range per question the player asks:
+#   run  - "did my last change pay?"  since the game was last set running (speed 0 -> >0), or the last reload
+#   1gm  - "right now"                 the last month played
+#   1gy  - "this year"                 1460 s
+#   5gy  - "the trend"                 7300 s
+#   all  - everything recorded
+# The collector keeps one timeline per save (a reload deletes what was recorded beyond it), so the clock is monotonic
+# and a range is "snapshots whose clock is inside the window"; the first of them gives the real-time bound every
+# history query filters on. Every point also carries `gt` (simulation seconds), the x axis of the charts.
+GAME_RANGES = {"1gm": 1, "1gy": 12, "5gy": 60}
 GAME_YEAR_MS = 365 * 4 * 1000
+# earlier dashboards sent real-minute ranges and "6gm": map them so old links and saved settings keep working
+RANGE_ALIASES = {"5m": "1gm", "10m": "1gm", "15m": "1gm", "20m": "1gm", "30m": "1gm", "45m": "1gm", "1h": "1gy", "6gm": "1gy"}
+RANGES = {"run", "1gm", "1gy", "5gy", "all"}
 
 
 def _range(q: dict) -> str:
     r = q.get("range", ["all"])[0]
-    return r if r in RANGES or r in GAME_RANGES else "all"
+    r = RANGE_ALIASES.get(r, r)
+    return r if r in RANGES else "all"
 
 
 def _epoch(iso_str: str) -> float:
     return datetime.datetime.fromisoformat(iso_str).timestamp()
 
 
+def _run_start(gid: int) -> dict | None:
+    """First snapshot of the current run: the one after the latest pause (speed 0 while the simulation did not
+    advance) - or after the latest reload, whichever is later. Paused points before it are left out, so the chart
+    starts where the player pressed play."""
+    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    if not last:
+        return None
+    # latest snapshot whose clock is strictly below the previous one: impossible on a clean timeline, so instead
+    # look for the latest snapshot taken while paused and whose clock is below the current one (a pause the game
+    # has moved on from)
+    pause = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND speed=0 AND game_time_ms < ?""", (gid, last["game_time_ms"]))
+    return one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (gid, (pause and pause["sid"]) or 0))
+
+
 def _range_secs(rng: str) -> float:
     """Seconds of real time covered by the range (0 = everything). A game-time range is measured on the snapshots of
     the current game: the first one whose simulation clock is inside the window gives the bound."""
-    if rng in RANGES:
-        return RANGES[rng]
+    if rng == "all":
+        return 0
+    gid = _gid()
+    if rng == "run":
+        first = _run_start(gid)
+        return max(1.0, time.time() - _epoch(first["rt"])) if first and first["rt"] else 0
     months = GAME_RANGES.get(rng)
     if not months:
         return 0
-    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (_gid(),))
+    last = one("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
     if not last:
         return 0
     bound = last["game_time_ms"] - months * GAME_YEAR_MS // 12
     if _timeline_clean():
-        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (_gid(), bound))
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (gid, bound))
         # a paused game (or one that just reloaded) has played little since: a window measured on the clock alone
         # could hold a handful of identical points. Widen it until it holds at least 20 distinct clock values, so
         # "1 month" always means the last month played, not the last month of a stopped pendulum.
-        n = one("SELECT COUNT(DISTINCT game_time_ms) AS n FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (_gid(), bound))
+        n = one("SELECT COUNT(DISTINCT game_time_ms) AS n FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (gid, bound))
         if n and n["n"] < 20:
             wider = one("""SELECT MIN(real_time) AS rt FROM (SELECT real_time FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL
-                           GROUP BY game_time_ms ORDER BY game_time_ms DESC LIMIT 20)""", (_gid(),))
+                           GROUP BY game_time_ms ORDER BY game_time_ms DESC LIMIT 20)""", (gid,))
             if wider and wider["rt"]:
                 first = wider
     else:
         # database not yet cleaned by a collector of this version (reloaded branches still inside): walk the current
         # run only - the latest row whose clock is below the bound, or ahead of the last one, ends the search
         edge = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND snapshot_id <= ?
-                      AND (game_time_ms < ? OR game_time_ms > ?)""", (_gid(), last["snapshot_id"], bound, last["game_time_ms"]))
-        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (_gid(), (edge and edge["sid"]) or 0))
+                      AND (game_time_ms < ? OR game_time_ms > ?)""", (gid, last["snapshot_id"], bound, last["game_time_ms"]))
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (gid, (edge and edge["sid"]) or 0))
     if not first or not first["rt"]:
         return 0
     return max(1.0, time.time() - _epoch(first["rt"]))

@@ -357,10 +357,14 @@ Three independent parts:
    - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
      refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
-     between the charts of one tab. Time range right of the tabs: real minutes (5 min ... 1 h), simulation time
-     (1 month, 6 months, 1 year, 5 years: one financial year = 1460 s of simulation, `game_time_ms`, whatever the
-     calendar does) or all. The older part (per-minute averages, see retention) is hatched and marked "1 min average"
-     in the tooltip.
+     between the charts of one tab. Time range right of the tabs, one per question the player asks, all in simulation
+     time (`game_time_ms`; one financial year = 1460 s whatever the calendar does, a paused game adds nothing):
+     **since play** (did my last change pay? - since the game was last set running after a pause or a reload:
+     first snapshot after the latest `speed = 0` row whose clock is below the current one), **1 month** (right
+     now - the last month played, widened to the last 20 distinct clock values when less was played), **1 year**,
+     **5 years**, **all**. Real-minute ranges were dropped in 0.6.1: at speed 1 they duplicated the game ranges,
+     paused they were empty, at speed 4 they lied; `?range=5m..1h` and `6gm` still resolve to the nearest game range.
+     The older part (per-minute averages, see retention) is hatched and marked "1 min average" in the tooltip.
    - **Time axis and reloads** (companion 0.6.1): the x axis of every history chart is the game's simulation clock
      (`gt`, seconds of `game_time_ms`), like the game's own charts - a pause is a point, not a plateau, and a second
      of simulation is the same width whatever the speed. Ticks read the game month; when the calendar is paused while

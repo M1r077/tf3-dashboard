@@ -38,8 +38,10 @@
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
 
   // ------------------------------------------------------------ settings (browser-local)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1h" };
-  const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "1gm", "6gm", "1gy", "5gy", "all"];  // real minutes, then game months / years
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1gy" };
+  // one range per question: since the game was set running, the last month played, this year, the trend, everything
+  const RANGES = ["run", "1gm", "1gy", "5gy", "all"];
+  const RANGE_ALIASES = { "5m": "1gm", "10m": "1gm", "15m": "1gm", "20m": "1gm", "30m": "1gm", "45m": "1gm", "1h": "1gy", "6gm": "1gy" };  // earlier versions
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
     const root = document.documentElement.style;
@@ -50,7 +52,8 @@
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
-    const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange && RANGES.includes(urlRange)) settings.range = urlRange;  // ?range= for screenshots / links
+    const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange) settings.range = RANGE_ALIASES[urlRange] || urlRange;  // ?range= for screenshots / links
+    settings.range = RANGE_ALIASES[settings.range] || settings.range;
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));

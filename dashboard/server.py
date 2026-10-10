@@ -239,15 +239,14 @@ def api_finance(q: dict) -> dict:
     rng = _range(q)
     series = _merged_series(
         gid, rng, limit,
-        detail_sql="""SELECT snapshot_id, real_time, game_time_ms, year, month, day, balance, loan, earnings_ytd,
+        detail_sql="""SELECT snapshot_id, real_time, game_time_ms, year, month, day,
                       passengers_transported, cargo_transported FROM v_finance_series WHERE game_id=? AND real_time >= ?
                       ORDER BY snapshot_id DESC LIMIT ?""",
-        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, balance, loan, earnings_ytd, passengers_transported, cargo_transported
+        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, passengers_transported, cargo_transported
                    FROM agg_finance_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
     # company figures come with the slow export (one row per ~30 s, kept 14 days): same range as the charts above
     comp = rows("""SELECT s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day, c.total_score, c.total_assets, c.debt, c.number_of_lines,
-                   c.total_stations, c.track_length_m, c.road_length_m,
-                   c.rail_vehicles + c.trams + c.road_vehicles + c.aircrafts + c.ships AS vehicles
+                   c.total_stations, c.track_length_m, c.road_length_m
                    FROM company c JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ?
                    ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), limit))
     comp.reverse()
@@ -384,7 +383,7 @@ def api_lines(q: dict) -> dict:
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, destroy_for_config_change, destroy_for_refresh, no_load, max_load, terminals, alternatives
+                           force_unload, no_load, max_load, terminals, alternatives
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
         for k in ("no_load", "max_load", "terminals", "alternatives"):
@@ -479,10 +478,10 @@ def api_vehicle_history(q: dict) -> dict:
     rng = _range(q)
     hist = _merged_series(
         gid, rng, _limit(q, 300),
-        detail_sql="""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, vs.state, vs.speed_ms, vs.load, vs.maintenance, vs.x, vs.y, vs.line_id, vs.stop_index
+        detail_sql="""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, vs.state, vs.speed_ms, vs.load, vs.maintenance, vs.line_id, vs.stop_index
                       FROM vehicle_state vs JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ? AND vs.vehicle_id=?
                       ORDER BY s.snapshot_id DESC LIMIT ?""",
-        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index
+        agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, state, speed_ms, load, maintenance, line_id, stop_index
                    FROM agg_vehicle_min WHERE game_id=? AND bucket >= ? AND vehicle_id=? ORDER BY bucket""",
         extra=(vid,))
     v = one("SELECT v.*, vs.cargo, l.name AS line_name FROM vehicle v LEFT JOIN vehicle_state vs ON vs.vehicle_id=v.vehicle_id AND vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state x WHERE x.vehicle_id=v.vehicle_id) LEFT JOIN line l ON l.game_id=v.game_id AND l.line_id=vs.line_id WHERE v.game_id=? AND v.vehicle_id=?", (gid, vid))
@@ -535,14 +534,13 @@ def api_towns(q: dict) -> dict:
     for c in cargo:
         cmap.setdefault(c["town_id"], []).append(c)
     # "supplied / needed" of the town window (mod schema 3+), whole town only (land_use 0); per land use stays in the DB
-    supply = rows("""SELECT town_id, cargo_id, v1, v2, v3 FROM town_supply
+    supply = rows("""SELECT town_id, cargo_id, v1, v2 FROM town_supply
                      WHERE land_use=0 AND snapshot_id=(SELECT MAX(snapshot_id) FROM town_supply)""")
     smap: dict[tuple, dict] = {(s["town_id"], s["cargo_id"]): s for s in supply}
     for c in cargo:
         s = smap.get((c["town_id"], c["cargo_id"]))
         c["supplied"] = s["v1"] if s else None
         c["needed"] = s["v2"] if s else None
-        c["supply_v3"] = s["v3"] if s else None
     top = rows("""SELECT tl.town_id, tl.line_id, l.name, tl.resident_unhappy, tl.resident_total, tl.nonresident_unhappy, tl.nonresident_total
                   FROM town_top_line tl LEFT JOIN line l ON l.game_id=? AND l.line_id=tl.line_id
                   WHERE tl.snapshot_id=(SELECT MAX(snapshot_id) FROM town_top_line)""", (gid,))
@@ -568,7 +566,7 @@ def api_town_history(q: dict) -> dict:
     tid = int(q["id"][0])
     gid = _gid()
     hist = rows("""SELECT s.real_time, s.game_time_ms, s.year, s.month, s.day, ts.cap_res, ts.cap_com, ts.cap_ind, ts.used_res, ts.used_com, ts.used_ind,
-                   ts.hap_inside_unhappy, ts.hap_inside_total, ts.line_usage, ts.noise_db, ts.pollution_db, ts.traffic_speed
+                   ts.hap_inside_unhappy, ts.hap_inside_total, ts.line_usage, ts.noise_db, ts.traffic_speed
                    FROM town_state ts JOIN snapshot s USING(snapshot_id) WHERE s.game_id=? AND s.real_time >= ? AND ts.town_id=? ORDER BY s.snapshot_id DESC LIMIT ?""", (gid, _since_iso(q), tid, _limit(q, 300)))
     hist.reverse()
     _stamp(hist)
@@ -614,7 +612,7 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, s.construction, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
@@ -743,7 +741,7 @@ def api_geo(q: dict) -> dict:
     hundred KB, the map tab asks on every refresh)."""
     gid = _gid()
     try:
-        row = one("SELECT geo_seq, received_at, edge_count, water_count, data FROM geo WHERE game_id=?", (gid,))
+        row = one("SELECT geo_seq, received_at, data FROM geo WHERE game_id=?", (gid,))
     except sqlite3.OperationalError:  # collector older than 0.5.0 never created the table
         row = None
     if not row:
@@ -752,7 +750,7 @@ def api_geo(q: dict) -> dict:
     if have is not None and str(row["geo_seq"]) == str(have) and str(gid) == str(game):
         return {"geo_seq": row["geo_seq"], "game_id": gid, "available": True, "unchanged": True}
     data = json.loads(row["data"])
-    data.update({"available": True, "game_id": gid, "received_at": row["received_at"], "edge_count": row["edge_count"], "water_count": row["water_count"]})
+    data.update({"available": True, "game_id": gid, "received_at": row["received_at"]})
     return data
 
 

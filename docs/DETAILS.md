@@ -440,13 +440,20 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
 
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
+- rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and
+  drawn by the dashboard; what the mod exports and nothing displays is not stored. Columns dropped by the audit
+  (`Store.DROPPED`, removed from older databases at start-up, `PRAGMA user_version 4`): positions' `z`, `first_seen`
+  / `last_seen` of dimensions other than `game`, `snapshot.tick/update_count/slow_seq`, `finance.bank_balance`,
+  `company.oldest_vehicle`, `vehicle_state.doors_open/depot_id`, `line_stop.destroy_*`, `station.construction`,
+  `town_state.buildings/congestion_levels/hap_building_*`, `town_supply.v3`, `industry_state.upgrade_progress`,
+  `alert.detail`, the fleet/finance aggregates nobody plotted, the unused views.
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - per game, not per snapshot: `geo` (map geography), `line_path` (legs driven), `finance_journal` / `finance_journal_col`
   (the game's finance table, replaced at each monthly write of the mod, never purged)
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
-- views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
+- views: `v_latest_snapshot`, `v_finance_series`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);
   `PRAGMA user_version` on the database side (1 = fix applied to already stored `line_capacity`). The collector fixes
   on the fly the exports of a mod still on schema 1 (+1 offset: a bus "carried vehicles").

@@ -1970,16 +1970,21 @@
       if (ha != null && hb != null) {
         // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
         const dz = hb - ha;
-        lines.push({ sw: null, v: (dz >= 0 ? "+" : "") + Math.round(dz) + " m", s: t("ruler_dz", { n: "" }).trim(), c: dz > 0 ? "#f08080" : "#9ad39a" });
-        lines.push({ sw: null, v: fmtDist(dist + 8 * Math.max(0, dz)), s: t("ruler_paid", { d: "" }).trim() });
+        lines.push({ sw: null, v: (dz >= 0 ? "+" : "") + Math.round(dz) + " m", s: t("ruler_height"), c: dz > 0 ? "#f08080" : "#9ad39a" });
+        lines.push({ sw: null, v: fmtDist(dist + 8 * Math.max(0, dz)), s: t("ruler_paid_as") });
       }
       if (net && net.available) {
         // travel time at a flat cruising speed, ignoring stops and acceleration. Placeholder speeds (early game: steam
         // locomotives ~80 km/h, trucks and buses ~50 km/h) until the vehicle catalogue is in the database, where the
         // fastest vehicle available at the current date will replace them.
         const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
-        lines.push(net.road != null ? { sw: "#f0a35e", v: fmtDist(net.road), s: trip(net.road, RULER_SPEED.road) } : { sw: "#f0a35e", v: "", s: t("ruler_road", { d: t("ruler_none") }) });
-        lines.push(net.rail != null ? { sw: "#7fb8ff", v: fmtDist(net.rail), s: trip(net.rail, RULER_SPEED.rail) } : { sw: "#7fb8ff", v: "", s: t("ruler_rail", { d: t("ruler_none") }) });
+        // approach from A to the network, the way over it, approach to B: "A +300 m · 3.5 km · +23 m B"
+        const parts = (p) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
+        const netLine = (mode, sw, kmh) => net[mode] != null
+          ? { sw, v: fmtDist(net[mode]), s: trip(net[mode], kmh) + (net[mode + "_parts"] ? "   " + parts(net[mode + "_parts"]) : "") }
+          : { sw, v: "", s: t("ruler_" + mode, { d: t("ruler_none") }) };
+        lines.push(netLine("road", "#f0a35e", RULER_SPEED.road));
+        lines.push(netLine("rail", "#7fb8ff", RULER_SPEED.rail));
       }
       // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
       // over the relief)

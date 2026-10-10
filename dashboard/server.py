@@ -731,7 +731,7 @@ def _geo_graph(edges: list, kind_test) -> dict:
         pos.setdefault(a, (e[0], e[1])); pos.setdefault(b, (e[2], e[3]))
         d = math.hypot(e[2] - e[0], e[3] - e[1])
         adj.setdefault(a, []).append((b, d, e)); adj.setdefault(b, []).append((a, d, e))
-    return {"adj": adj, "pos": pos, "nodes": list(pos.keys())}
+    return {"adj": adj, "pos": pos, "nodes": list(pos.keys()), "edges": [e for e in edges if len(e) >= 5 and kind_test(e[4])]}
 
 
 def _nearest_node(gr: dict, x: float, y: float, limit: float = 400.0):
@@ -781,9 +781,10 @@ def _geo_graphs(gid: int, geo_seq, geo: dict) -> dict:
 
 def api_distance(q: dict) -> dict:
     """Ruler helper: shortest distance over the existing network between two map points, by road and by rail.
-    ?ax=&ay=&bx=&by= (world metres). Each end snaps to the nearest graph node within 400 m; a mode comes back null
-    when an end is too far from that network or when the two ends are not connected. Lengths are sums of straight
-    segments (curves are slightly under-measured). Read only, nothing is sent to the game."""
+    ?ax=&ay=&bx=&by= (world metres). Each end is projected on the nearest segment of that network, whatever the
+    distance; the answer gives the two approach walks and the network length ({mode}_parts) and the polyline. A mode
+    comes back null when the two ends are not connected. Lengths are sums of straight segments (curves are slightly
+    under-measured). Read only, nothing is sent to the game."""
     gid = _gid()
     try:
         pt = [float(q.get(k, ["nan"])[0]) for k in ("ax", "ay", "bx", "by")]
@@ -798,28 +799,71 @@ def api_distance(q: dict) -> dict:
     out: dict = {"available": True, "air": math.hypot(pt[2] - pt[0], pt[3] - pt[1])}
     t0 = time.time()
     for mode in ("road", "rail"):
-        gr = graphs[mode]
-        a, b = _nearest_node(gr, pt[0], pt[1]), _nearest_node(gr, pt[2], pt[3])
-        p = _dijkstra(gr, a, b)
-        if p:
-            # network length between the two snapped nodes, plus the walk from each clicked point to its node
-            pa, pb = gr["pos"][a], gr["pos"][b]
-            out[mode] = sum(math.hypot(e[2] - e[0], e[3] - e[1]) for e in p) + math.hypot(pa[0] - pt[0], pa[1] - pt[1]) + math.hypot(pb[0] - pt[2], pb[1] - pt[3])
-            out[mode + "_points"] = _path_points(p, pa)
-        else:
-            out[mode] = None
+        r = _network_distance(graphs[mode], pt[0], pt[1], pt[2], pt[3])
+        out[mode] = r["total"] if r else None
+        if r:
+            out[mode + "_parts"] = [r["approach_a"], r["network"], r["approach_b"]]
+            out[mode + "_points"] = r["points"]
     out["ms"] = int((time.time() - t0) * 1000)
     return out
 
 
-def _path_points(path: list, start) -> list:
-    """Polyline [[x, y], ...] of a Dijkstra edge list, each segment oriented to continue from the previous end."""
-    pts = [[start[0], start[1]]]
-    for e in path:
-        lx, ly = pts[-1]
-        da, db = (e[0] - lx) ** 2 + (e[1] - ly) ** 2, (e[2] - lx) ** 2 + (e[3] - ly) ** 2
-        pts.append([e[2], e[3]] if da <= db else [e[0], e[1]])
-    return pts
+def _project(gr: dict, x: float, y: float):
+    """Nearest point of the network to (x, y): (edge, t in [0, 1], px, py, distance). Scans every segment (a few ms)."""
+    best = None
+    for e in gr["edges"]:
+        dx, dy = e[2] - e[0], e[3] - e[1]
+        l2 = dx * dx + dy * dy
+        tt = 0.0 if l2 == 0 else max(0.0, min(1.0, ((x - e[0]) * dx + (y - e[1]) * dy) / l2))
+        px, py = e[0] + tt * dx, e[1] + tt * dy
+        d = math.hypot(px - x, py - y)
+        if best is None or d < best[4]:
+            best = (e, tt, px, py, d)
+    return best
+
+
+def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> dict | None:
+    """Shortest way over one network between two arbitrary map points: each point is projected on the nearest
+    segment (any distance), the search starts from both ends of that segment and may finish at either end of the
+    target segment. Returns the approach walks, the network length and the polyline, or None when not connected."""
+    if not gr["edges"]:
+        return None
+    pa, pb = _project(gr, ax, ay), _project(gr, bx, by)
+    if not pa or not pb:
+        return None
+    def key(x, y):
+        return (int(round(x / 5.0)), int(round(y / 5.0)))
+    ea, ta, pax, pay, da = pa
+    eb, tb, pbx, pby, db = pb
+    la, lb = math.hypot(ea[2] - ea[0], ea[3] - ea[1]), math.hypot(eb[2] - eb[0], eb[3] - eb[1])
+    if ea is eb:  # both on the same segment
+        net = abs(ta - tb) * la
+        return {"approach_a": da, "network": net, "approach_b": db, "total": da + net + db, "points": [[ax, ay], [pax, pay], [pbx, pby], [bx, by]]}
+    srcs = {key(ea[0], ea[1]): ta * la, key(ea[2], ea[3]): (1 - ta) * la}
+    dsts = {key(eb[0], eb[1]): tb * lb, key(eb[2], eb[3]): (1 - tb) * lb}
+    dist = dict(srcs); prev = {}; pq = [(d, n) for n, d in srcs.items()]; heapq.heapify(pq)
+    best, best_n = None, None
+    while pq:
+        d, n = heapq.heappop(pq)
+        if d > dist.get(n, 1e18):
+            continue
+        if n in dsts and (best is None or d + dsts[n] < best):
+            best, best_n = d + dsts[n], n
+        if best is not None and d >= best:
+            break
+        for m, w, e in gr["adj"].get(n, ()):
+            nd = d + w
+            if nd < dist.get(m, 1e18):
+                dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
+    if best is None:
+        return None
+    nodes = [best_n]; n = best_n
+    while n in prev:
+        n = prev[n][0]; nodes.append(n)
+    nodes.reverse()
+    pos = gr["pos"]
+    pts = [[ax, ay], [pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + [[pbx, pby], [bx, by]]
+    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "points": pts}
 
 
 def _water_route(geo: dict, ax: float, ay: float, bx: float, by: float) -> list | None:

@@ -433,7 +433,16 @@ def api_fleet(q: dict) -> dict:
     sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
     sid = sid["sid"] if sid else None
     if sid is None:
-        return {"empty": True}
+        # no per-snapshot detail left (the detail window is 2 h): the current figures are unknown, but the
+        # history is in the minute aggregates - give the charts that instead of an empty page
+        rng = _range(q)
+        hist = _merged_series(gid, rng, _limit(q, 400),
+                              detail_sql="SELECT snapshot_id, real_time, game_time_ms FROM snapshot WHERE game_id=? AND real_time >= ? AND 0 LIMIT ?",
+                              agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, en_route, at_terminal, in_depot, load, capacity, avg_speed, maint
+                                         FROM agg_fleet_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
+        if not hist:
+            return {"empty": True}
+        return {"by_carrier": [], "worn": [], "idle": [], "stuck": [], "history": hist, "capacity": None, "range": rng}
     by_carrier = rows("""SELECT v.carrier, COUNT(*) n, SUM(vs.state='EN_ROUTE') en_route, SUM(vs.state='AT_TERMINAL') at_terminal,
                          SUM(vs.state='IN_DEPOT') in_depot, SUM(vs.state='GOING_TO_DEPOT') to_depot,
                          SUM(vs.load) load, SUM(v.capacity) capacity, AVG(vs.maintenance) maint, SUM(vs.maintenance < 0.5) worn,

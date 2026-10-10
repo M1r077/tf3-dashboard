@@ -1108,7 +1108,9 @@
     const d = await api("/api/industries"); const inds = d.industries || []; state.cache.industries = inds;
     if (!state.selInd) { const u = +new URLSearchParams(location.search).get("ind"); if (u && inds.some(i => i.industry_id === u)) state.selInd = u; }  // deep link ?tab=industries&ind=<id>
     const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
-    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !i.producing || i.closure_time > 0 || i.cargo.some(c => c.direction === "out" && !c.shipped_year)));
+    // "served" = something of yours moves there: an output shipped this year, or (no outputs) an input delivered
+    const served = (i) => { const outs = i.cargo.filter(c => c.direction === "out"); return outs.length ? outs.some(c => c.shipped_year > 0) : i.cargo.some(c => c.direction === "in" && c.delivered_year > 0); };
+    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !served(i) || i.closure_time > 0));
     // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
     const cargoCell = (i, dir) => i.cargo.filter(c => c.direction === dir).map(c => {
       const a = dir === "out" ? c.produced_year : c.consumed_year, m = dir === "out" ? c.max_prod_year : c.max_cons_year;
@@ -1136,11 +1138,12 @@
   // what lies in the piles, its factor, active or not) and the workers booster (workers who came recently vs the half
   // of the capacity it takes, the productivity applied now, the factor it can reach). The chip sums what is active.
   const boostPct = (f) => f == null ? "" : "+" + Math.round((f >= 1 ? f - 1 : f) * 100) + " %";
-  function boostChip(i) {
+  function boostChip(i, always) {
     const bl = i.boosters || []; if (!bl.length && !i.boost_rule && !i.boost_persons) return "";
     const act = bl.filter(b => b.active);
     const total = act.reduce((m, b) => m * (b.kind === "workers" ? (b.potential || b.factor || 1) : 1 + (b.factor || 0)), 1);
     const on = act.length > 0 || (!bl.length && (i.boost_rule || i.boost_persons));
+    if (!on && !always) return "";  // tables: only when a booster is active; the detail card always says 0/n
     return `<span class="chip ${on ? "info" : ""}" title="${esc(t("boost_hint", { a: act.length, n: bl.length }))}">${ico("booster", "sm")}${bl.length ? (on ? boostPct(total) : `${act.length}/${bl.length}`) : t("boost")}</span>`;
   }
   function boostRows(bl) {
@@ -1166,7 +1169,7 @@
       else { e.a[i] = c.consumed_year; e.m[i] = c.max_cons_year; e.s[i] = c.delivered_year; }
     }
     const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
-    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(ind), ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
+    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(ind, true), ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
     const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
     $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>

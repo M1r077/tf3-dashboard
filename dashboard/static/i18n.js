@@ -86,7 +86,7 @@ window.I18N = {
     reach: "Reach: com. private {a} · com. public {b} · ind. private {c} · ind. public {d}", cargo_needs: "Cargo needs", tip_town_supplied: "Supplied / needed, as in the town window (mod rev 4+)", tip_town_stock: "Warehouse stock / capacity (update the mod to rev 4 to see the town window figures)", stock_short: "stock {a}/{b}", none_m: "none", top_lines: "Most used lines",
     capacities: "Capacities", satisfaction_pt: "Satisfaction & public transport", residential: "Residential", commercial: "Commercial", industrial: "Industrial", unhappy_town: "Unhappy (town)", pt_share: "Public transport share",
     // industries
-    unserved: "unserved / closing", th_industry: "Industry", th_level: "Level", th_status: "Status", th_yield: "Yield", th_inputs: "Inputs (yr)", th_outputs: "Outputs (yr)",
+    unserved: "only unserved / closing", th_industry: "Industry", th_level: "Level", th_status: "Status", th_yield: "Yield", th_inputs: "Inputs (yr)", th_outputs: "Outputs (yr)",
     producing: "producing", halted: "halted", closing: "closing", boost: "boost", manual: "manual", thrown: "thrown {n}", shipped: "shipped", delivered: "delivered",
     // stations
     stations: "Stations", depots: "Depots", th_station: "Station", th_waiting: "Waiting", th_occupancy: "Occupancy", th_overflow: "Overflow", th_lines: "Lines",
@@ -225,7 +225,7 @@ window.I18N = {
     hap_inside: "Dans la ville", hap_res_out: "Résidents sortants", hap_res_in: "Résidents entrants", hap_visitors: "Visiteurs", hap_car: "En voiture", hap_walk: "À pied",
     reach: "Accessibilité : com. privé {a} · com. public {b} · ind. privé {c} · ind. public {d}", cargo_needs: "Besoins en cargo", tip_town_supplied: "Livré / besoin, comme dans la fenêtre de la ville (mod rev 4+)", tip_town_stock: "Stock / capacité de l'entrepôt (mettez le mod à jour en rev 4 pour voir les chiffres de la fenêtre de la ville)", stock_short: "stock {a}/{b}", none_m: "aucun", top_lines: "Lignes les plus utilisées",
     capacities: "Capacités", satisfaction_pt: "Satisfaction & transports publics", residential: "Résidentiel", commercial: "Commercial", industrial: "Industriel", unhappy_town: "Mécontents (ville)", pt_share: "Part transports publics",
-    unserved: "non desservies / en fermeture", th_industry: "Industrie", th_level: "Niveau", th_status: "Statut", th_yield: "Rendement", th_inputs: "Entrées (an)", th_outputs: "Sorties (an)",
+    unserved: "seulement non desservies / en fermeture", th_industry: "Industrie", th_level: "Niveau", th_status: "Statut", th_yield: "Rendement", th_inputs: "Entrées (an)", th_outputs: "Sorties (an)",
     producing: "produit", halted: "à l'arrêt", closing: "fermeture", boost: "boost", manual: "manuel", thrown: "jeté {n}", shipped: "expédié", delivered: "livré",
     stations: "Gares", depots: "Dépôts", th_station: "Gare", th_waiting: "En attente", th_occupancy: "Occupation", th_overflow: "Débordement", th_lines: "Lignes",
     th_depot: "Dépôt", th_parked: "Garés", th_incoming: "En approche", th_maint_pool: "Pool maintenance", pool_fmt: "{avg} moy · {max} max / {n}",
@@ -358,7 +358,7 @@ window.I18N = {
     hap_inside: "In der Stadt", hap_res_out: "Abreisende Einwohner", hap_res_in: "Ankommende Einwohner", hap_visitors: "Besucher", hap_car: "Mit dem Auto", hap_walk: "Zu Fuss",
     reach: "Erreichbarkeit: Gew. privat {a} · Gew. ÖV {b} · Ind. privat {c} · Ind. ÖV {d}", cargo_needs: "Frachtbedarf", tip_town_supplied: "Geliefert / Bedarf, wie im Stadtfenster (Mod Rev. 4+)", tip_town_stock: "Lagerbestand / Kapazität (Mod auf Rev. 4 aktualisieren, um die Zahlen des Stadtfensters zu sehen)", stock_short: "Lager {a}/{b}", none_m: "keiner", top_lines: "Meistgenutzte Linien",
     capacities: "Kapazitäten", satisfaction_pt: "Zufriedenheit & ÖV", residential: "Wohnen", commercial: "Gewerbe", industrial: "Industrie", unhappy_town: "Unzufriedene (Stadt)", pt_share: "ÖV-Anteil",
-    unserved: "nicht bedient / schliessend", th_industry: "Industrie", th_level: "Stufe", th_status: "Status", th_yield: "Ertrag", th_inputs: "Eingänge (Jahr)", th_outputs: "Ausgänge (Jahr)",
+    unserved: "nur nicht bedient / schliessend", th_industry: "Industrie", th_level: "Stufe", th_status: "Status", th_yield: "Ertrag", th_inputs: "Eingänge (Jahr)", th_outputs: "Ausgänge (Jahr)",
     producing: "produziert", halted: "stillstehend", closing: "Schliessung", boost: "Boost", manual: "manuell", thrown: "weggeworfen {n}", shipped: "versandt", delivered: "geliefert",
     stations: "Stationen", depots: "Depots", th_station: "Station", th_waiting: "Wartend", th_occupancy: "Belegung", th_overflow: "Überlauf", th_lines: "Linien",
     th_depot: "Depot", th_parked: "Abgestellt", th_incoming: "Ankommend", th_maint_pool: "Wartungspool", pool_fmt: "{avg} Ø · {max} max / {n}",
@@ -504,7 +504,7 @@ window.I18N = {
     reach: "Alcance: com. privado {a} · com. público {b} · ind. privado {c} · ind. público {d}", cargo_needs: "Demanda de carga", tip_town_supplied: "Fornecido / necessário, como na janela da cidade (mod rev 4+)", tip_town_stock: "Estoque do armazém / capacidade (atualize o mod para a rev 4 para ver os números da janela da cidade)", stock_short: "estoque {a}/{b}", none_m: "nenhuma", top_lines: "Linhas mais usadas",
     capacities: "Capacidades", satisfaction_pt: "Satisfação e transporte público", residential: "Residencial", commercial: "Comercial", industrial: "Industrial", unhappy_town: "Insatisfeitos (cidade)", pt_share: "Participação do transporte público",
     // industries
-    unserved: "sem atendimento / fechando", th_industry: "Indústria", th_level: "Nível", th_status: "Status", th_yield: "Rendimento", th_inputs: "Insumos (ano)", th_outputs: "Produção (ano)",
+    unserved: "só sem atendimento / fechando", th_industry: "Indústria", th_level: "Nível", th_status: "Status", th_yield: "Rendimento", th_inputs: "Insumos (ano)", th_outputs: "Produção (ano)",
     producing: "produzindo", halted: "parada", closing: "fechando", boost: "impulso", manual: "manual", thrown: "descartado {n}", shipped: "enviado", delivered: "entregue",
     // stations
     stations: "Estações", depots: "Depósitos", th_station: "Estação", th_waiting: "Aguardando", th_occupancy: "Ocupação", th_overflow: "Excedente", th_lines: "Linhas",

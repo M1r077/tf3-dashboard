@@ -139,8 +139,15 @@ Three independent parts:
    - a snapshot that crashes the import is logged to `db\collector_errors.log` (full traceback) and skipped; the
      collector keeps running.
    - slow sections are only stored when they were re-collected (`slow_seq` changed)
-   - retention: per-snapshot detail (vehicles, alerts, finance) is kept for 2 h, then rolled up per minute; slow history
-     (lines, towns, stations, industries) is purged after 14 days (`--detail-hours`, `--slow-days`)
+   - retention (`Store.rollup`, every 60 s): per-snapshot detail (vehicles, alerts, finance) is kept for 2 h, then rolled
+     up per minute into `agg_*_min`; beyond 2 h the slow snapshots (lines, towns, stations, industries, depots: ~20 KB
+     each) are thinned to the last one of each 10-minute bucket (`agg_meta.thin_until` marks the progress, so each pass
+     only touches new buckets); slow history is purged after 14 days and per-vehicle minutes after 7 days
+     (`--detail-hours`, `--slow-days`, `--vehicle-days`)
+   - space (`Store.compact`, 2 min after start then hourly): `wal_checkpoint(TRUNCATE)`, and `VACUUM` when the freelist
+     is at least 25 % of the file (and 2500+ pages). Measured: 132 MB with 75 MB free -> 26 MB in 0.2 s. Without it the
+     file never shrinks and the WAL grows while the server holds read transactions (a 0.5 GB database was reported).
+     `--rollup` runs both once and exits.
    - **savegames**: one `game` row per save, key = `player:<entity>` (the game reuses the same player entity at every
      load of that save, so the history continues across sessions; two different saves get two rows and the dashboard
      shows the one with the latest snapshot). `game.label` = first town (alphabetical) + date first seen; `last_game_day`

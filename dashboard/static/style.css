@@ -581,6 +581,10 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 table.journal { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
 table.journal th { text-align: center; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.journal th:first-child { text-align: left; }
+/* the label column stays put while the periods scroll sideways */
+table.journal th:first-child, table.journal td:first-child { position: sticky; left: 0; z-index: 2; background: var(--panel); min-width: 240px; }
+table.journal tr.carrier td:first-child { background: var(--panel2); }
+.journal-wrap { overflow: auto; flex: 1 1 auto; min-height: 0; }
 table.journal td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 table.journal td:first-child { color: var(--text); }
 table.journal tr.carrier td { cursor: pointer; background: var(--panel2); }

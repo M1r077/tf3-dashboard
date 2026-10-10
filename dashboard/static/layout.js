@@ -77,11 +77,12 @@
     // a chart counts its requested height, an empty list a sensible minimum
     let px = 24;
     $$(":scope > *:not(.panel-tools):not(.rz):not(.rz-ghost)", c).forEach(el => {
-      if (el.tagName === "CANVAS" || el.classList.contains("uchart")) px += (+el.dataset.h || +(($("canvas", el) || {}).dataset || {}).h || 220) + 8;
+      if (el.tagName === "CANVAS" || el.classList.contains("uchart")) px += Math.max(200, +el.dataset.h || +(($("canvas", el) || {}).dataset || {}).h || 220) + 8;
       else px += Math.max(el.scrollHeight, el.getBoundingClientRect().height) + 6;
     });
     if (kind === "list") px = Math.max(px, 320);
     if (px < 160 && !$(":scope > canvas, :scope > .uchart", c)) px = 300;  // nothing rendered yet (first load): a sensible default, ↕ re-measures later
+    if (c.dataset.minh) px = Math.max(px, +c.dataset.minh);  // a card that knows its content needs room (e.g. the journal table)
     return Math.max(MIN_H, Math.round(Math.min(px, 720) / ROW));
   }
   function stateOf(container) {

@@ -248,7 +248,7 @@ local journalLastPeriod, journalLastGameTime, journalDumped = nil, nil, false
 -- The journal enums (JournalEntry.Type/Maintenance/Construction) are integers behind userdata without names; keys
 -- are exported as "type/maintenance/construction" numbers (carrier: 0 road, 1 rail, 2 tram, 3 other, 4 air,
 -- 5 water) and named on the dashboard side, where the mapping was checked line by line against the Finances window.
-local function enumName(v)
+local function journalKeyPart(v)
 	if v == nil then return "-" end
 	local n = tonumber(v) or tonumber(tostring(v))
 	return n and tostring(n) or tostring(v)
@@ -262,7 +262,7 @@ local function journalTable(player, cfg)
 	local function rowOf(v) local r = {}; for i = 1, n do r[i] = num(v[i]) or 0 end; return r end
 	local function keyOf(typeKey)
 		local okU, u = pcall(fd.unfoldKey, fd, typeKey)
-		if okU and u then return enumName(u[1]) .. "/" .. enumName(u[2]) .. "/" .. enumName(u[3]) end
+		if okU and u then return journalKeyPart(u[1]) .. "/" .. journalKeyPart(u[2]) .. "/" .. journalKeyPart(u[3]) end
 		return tostring(typeKey)
 	end
 	for _, key in ipairs({ "loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance" }) do
@@ -272,9 +272,9 @@ local function journalTable(player, cfg)
 	fd:foreach_carrier(function(carrier, byType)
 		local c = {}
 		for typeKey, row in pairs(byType) do c[keyOf(typeKey)] = rowOf(row) end
-		out.transport[enumName(carrier)] = c
+		out.transport[journalKeyPart(carrier)] = c
 	end)
-	fd:foreach_other(function(kind, row) out.other[enumName(kind)] = rowOf(row) end)
+	fd:foreach_other(function(kind, row) out.other[journalKeyPart(kind)] = rowOf(row) end)
 	pcall(fd.foreach_investment, fd, function(key, row) out.investment[keyOf(key)] = rowOf(row) end)
 	out.count = n
 	return out

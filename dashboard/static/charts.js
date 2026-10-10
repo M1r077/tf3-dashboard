@@ -205,7 +205,20 @@
     const { w, h } = hostSize(canvas, host);
     const hid = hidden[key] || (hidden[key] = new Set());
     const span = timeAxis ? xs[n - 1] - xs[0] : 0;
-    const getLabel = (i) => timeAxis ? `${fmtTime(xs[i], span)}${labels && labels[i] ? " · " + labels[i] : ""}` : dateTick(labels, i) || "#" + i;
+    const getLabel = (i) => timeAxis ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(xs[i], span)}` : fmtTime(xs[i], span)) : dateTick(labels, i) || "#" + i;
+    // game dates on the axis: it still runs on real time underneath (even spacing, aggregate shading) but the ticks
+    // read the game month, one tick where each month begins. A window inside a single month (a few real minutes)
+    // falls back to the per-sample day labels so the axis still says something.
+    const gameTicks = timeAxis && opts.xGame && opts.xGame.length === n;
+    let monthStarts = gameTicks ? xs.filter((x, i) => opts.xGame[i] && (i === 0 || opts.xGame[i] !== opts.xGame[i - 1])) : [];
+    let tickLabels = opts.xGame;
+    if (gameTicks && monthStarts.length < 2 && labels && labels.length === n) { tickLabels = labels; monthStarts = xs.filter((x, i) => labels[i] && (i === 0 || labels[i] !== labels[i - 1])); }
+    // keep a month start only when it lands >= 70 px right of the previous one kept (the latest months win, since the
+    // reader looks at the right end), so labels never overlap even across a save-reload jump
+    const minGap = tickLabels === opts.xGame ? 44 : 70;  // month names are short
+    const gameSplits = (u) => { const out = []; let lastPx = Infinity; for (let i = monthStarts.length - 1; i >= 0; i--) { const px = u.valToPos(monthStarts[i], "x"); if (lastPx - px >= minGap) { out.unshift(monthStarts[i]); lastPx = px; } } return out; };
+    const labelAt = new Map(); if (gameTicks) xs.forEach((x, i) => { if (!labelAt.has(x)) labelAt.set(x, tickLabels[i]); });
+    const gameAxisValues = (u, vals) => vals.map(v => labelAt.get(v) || "");
 
     const yRange = (u, min, max, scaleKey) => {
       const forcedMin = scaleKey === "y" ? opts.yMin : null, forcedMax = scaleKey === "y" ? opts.yMax : null;
@@ -231,8 +244,8 @@
       },
       axes: [
         { stroke: css("--muted"), grid: { stroke: css("--border"), width: 1 }, ticks: { stroke: css("--border"), width: 1 }, font: `11px ${FONT()}`, gap: 6, size: 28,
-          values: timeAxis ? (u, vals) => vals.map(v => fmtTime(v, span)) : (u, vals) => vals.map(v => Number.isInteger(v) ? dateTick(labels, v) : ""),
-          space: 90, incrs: timeAxis ? undefined : [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000] },
+          values: gameTicks ? gameAxisValues : timeAxis ? (u, vals) => vals.map(v => fmtTime(v, span)) : (u, vals) => vals.map(v => Number.isInteger(v) ? dateTick(labels, v) : ""),
+          space: 90, incrs: timeAxis ? undefined : [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000], splits: gameTicks ? gameSplits : undefined },
         { scale: "y", stroke: css("--muted"), grid: { stroke: css("--border"), width: 1 }, ticks: { show: false }, font: `11px ${FONT()}`, size: 56, gap: 4,
           values: (u, vals) => vals.map(v => fmtShort(v, opts.unit)) },
         ...(hasRight ? [{ scale: "r", side: 1, stroke: css("--muted"), grid: { show: false }, ticks: { show: false }, font: `11px ${FONT()}`, size: 60, gap: 4,

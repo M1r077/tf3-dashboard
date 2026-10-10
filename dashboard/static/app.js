@@ -39,7 +39,7 @@
 
   // ------------------------------------------------------------ settings (browser-local)
   const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1h" };
-  const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "all"];
+  const RANGES = ["5m", "10m", "15m", "20m", "30m", "45m", "1h", "1gm", "6gm", "1gy", "5gy", "all"];  // real minutes, then game months / years
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
     const root = document.documentElement.style;
@@ -49,6 +49,7 @@
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
+    const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange && RANGES.includes(urlRange)) settings.range = urlRange;  // ?range= for screenshots / links
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
     $$("#range-bar button").forEach(b => b.classList.toggle("active", b.dataset.range === settings.range));
     localStorage.setItem("tf3.settings", JSON.stringify(settings));
@@ -83,11 +84,16 @@
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
   $$("#range-bar button").forEach(b => b.addEventListener("click", () => { settings.range = b.dataset.range; applySettings(); refresh(true); }));
-  /** uPlot options for a server series: real-time x axis + where the per-minute aggregated part ends */
+  /** uPlot options for a server series: real-time x axis (even spacing, aggregate shading) whose ticks read the
+   *  GAME month, whatever the range: a player thinks in game dates, not in the clock on the wall (xGame = labels). */
+  // month only, no year: the year boundary shows by itself (the year-to-date result drops to zero), and a month label
+  // per tick stays short enough to read on a small chart
+  const monthLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.month}月` : MON()[s.month] || "";
   function tsOpts(hist, syncKey) {
     if (!hist.length || hist[0].ts == null) return {};
     let aggFrom = 0; while (aggFrom < hist.length && hist[aggFrom].agg) aggFrom++;
-    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey };
+    const months = hist.map(monthLabel);
+    return { ts: hist.map(h => h.ts), aggFrom: aggFrom > 0 ? aggFrom : null, syncKey, xGame: months.some(Boolean) ? months : null };
   }
 
   // ------------------------------------------------------------ icons
@@ -248,9 +254,9 @@
     btns.forEach(b => { b.disabled = off; b.classList.toggle("active", o && o.snapshot && String(o.snapshot.speed) === b.dataset.speed); });
     bar.title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : "";
     const mpd = o && o.snapshot ? o.snapshot.millis_per_day : null;
-    const calFactor = mpd ? Math.round(4000 / mpd * 100) / 100 : null;
+    const calFactor = mpd == null ? null : mpd === 0 ? 0 : Math.round(4000 / mpd * 100) / 100;  // 0 = calendar paused (the date stands still, the simulation runs)
     $$("#cal-speed .cbtn").forEach(b => { b.disabled = off; b.classList.toggle("active", calFactor != null && +b.dataset.cal === calFactor); });
-    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor != null ? ` · ${calFactor}x` : "");
+    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor == null ? "" : calFactor === 0 ? ` · ${t("pause")}` : ` · ${calFactor}x`);
     const st = $("#cmd-status");
     if (c.ack && cmd.lastSent && c.ack.id === cmd.lastSent.id) {
       st.textContent = `${c.ack.cmd} · ${c.ack.ok ? t("act_done") : t("act_failed", { msg: c.ack.error || "" })}`; st.className = "cmdstatus " + (c.ack.ok ? "ok" : "bad");
@@ -419,9 +425,9 @@
     $("#k-date").title = o.game ? `${o.game.label || o.game.key}${rel.length ? "\n" + t("saves_reloads", { n: rel.length, from: gameDay(lastRel.from_day), to: gameDay(lastRel.to_day), at: realDate(lastRel.at) }) : ""}` : "";
     $("#k-date").classList.toggle("rewound", !!recent);
     // two independent speeds: simulation (pause / ×1 / ×2 / ×4) and calendar (the game's slider, 1x = 4000 ms/day)
-    const cal = s.millis_per_day ? Math.round(4000 / s.millis_per_day * 100) / 100 : null;
+    const cal = s.millis_per_day == null ? null : s.millis_per_day === 0 ? 0 : Math.round(4000 / s.millis_per_day * 100) / 100;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
-      `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${t("speed_x", { n: cal })}</span>` : ""}`;
+      `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${cal === 0 ? t("pause") : t("speed_x", { n: cal })}</span>` : ""}`;
     $("#k-veh").textContent = int(v.n);
     $("#k-veh-detail").innerHTML = v.n ? `<span style="color:${STATE_COLOR.EN_ROUTE}">${v.en_route} ${t("en_route")}</span> · ${v.at_terminal} ${t("at_terminal")} · ${v.in_depot} ${t("in_depot")}${v.no_path ? ` · <span class="neg">${v.no_path} ${t("no_path")}</span>` : ""}` : "";
     const fillEl = $("#k-fill");

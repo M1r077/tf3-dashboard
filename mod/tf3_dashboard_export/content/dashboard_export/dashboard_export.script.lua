@@ -1832,8 +1832,8 @@ local COMMANDS = {
 	-- The engine stores it as the length of a day in ms; 1x = 4000 ms/day (observed: 16000 = 0.25x ... 1000 = 4x).
 	set_calendar_speed = function(args)
 		local f = num(args and args.factor)
-		if f == nil or f < 0.25 or f > 4 then error("factor must be 0.25..4") end
-		return sendCmd(api.cmd.makeGameSetCalendarSpeedCmd(math.floor(4000 / f + 0.5)))
+		if f == nil or (f ~= 0 and (f < 0.25 or f > 4)) then error("factor must be 0 (calendar paused) or 0.25..4") end
+		return sendCmd(api.cmd.makeGameSetCalendarSpeedCmd(f == 0 and 0 or math.floor(4000 / f + 0.5)))
 	end,
 	pause = function() return sendCmd(api.cmd.makeGameSetSpeedCmd(0)) end,
 	toggle_pause = function()

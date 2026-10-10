@@ -1752,7 +1752,12 @@
   const kb = (n) => n == null ? "" : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
   async function renderSaves() {
     const box = $("#saves"); if (!box) return;
-    let d; try { d = await api("/api/games"); } catch (e) { box.innerHTML = `<p class="muted">${esc(String(e))}</p>`; return; }
+    let d; try { d = await api("/api/games"); } catch (e) {
+      // the server is not answering (starting, or stopped): say so and retry while the panel is open
+      box.innerHTML = `<p class="muted">${esc(t("server_starting"))}</p>`;
+      setTimeout(() => { if ($("#settings").classList.contains("open")) renderSaves(); }, 2000);
+      return;
+    }
     const games = d.games || [], backups = d.backups || [];
     const gameRow = (gm) => {
       // current = the save the pages show; latest = the save the game last wrote. They differ only offline, when

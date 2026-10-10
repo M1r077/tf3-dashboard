@@ -211,7 +211,7 @@ def api_overview(q: dict) -> dict:
                  FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=? WHERE vs.snapshot_id=?""", (gid, sid)) or {}
     alerts = rows("SELECT kind, COUNT(*) n FROM alert WHERE snapshot_id=? AND kind<>'town_problem' GROUP BY kind", (sid,))
     errors = rows("SELECT section, error FROM snapshot_error WHERE snapshot_id=?", (sid,))
-    game = one("SELECT * FROM game WHERE game_id=?", (gid,))
+    game = one("SELECT g.*, (SELECT COUNT(*) FROM snapshot s WHERE s.game_id=g.game_id) snapshots FROM game g WHERE g.game_id=?", (gid,))
     ack = None
     if snap.get("cmd_ack"):
         try:
@@ -1609,7 +1609,15 @@ def api_games(q: dict) -> dict:
     live = _live_state()
     latest = next((gm["key"] for gm in games if gm["game_id"] == live["latest_gid"]), None)
     # current = the save the pages show; latest = the save the game last wrote; selectable while the game is closed
-    return {"current": cur, "latest": latest, "selectable": not live["fresh"], "games": games, "backups": backups, "dir": str(bd), "restore_pending": pending}
+    forget = []
+    fp = DB_PATH.parent / FORGET_PENDING
+    if fp.exists():
+        try:
+            forget = list(json.loads(fp.read_text(encoding="utf-8")).get("keys") or [])
+        except (OSError, ValueError):
+            forget = []
+    return {"current": cur, "latest": latest, "selectable": not live["fresh"], "games": games, "backups": backups, "dir": str(bd),
+            "restore_pending": pending, "forget_pending": forget, "db_size": _db_size()}
 
 
 def make_backup(body: dict) -> dict:
@@ -1680,6 +1688,63 @@ def restore_backup(body: dict) -> dict:
             res["db_staged"] = True
             console.say(f"database from {p.name} staged: the collector swaps it in at its next start (restart run_dashboard.cmd)", "warn")
     return res
+
+
+FORGET_PENDING = "forget_pending.json"
+
+
+def forget_game(body: dict) -> dict:
+    """POST /api/forget_game {key}: delete a recorded save. The server only reads the database, so the request is
+    staged in db/forget_pending.json and the collector (owner of the file) deletes on its next loop pass, then
+    compacts. Refused for the save the game is writing right now; the camera views and travellings of that save
+    go too (they are the player's work, but they belong to a save he no longer wants here)."""
+    key = str(body.get("key") or "")
+    if not key:
+        raise ValueError("no save given")
+    if not one("SELECT 1 FROM game WHERE key=?", (key,)):
+        raise ValueError("unknown save")
+    live = _live_state()
+    latest_key = None
+    if live["latest_gid"] is not None:
+        r = one("SELECT key FROM game WHERE game_id=?", (live["latest_gid"],))
+        latest_key = r["key"] if r else None
+    if live["fresh"] and key == latest_key:
+        raise ValueError("this save is being played right now")
+    with _backup_lock:
+        target = DB_PATH.parent / FORGET_PENDING
+        req = {"keys": []}
+        if target.exists():
+            try:
+                req = json.loads(target.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                req = {"keys": []}
+        if key not in req["keys"]:
+            req["keys"].append(key)
+        target.write_text(json.dumps(req), encoding="utf-8")
+    with _views_lock:
+        for name in ("camera_views", "travellings"):
+            store = _views_load(name)
+            if key in store:
+                del store[key]
+                _views_save(store, name)
+    with _select_lock:
+        _selected_game["gid"] = None  # whatever was shown, fall back to the latest
+    console.say(f"save {key} queued for deletion: the collector removes it within seconds", "warn")
+    return {"queued": True}
+
+
+def _db_size() -> dict:
+    """Bytes on disk: main file + WAL (the WAL is folded in by the collector's hourly compaction)."""
+    out = {"file": 0, "wal": 0}
+    try:
+        out["file"] = DB_PATH.stat().st_size
+    except OSError:
+        pass
+    try:
+        out["wal"] = (DB_PATH.parent / (DB_PATH.name + "-wal")).stat().st_size
+    except OSError:
+        pass
+    return out
 
 
 # the game's own soundtrack: base/content/music.zip holds 24 OGG tracks. Served straight out of the zip (one entry
@@ -1850,7 +1915,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore", "/api/select_game"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host
@@ -1871,8 +1936,8 @@ class Handler(BaseHTTPRequestHandler):
                 res = (edit_views if u.path == "/api/views" else edit_travellings)(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
-            if u.path in ("/api/backup", "/api/restore", "/api/select_game"):
-                fn = {"/api/backup": make_backup, "/api/restore": restore_backup, "/api/select_game": select_game}[u.path]
+            if u.path in ("/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
+                fn = {"/api/backup": make_backup, "/api/restore": restore_backup, "/api/select_game": select_game, "/api/forget_game": forget_game}[u.path]
                 res = fn(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return

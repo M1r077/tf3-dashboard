@@ -509,6 +509,8 @@ table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertic
 #saves .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--muted); color: #fff; }
 #saves .tag.ok { background: var(--ok); }
 #saves .save-h .btn.sm { margin-left: 6px; }
+#saves .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+#saves .save.bad { opacity: .5; }
 #saves .small, .muted.small { font-size: 11px; }
 #k-date.rewound { color: var(--warn); }
 /* offline: the game is closed (or another save is shown); the figures are the last recorded, for thinking not acting */

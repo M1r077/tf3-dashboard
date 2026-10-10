@@ -205,7 +205,8 @@
     const { w, h } = hostSize(canvas, host);
     const hid = hidden[key] || (hidden[key] = new Set());
     const span = timeAxis ? xs[n - 1] - xs[0] : 0;
-    const getLabel = (i) => timeAxis ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(xs[i], span)}` : fmtTime(xs[i], span)) : dateTick(labels, i) || "#" + i;
+    // opts.gameOnly: the x values are game time, not wall-clock (journal): the label alone says it all
+    const getLabel = (i) => opts.gameOnly ? (labels && labels[i] != null ? String(labels[i]) : "") : timeAxis ? (labels && labels[i] ? `${labels[i]} · ${fmtTime(xs[i], span)}` : fmtTime(xs[i], span)) : dateTick(labels, i) || "#" + i;
     // game dates on the axis: it still runs on real time underneath (even spacing, aggregate shading) but the ticks
     // read the game month, one tick where each month begins. A window inside a single month (a few real minutes)
     // falls back to the per-sample day labels so the axis still says something.

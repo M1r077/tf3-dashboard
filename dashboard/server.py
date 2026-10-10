@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import re
 import math
 import os
 import shutil
@@ -21,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.5.2"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.6.0"  # companion version (semver); build_release.cmd reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -253,6 +254,82 @@ def api_finance(q: dict) -> dict:
     _stamp(comp)
     return {"series": series, "company": comp}
 
+
+_JOURNAL_RE = re.compile(r"^\s*(?:(\d{1,2})/)?(?:(\d{1,2})/)?(\d{2,4})\s*(?:-\s*(?:(\d{1,2})/)?(?:(\d{1,2})/)?(\d{2,4}))?\s*$")
+
+
+def _journal_bounds(label: str, ref_year: int | None) -> tuple[int, int] | None:
+    """Period bounds (start, end) in game months since year 0, from the engine's header. Forms seen: "1920",
+    "1943 - 1946", "9/87 - 11/87", "4/88", "1/3/90 - 16/3/90" (day/month/yy), "16/3/90 - 31/3/90".
+    Two-digit years take the century of ref_year (the game year when the file was written)."""
+    m = _JOURNAL_RE.match(label or "")
+    if not m:
+        return None
+    a1, a2, ay, b1, b2, by = m.groups()
+
+    def year(y: str) -> int:
+        v = int(y)
+        if len(y) <= 2 and ref_year:
+            c = ref_year - ref_year % 100
+            v += c
+            if v > ref_year + 1:
+                v -= 100
+        return v
+
+    def part(d, mo, y):
+        # "d/m/yy" -> day, month; "m/yy" -> month; "yyyy" -> whole year
+        if d is not None and mo is not None:
+            return year(y), int(mo), int(d)
+        if d is not None:
+            return year(y), int(d), None
+        return year(y), None, None
+    sy, sm, sd = part(a1, a2, ay)
+    start = sy * 12 + ((sm or 1) - 1) + (((sd or 1) - 1) / 31)
+    if by is None:
+        if sm is None:
+            end = start + 12
+        elif sd is None:
+            end = start + 1
+        else:
+            end = start + 0.5
+    else:
+        ey, em, ed = part(b1, b2, by)
+        if em is None:
+            end = ey * 12 + 12
+        elif ed is None:
+            end = ey * 12 + em  # inclusive month
+        else:
+            end = ey * 12 + (em - 1) + ((ed - 1) / 31)
+    return start, end
+
+
+def api_journal(q: dict) -> dict:
+    """The game's accounting journal (mod rev 13). ?view=window (the Finances window's own columns) or history
+    (every column since the start of the game). {cols: [{col, label, start, end}], lines: {"transport/1/5/2/6": [...],
+    "total": [...], ...}} where start/end are game months since year 0 (year*12 + month-1, fractional days).
+    A whole 70-year history is ~45 columns x ~30 lines: one small payload."""
+    gid = _gid()
+    view = (q.get("view") or ["window"])[0]
+    if view not in ("window", "history"):
+        view = "window"
+    cols = rows("SELECT col, label, game_year FROM finance_journal_col WHERE game_id=? AND view=? ORDER BY col", (gid, view))
+    if not cols:
+        return {"view": view, "cols": [], "lines": {}}
+    n = cols[-1]["col"] + 1
+    out_cols = []
+    for c in cols:
+        b = _journal_bounds(c["label"], c["game_year"])
+        out_cols.append({"col": c["col"], "label": c["label"], "start": b[0] if b else None, "end": b[1] if b else None})
+    lines: dict[str, list[int]] = {}
+    for r in rows("SELECT col, kind, carrier, key, amount FROM finance_journal WHERE game_id=? AND view=?", (gid, view)):
+        name = r["kind"] if r["carrier"] < 0 and not r["key"] else (
+            f"{r['kind']}/{r['carrier']}/{r['key']}" if r["carrier"] >= 0 else f"{r['kind']}/{r['key']}")
+        arr = lines.get(name)
+        if arr is None:
+            arr = lines[name] = [0] * n
+        if 0 <= r["col"] < n:
+            arr[r["col"]] = r["amount"]
+    return {"view": view, "cols": out_cols, "lines": lines}
 
 def api_alerts(q: dict) -> dict:
     snap = one("SELECT snapshot_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
@@ -574,16 +651,28 @@ def api_map(q: dict) -> dict:
     gid = _gid()
     sid = one("SELECT MAX(snapshot_id) sid FROM vehicle_state")
     sid = sid["sid"] if sid else None
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity,
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity, vs.cargo,
                   l.color_r, l.color_g, l.color_b, l.name AS line_name
                   FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=?
                   LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
                   WHERE vs.snapshot_id=? AND vs.x IS NOT NULL""", (gid, gid, sid)) if sid else []
+    # what is on board, by cargo key: {"grain": 205, "fertilizer": 11}
+    ckeys = {str(r["cargo_id"]): r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
+    for v in veh:
+        try:
+            raw = json.loads(v.pop("cargo") or "{}")
+        except (TypeError, ValueError):
+            raw = {}
+        v["cargo"] = {ckeys.get(k, k): n for k, n in raw.items() if n}
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.cap_res+ts.cap_com+ts.cap_ind AS size FROM town t
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
     st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
-    ind = rows("SELECT industry_id, name, x, y FROM industry WHERE game_id=? AND x IS NOT NULL", (gid,))
+    # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
+    # (closed, renamed, earlier saves), which would litter the map with ghosts
+    ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
+                  WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
+                        (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state)))""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
@@ -608,6 +697,44 @@ def api_map(q: dict) -> dict:
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
     return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
+
+
+def api_map_cargo(q: dict) -> dict:
+    """Cargo layers of the map, per owner (town or industry), from the latest slow snapshot:
+      out   : what the owner produces     [{cargo, key, rate}]            rate = produced / max production per year
+      in    : what the owner needs        [{cargo, key, rate}]            rate = delivered (or supplied) / need per year
+      stock : what is lying there now     [{cargo, key, amount, capacity}] towns only until the mod exports industry piles
+    One query per table, ~200 rows, a few ms."""
+    gid = _gid()
+    keys = {r["cargo_id"]: r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
+    out: dict = {"towns": {}, "industries": {}}
+    def owner(kind, oid):
+        return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
+    sid = one("SELECT MAX(snapshot_id) sid FROM industry_cargo")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year
+                         FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
+                         WHERE ic.snapshot_id=?""", (gid, sid["sid"])):
+            o = owner("industries", r["industry_id"])
+            if r["direction"] == "out":
+                mx = r["max_prod_year"] or 0
+                o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
+            else:
+                mx = r["max_cons_year"] or 0
+                o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+    sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT ts.town_id, ts.cargo_id, SUM(ts.v1) AS supplied, SUM(ts.v2) AS needed FROM town_supply ts
+                         JOIN town t ON t.game_id=? AND t.town_id=ts.town_id AND t.x IS NOT NULL
+                         WHERE ts.snapshot_id=? GROUP BY ts.town_id, ts.cargo_id""", (gid, sid["sid"])):
+            need = r["needed"] or 0
+            owner("towns", r["town_id"])["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["supplied"] or 0) / need if need else None})
+    sid = one("SELECT MAX(snapshot_id) sid FROM town_cargo")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT tc.town_id, tc.cargo_id, tc.stock, tc.capacity FROM town_cargo tc
+                         JOIN town t ON t.game_id=? AND t.town_id=tc.town_id AND t.x IS NOT NULL WHERE tc.snapshot_id=?""", (gid, sid["sid"])):
+            owner("towns", r["town_id"])["stock"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"]})
+    return out
 
 
 def api_geo(q: dict) -> dict:
@@ -654,7 +781,7 @@ def _geo_graph(edges: list, kind_test) -> dict:
         pos.setdefault(a, (e[0], e[1])); pos.setdefault(b, (e[2], e[3]))
         d = math.hypot(e[2] - e[0], e[3] - e[1])
         adj.setdefault(a, []).append((b, d, e)); adj.setdefault(b, []).append((a, d, e))
-    return {"adj": adj, "pos": pos, "nodes": list(pos.keys())}
+    return {"adj": adj, "pos": pos, "nodes": list(pos.keys()), "edges": [e for e in edges if len(e) >= 5 and kind_test(e[4])]}
 
 
 def _nearest_node(gr: dict, x: float, y: float, limit: float = 400.0):
@@ -689,6 +816,114 @@ def _dijkstra(gr: dict, a, b) -> list | None:
         p, e = prev[n]; out.append(e); n = p
     out.reverse()
     return out
+
+
+def _geo_graphs(gid: int, geo_seq, geo: dict) -> dict:
+    """The road and rail graphs of the current geography, built once per (game, geo_seq) and shared by the predicted
+    routes and the ruler (building both takes ~30 ms on 5 000 edges)."""
+    key = (gid, geo_seq)
+    if _route_cache.get("graph_key") != key:
+        edges = geo.get("edges") or []
+        _route_cache["graphs"] = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+        _route_cache["graph_key"] = key
+    return _route_cache["graphs"]
+
+
+def api_distance(q: dict) -> dict:
+    """Ruler helper: shortest distance over the existing network between two map points, by road and by rail.
+    ?ax=&ay=&bx=&by= (world metres). Each end is projected on the nearest segment of that network, whatever the
+    distance; the answer gives the two approach walks and the network length ({mode}_parts) and the polyline. A mode
+    is never null once the network has a segment: when the two ends are not connected by it the proposal is to build
+    straight from A to B ({mode}_gap true, one dashed leg, no network part). Lengths are sums of
+    straight segments (curves are slightly under-measured). Read only, nothing is sent to the game."""
+    gid = _gid()
+    try:
+        pt = [float(q.get(k, ["nan"])[0]) for k in ("ax", "ay", "bx", "by")]
+    except ValueError:
+        return {"error": "ax, ay, bx, by required"}
+    if any(math.isnan(v) for v in pt):
+        return {"error": "ax, ay, bx, by required"}
+    grow = one("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,))
+    if not grow:
+        return {"available": False}
+    graphs = _geo_graphs(gid, grow["geo_seq"], json.loads(grow["data"]))
+    out: dict = {"available": True, "air": math.hypot(pt[2] - pt[0], pt[3] - pt[1])}
+    t0 = time.time()
+    for mode in ("road", "rail"):
+        r = _network_distance(graphs[mode], pt[0], pt[1], pt[2], pt[3])
+        out[mode] = r["total"] if r else None
+        if r:
+            out[mode + "_parts"] = [r["approach_a"], r["network"], r["approach_b"]]
+            out[mode + "_points"] = r["points"]  # the way over the existing network
+            out[mode + "_legs"] = r["legs"]      # the two straight legs to build, A -> network and network -> B
+            out[mode + "_gap"] = r["gap"]        # True when A and B are on separate networks: the second leg bridges them
+    out["ms"] = int((time.time() - t0) * 1000)
+    return out
+
+
+def _project(gr: dict, x: float, y: float):
+    """Nearest point of the network to (x, y): (edge, t in [0, 1], px, py, distance). Scans every segment (a few ms)."""
+    best = None
+    for e in gr["edges"]:
+        dx, dy = e[2] - e[0], e[3] - e[1]
+        l2 = dx * dx + dy * dy
+        tt = 0.0 if l2 == 0 else max(0.0, min(1.0, ((x - e[0]) * dx + (y - e[1]) * dy) / l2))
+        px, py = e[0] + tt * dx, e[1] + tt * dy
+        d = math.hypot(px - x, py - y)
+        if best is None or d < best[4]:
+            best = (e, tt, px, py, d)
+    return best
+
+
+def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> dict | None:
+    """Shortest way over one network between two arbitrary map points: each point is projected on the nearest
+    segment (any distance), the search starts from both ends of that segment and may finish at either end of the
+    target segment. Returns the approach walks, the network length and the polyline, or None when not connected."""
+    if not gr["edges"]:
+        return None
+    pa, pb = _project(gr, ax, ay), _project(gr, bx, by)
+    if not pa or not pb:
+        return None
+    def key(x, y):
+        return (int(round(x / 5.0)), int(round(y / 5.0)))
+    ea, ta, pax, pay, da = pa
+    eb, tb, pbx, pby, db = pb
+    la, lb = math.hypot(ea[2] - ea[0], ea[3] - ea[1]), math.hypot(eb[2] - eb[0], eb[3] - eb[1])
+    if ea is eb:  # both on the same segment
+        net = abs(ta - tb) * la
+        return {"approach_a": da, "network": net, "approach_b": db, "total": da + net + db, "gap": False,
+                "points": [[pax, pay], [pbx, pby]], "legs": [[[ax, ay], [pax, pay]], [[pbx, pby], [bx, by]]]}
+    srcs = {key(ea[0], ea[1]): ta * la, key(ea[2], ea[3]): (1 - ta) * la}
+    dsts = {key(eb[0], eb[1]): tb * lb, key(eb[2], eb[3]): (1 - tb) * lb}
+    dist = dict(srcs); prev = {}; pq = [(d, n) for n, d in srcs.items()]; heapq.heapify(pq)
+    best, best_n = None, None
+    while pq:
+        d, n = heapq.heappop(pq)
+        if d > dist.get(n, 1e18):
+            continue
+        if n in dsts and (best is None or d + dsts[n] < best):
+            best, best_n = d + dsts[n], n
+        if best is not None and d >= best:
+            break
+        for m, w, e in gr["adj"].get(n, ()):
+            nd = d + w
+            if nd < dist.get(m, 1e18):
+                dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
+    pos = gr["pos"]
+    if best is None:
+        # not connected: the proposal is to build straight from A to B (a stub of unrelated network near A or B is
+        # not a way, so none is drawn). Flagged "gap" so the dashboard shows the whole thing dashed.
+        air = math.hypot(bx - ax, by - ay)
+        return {"approach_a": 0.0, "network": 0.0, "approach_b": air, "total": air, "gap": True,
+                "points": [], "legs": [[[ax, ay], [bx, by]]]}
+    gap = False
+    nodes = [best_n]; n = best_n
+    while n in prev:
+        n = prev[n][0]; nodes.append(n)
+    nodes.reverse()
+    pts = [[pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + ([[pbx, pby]] if not gap else [])
+    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "gap": gap,
+            "points": pts, "legs": [[[ax, ay], [pax, pay]], [[pbx, pby], [bx, by]]]}
 
 
 def _water_route(geo: dict, ax: float, ay: float, bx: float, by: float) -> list | None:
@@ -802,8 +1037,7 @@ def predicted_routes(gid: int) -> dict:
     if _route_cache["key"] == key:
         return _route_cache["lines"]
     geo = json.loads(grow["data"])
-    edges = geo.get("edges") or []
-    graphs = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+    graphs = _geo_graphs(gid, grow["geo_seq"], geo)
     by_line: dict = {}
     for s in stops:
         by_line.setdefault(s["line_id"], {"modes": s["transport_modes"], "stops": []})
@@ -1341,10 +1575,10 @@ def api_diag(q: dict) -> dict:
 
 
 ROUTES = {
-    "/api/overview": api_overview, "/api/finance": api_finance, "/api/alerts": api_alerts, "/api/lines": api_lines,
+    "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 
@@ -1367,6 +1601,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_error(self, fmt, *args):  # routed through log_message already (4xx/5xx)
         pass
 
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass
+
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -1381,10 +1621,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = ROUTES[u.path](parse_qs(u.query))
                 self._send(200, json.dumps(data, default=str).encode("utf-8"), "application/json; charset=utf-8")
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass  # the browser went away mid-answer (reload, tab closed): nothing to tell anyone
             except sqlite3.OperationalError as e:
                 self._send(503, json.dumps({"error": str(e)}).encode(), "application/json")
             except Exception as e:  # noqa: BLE001
-                self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+                try:
+                    self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+                except OSError:
+                    pass
             return
         if u.path.startswith("/music/"):
             # audio for the travelling, whole file (browsers cope without range requests for local files)

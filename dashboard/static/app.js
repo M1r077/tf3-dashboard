@@ -45,6 +45,7 @@
     const root = document.documentElement.style;
     root.setProperty("--isz", settings.ico + "px"); root.setProperty("--fs", settings.fs + "px"); root.setProperty("--rowpad", settings.rowpad + "px");
     document.body.classList.toggle("hide-finance", !settings.finance);
+    if (typeof drawMap === "function" && $("#map") && state.tab === "map") drawMap($("#map"));  // canvas markers follow the icon size too
     $$("#settings .seg").forEach(seg => $$("button", seg).forEach(b => b.classList.toggle("active", String(settings[seg.dataset.set]) === b.dataset.v)));
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
@@ -1185,16 +1186,81 @@
   }
 
   // ------------------------------------------------------------ finance (secondary)
+  // ---- the game's accounting journal (mod rev 13). Keys are the engine's "type/maintenance/construction" numbers,
+  // checked line by line against the Finances window (see docs). Carriers: 0 road 1 rail 2 tram 3 other 4 air 5 water.
+  const JOURNAL_CARRIERS = [[0, "ROAD"], [1, "RAIL"], [2, "TRAM"], [5, "WATER"], [4, "AIR"], [3, "OTHER"]];
+  const JOURNAL_LINES = [  // in the game's order within a carrier
+    ["4/0/6", "journal_running"], ["4/3/6", "journal_maint_vehicles"], ["4/1/0", "journal_upkeep_roads"], ["4/1/1", "journal_upkeep_tracks"],
+    ["4/1/6", "journal_upkeep_buildings"], ["4/1/7", "journal_upkeep_warehouses"], ["5/2/6", "journal_income"], ["7/2/6", "journal_other"],
+  ];
+  const JOURNAL_INVEST = [["3/2/6", "journal_buy_vehicles"], ["2/2/0", "journal_build_roads"], ["2/2/1", "journal_build_tracks"], ["2/2/6", "journal_build_buildings"], ["2/2/7", "journal_other"]];
+  const journalUi = { view: "window", open: new Set(["1"]), data: null, history: null };
+  // the game prints "$-35,6 M": sign after the currency, one decimal, K / M / B
+  const moneyGame = (n) => {
+    if (n == null) return "–";
+    const a = Math.abs(n), sgn = n < 0 ? "-" : "";
+    const num = (v, d) => v.toLocaleString(loc(), { minimumFractionDigits: d, maximumFractionDigits: d });
+    if (a >= 1e9) return `$${sgn}${num(a / 1e9, 2)} B`;
+    if (a >= 1e6) return `$${sgn}${num(a / 1e6, a >= 1e7 ? 1 : 2)} M`;
+    if (a >= 1e3) return `$${sgn}${num(a / 1e3, 0)} K`;
+    return `$${sgn}${num(a, 0)}`;
+  };
+  $$("#journal-view button").forEach(b => b.addEventListener("click", async () => { journalUi.view = b.dataset.v; journalUi.scrolled = null; $$("#journal-view button").forEach(x => x.classList.toggle("active", x === b)); journalUi.data = await api("/api/journal", { view: journalUi.view }); renderJournalTable(); }));
+  function renderJournalTable() {
+    const j = journalUi.data, tbl = $("#journal-table");
+    if (!j || !j.cols.length) { tbl.innerHTML = `<tr><td class="empty">${t("no_data_yet")}</td></tr>`; return; }
+    const n = j.cols.length, idx = [];
+    for (let i = 0; i < n; i++) idx.push(i);
+    const L = j.lines, zero = new Array(n).fill(0);
+    const row = (vals) => vals || zero;
+    const cells = (vals, strong) => idx.map(i => { const v = row(vals)[i]; return `<td class="${v === 0 ? "zero" : v < 0 ? "neg" : "pos"}">${moneyGame(v)}</td>`; }).join("");
+    const sum = (keys) => { const out = new Array(n).fill(0); keys.forEach(k => (L[k] || []).forEach((v, i) => out[i] += v)); return out; };
+    let h = `<thead><tr><th></th>${idx.map(i => `<th>${esc(j.cols[i].label)}</th>`).join("")}</tr></thead><tbody>`;
+    // transport, one block per carrier with lines in the game's order; carriers without a single entry are skipped
+    JOURNAL_CARRIERS.forEach(([c, name]) => {
+      const keys = JOURNAL_LINES.map(([k]) => `transport/${c}/${k}`).filter(k => L[k]);
+      if (!keys.length) return;
+      const open = journalUi.open.has(String(c));
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="${c}"><td><span class="chev"></span>${ico(ICON_BY_CARRIER[name])}${CA(name)}</td>${cells(sum(keys))}</tr>`;
+      if (open) JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) h += `<tr class="detail"><td>${t(label)}</td>${cells(L[key])}</tr>`; });
+    });
+    // investments, only the lines that exist
+    const inv = JOURNAL_INVEST.filter(([k]) => L[`investment/${k}`]);
+    if (inv.length) {
+      const open = journalUi.open.has("inv");
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="inv"><td><span class="chev"></span>${ico("station")}${t("journal_investments")}</td>${cells(sum(inv.map(([k]) => `investment/${k}`)))}</tr>`;
+      if (open) inv.forEach(([k, label]) => h += `<tr class="detail"><td>${t(label)}</td>${cells(L[`investment/${k}`])}</tr>`);
+    }
+    h += `<tr class="section"><td colspan="${idx.length + 1}">${t("journal_summary")}<i></i></td></tr>`;
+    h += `<tr class="summary strong"><td>${t("journal_income")}</td>${cells(L.total)}</tr>`;
+    const loansOpen = journalUi.open.has("loan");
+    h += `<tr class="carrier ${loansOpen ? "open" : ""}" data-c="loan"><td><span class="chev"></span>${ico("money")}${t("journal_loans")}</td>${cells(sum(["loanBorrowing", "loanRepayment", "interest"]))}</tr>`;
+    if (loansOpen) { h += `<tr class="detail"><td>${t("journal_new_loans")}</td>${cells(L.loanBorrowing)}</tr><tr class="detail"><td>${t("journal_repay")}</td>${cells(L.loanRepayment)}</tr><tr class="detail"><td>${t("journal_interest")}</td>${cells(L.interest)}</tr>`; }
+    h += `<tr class="summary"><td>${t("journal_bank")}</td>${cells(L.balance)}</tr>`;
+    h += `<tr class="summary"><td>${t("journal_debt")}</td>${cells(L.loan)}</tr></tbody>`;
+    tbl.innerHTML = h;
+    $$("tr.carrier", tbl).forEach(tr => tr.addEventListener("click", () => { const c = tr.dataset.c; if (journalUi.open.has(c)) journalUi.open.delete(c); else journalUi.open.add(c); renderJournalTable(); }));
+    $("#journal-range").textContent = t("journal_periods", { n, a: j.cols[0].label, b: j.cols[n - 1].label });
+    const wrap = tbl.parentElement; if (wrap && !journalUi.scrolled) { wrap.scrollLeft = wrap.scrollWidth; journalUi.scrolled = journalUi.view; }  // like the game: the latest periods first
+  }
+
   async function renderFinance(o) {
     const fin = await api("/api/finance", { limit: Math.max(600, settings.history), range: settings.range });
     const ser = fin.series || [], labels = ser.map(x => dateLabel(x));
     const tx = tsOpts(ser, "fin");
+    // journal: the game's table (the view the user picked) and, as curves, the whole-game history: one point per
+    // engine column placed at the START of its period on a game-time axis (months), labelled with the engine's header
+    const [jt, jh] = await Promise.all([api("/api/journal", { view: journalUi.view }), api("/api/journal", { view: "history" })]);
+    journalUi.data = jt; journalUi.history = jh; renderJournalTable();
+    const hc = (jh.cols || []).filter(c => c.start != null), hl = hc.map(c => c.label), hx = hc.map(c => c.start * 2629800);  // months -> "seconds" so the axis is monotonic
+    const pick = (name) => hc.map(c => (jh.lines && jh.lines[name] || [])[c.col]);
+    const monthName = (c) => { const y = Math.floor(c.start / 12), m = Math.floor(c.start % 12); return c.end - c.start >= 12 ? String(y) : `${m + 1}/${String(y).slice(-2)}`; };
+    const xg = hc.map(monthName);
     Charts.lineChart($("#chart-balance"), [
-      { name: t("balance"), values: ser.map(x => x.balance), color: "#4f8a8a", area: true, unit: "$" },
-      { name: t("debt"), values: ser.map(x => x.loan), color: "#d62560", dash: [6, 4], unit: "$" },
-    ], labels, { unit: "$", ...tx });
-    $("#fin-range").textContent = ser.length ? t("balance_range", { n: ser.length, a: date(ser[0]), b: date(ser[ser.length - 1]) }) : "";
-    Charts.lineChart($("#chart-earn"), [{ name: t("earnings_ytd"), values: ser.map(x => x.earnings_ytd), color: "#e8b04b", area: true, unit: "$" }], labels, { zeroBase: true, unit: "$", ...tx });
+      { name: t("journal_bank"), values: pick("balance"), color: "#4f8a8a", area: true, unit: "$" },
+      { name: t("journal_debt"), values: pick("loan"), color: "#d62560", dash: [6, 4], unit: "$" },
+    ], hl, { unit: "$", ts: hx, xGame: xg, gameOnly: true });
+    Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: pick("total"), color: "#e8b04b", area: true, unit: "$", step: true }], hl, { zeroBase: true, unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-transport"), [
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
       { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
@@ -1575,6 +1641,9 @@
 
   // ------------------------------------------------------------ map
   const map = { data: null, scale: 1, ox: 0, oy: 0, drag: null, init: false, fitted: false, lineFilter: null, icons: {} };
+  // every marker on the canvas scales with the icon-size setting (S 16 / M 22 / L 28 / XL 36): factor 1 = the default L.
+  // Markers whose size carries data (stock piles, town circles) keep their own growth: only their base follows.
+  const isz = () => (settings.ico || 28) / 28;
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
   async function renderMap(o) {
     camViews.cur = (o && o.camera) || null;
@@ -1585,7 +1654,7 @@
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings();
     map.data = await api("/api/map");
-    await loadGeo(); await loadLinePaths();
+    await loadGeo(); await loadLinePaths(); await loadMapCargo();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1608,13 +1677,15 @@
     });
     canvas.addEventListener("mousedown", () => { map.lastDragMoved = false; });
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });
-    $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
+    $$("#tab-map input").forEach(i => i.addEventListener("change", async () => { if (["map-prod", "map-need", "map-stock"].includes(i.id) && !mapCargo.data) await loadMapCargo(); drawMap(canvas); }));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
     $("#map-style-btn").addEventListener("click", (e) => { e.preventDefault(); const b = $("#map-style"); const open = b.hidden; b.hidden = !open; $("#map-style-btn").classList.toggle("active", open); if (open) renderMapStyle(); });
     $("#map-ruler-btn").addEventListener("click", (e) => { e.preventDefault(); rulerSet(!ruler.on); });
     document.addEventListener("keydown", (e) => { if (e.code === "Escape" && ruler.on && state.tab === "map") rulerSet(false); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
+    // ?maplayers=prod,need,stock turns cargo layers on; ?mapzoom=<town_id> centres on a town at a readable scale (links, screenshots)
+    const ml = new URLSearchParams(location.search).get("maplayers"); if (ml) ml.split(",").forEach(k => { const el = $("#map-" + k); if (el) el.checked = true; });
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
   }
@@ -1808,6 +1879,55 @@
     } catch (e) { return false; }
   }
   const P = (x, y) => [map.ox + x * map.scale, map.oy - y * map.scale]; // game y up
+  // ---- cargo layers. Three toggles, one visual grammar for towns and industries: small cargo icons in rows anchored
+  // to their owner. Above = what it produces (industries), below = what it needs (towns and industries), right = what
+  // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size, dimmed
+  // when the rate is low (produced vs max production, delivered vs need); stock icons grow with the amount (square
+  // root, 10 to 26 px). Each row sits on a dark pill so it reads over the relief. Only from a zoom where the rows do
+  // not collide (the `big` threshold of the map).
+  const mapCargo = { data: null, at: 0 };
+  const townRadius = (tw) => Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10)));
+  const cargoAny = () => $("#map-prod").checked || $("#map-need").checked || $("#map-stock").checked;
+  async function loadMapCargo() {
+    try { mapCargo.data = await api("/api/map_cargo"); mapCargo.at = Date.now(); } catch (e) { /* keep what we have */ }
+  }
+  const cargoImg = (key) => mapIcon("cargo/" + (CARGO_ICON_FILES.has(key) ? key : "_mixed"));
+  function drawCargoLayers(ctx, d) {
+    const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.06) return;
+    const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
+    const row = (items, cx, cy, side, sizer, alpha) => {
+      if (!items || !items.length) return;
+      const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
+      let x0, y0;  // top-left of the row
+      if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 * k - hmax; }
+      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17 * k; }
+      else { x0 = cx + 17 * k; y0 = cy - hmax / 2; }
+      ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
+      let x = x0;
+      items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
+      ctx.globalAlpha = 1;
+    };
+    const k = isz();
+    const fixed = () => 16 * k;
+    const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
+    const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
+    const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
+    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
+    const draw = (kind, list, idKey, offset) => list.forEach(o => {
+      const c = cd[kind][String(o[idKey])]; if (!c) return;
+      let [x, y] = P(o.x, o.y);
+      if (x < -200 || y < -200 || x > ctx.canvas.clientWidth + 200 || y > ctx.canvas.clientHeight + 200) return;
+      // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
+      const dy = offset ? offset(o) : 0;
+      if (prod && c.out.length) { stroke(x, y, "above"); row(c.out, x, y, "above", fixed, rateAlpha); }
+      if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
+      // empty stocks are only worth showing when the demand row is off (it already says what is missing)
+      const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
+      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+    });
+    if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
+    if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
+  }
   function drawIcon(ctx, name, x, y, size, color) {
     const im = mapIcon(name); if (!im.complete || !im.naturalWidth) return false;
     // tint: draw the white-on-alpha icon, then multiply color through source-in on an offscreen canvas
@@ -1844,17 +1964,30 @@
   // crow flies IS the planning figure. Click A, click B: the segment, its length, the height difference from the
   // terrain grid when the geography is known, and the "paid" distance when B is higher. A third click starts over,
   // the button or Escape leaves. Companion only, nothing sent to the game.
-  const ruler = { on: false, a: null, b: null, hover: null };
+  // Once B is fixed the companion also asks /api/distance for the shortest way over the existing roads and over the
+  // existing tracks (Dijkstra on the exported geography, server side): the ruler then shows both lengths and draws
+  // the two routes, which is what a ruler is for when planning a line between two points that are already served.
+  const ruler = { on: false, a: null, b: null, hover: null, net: null, netKey: null };
+  const RULER_SPEED = { road: 50, rail: 80 };  // km/h, placeholders until the vehicle catalogue provides the fastest available vehicle
   function rulerSet(on) {
-    ruler.on = on; ruler.a = ruler.b = ruler.hover = null;
+    ruler.on = on; ruler.a = ruler.b = ruler.hover = ruler.net = ruler.netKey = null;
     $("#map-ruler-btn").classList.toggle("active", on);
     const c = $("#map"); c.style.cursor = on ? "crosshair" : "grab"; $("#map-tip").style.display = "none"; drawMap(c);
   }
   const worldAt = (canvas, e) => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left - map.ox) / map.scale, y: -(e.clientY - r.top - map.oy) / map.scale }; };
   function rulerClick(canvas, e) {
     const p = worldAt(canvas, e);
-    if (!ruler.a || ruler.b) { ruler.a = p; ruler.b = null; } else ruler.b = p;
+    if (!ruler.a || ruler.b) { ruler.a = p; ruler.b = null; ruler.net = null; } else { ruler.b = p; rulerNetwork(canvas); }
     drawMap(canvas);
+  }
+  async function rulerNetwork(canvas) {
+    const a = ruler.a, b = ruler.b; if (!a || !b || !geo.data) return;
+    const key = [a.x, a.y, b.x, b.y].map(v => Math.round(v)).join(",");
+    ruler.netKey = key;
+    try {
+      const r = await api(`/api/distance?ax=${a.x.toFixed(1)}&ay=${a.y.toFixed(1)}&bx=${b.x.toFixed(1)}&by=${b.y.toFixed(1)}`);
+      if (ruler.netKey === key && ruler.b) { ruler.net = r; drawMap(canvas); }
+    } catch (e) { /* no geography yet: the ruler stays as the crow flies */ }
   }
   // terrain height at a world point, from the coarse height grid of the geography (bilinear); null without geography
   function heightAt(x, y) {
@@ -1867,38 +2000,58 @@
   }
   const fmtDist = (m) => m >= 1000 ? (m / 1000).toFixed(2) + " km" : Math.round(m) + " m";
   function drawRuler(ctx, w, h, font, ink, halo) {
-    if (!ruler.on) return;
+    if (!ruler.on) { rulerPanel(null, null, null); return; }
     const a = ruler.a, b = ruler.b || ruler.hover;
     ctx.save(); ctx.strokeStyle = "#e8b04b"; ctx.fillStyle = "#e8b04b"; ctx.lineWidth = 2;
-    const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
+    const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5 * isz(), 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
+    // the network routes first, under the straight segment: road in the street colour, rail in the track colour
+    const net = ruler.b && ruler.net;
+    // solid = the way over the existing network, dashed = the legs to build (A to the network, network to B; when
+    // A and B sit on separate networks the second leg bridges the gap)
+    const route = (pts, color, dashed) => {
+      if (!pts || pts.length < 2) return;
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = dashed ? 2 : 3; ctx.lineJoin = "round"; ctx.globalAlpha = .9;
+      if (dashed) ctx.setLineDash([5, 5]);
+      ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke(); ctx.restore();
+    };
+    const show = (mode, color) => { route(net[mode + "_points"], color, false); (net[mode + "_legs"] || []).forEach(l => route(l, color, true)); };
+    if (net) { show("road", "#f0a35e"); show("rail", "#7fb8ff"); }
     if (a) dot(a);
     if (a && b) {
       const [ax, ay] = P(a.x, a.y), [bx, by] = P(b.x, b.y);
       if (!ruler.b) ctx.setLineDash([6, 5]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
       if (ruler.b) dot(b);
-      const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
-      const lines = [fmtDist(dist)];
-      if (ha != null && hb != null) {
-        // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
-        const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
-        lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * Math.max(0, dz)) }));
-      }
-      // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
-      // over the relief)
-      const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / len, ny = (bx - ax) / len;
-      ctx.font = "600 13px " + font; ctx.textBaseline = "middle";
-      const tw = Math.max(...lines.map(s => ctx.measureText(s).width)), lh = 17, pw = tw + 16, ph = lines.length * lh + 8;
-      const px = mx + nx * 16 - (nx >= 0 ? 0 : pw), py = my + ny * 16 - ph / 2;
-      ctx.fillStyle = "rgba(11,16,21,.88)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, pw, ph, 6) : ctx.rect(px, py, pw, ph); ctx.fill(); ctx.stroke();
-      ctx.textAlign = "left";
-      lines.forEach((s, i) => { ctx.fillStyle = i ? "#c9d1d9" : "#ffffff"; ctx.fillText(s, px + 8, py + 4 + lh * (i + 0.5)); });
-      ctx.textBaseline = "alphabetic";
-    } else {
-      ctx.font = "12px " + font; ctx.textAlign = "left"; const s = t(a ? "ruler_hint_b" : "ruler_hint_a"); ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, 16, 20); ctx.fillStyle = ink; ctx.fillText(s, 16, 20);
-    }
+      rulerPanel(a, b, net);
+    } else rulerPanel(a, null, null);
     ctx.restore();
+  }
+  // The readout is an HTML box under the toolbar, always the same rows (placeholders until known) so it never
+  // jumps or hides what is being drawn. Rows: as the crow flies, height, paid as, by road, by rail.
+  function rulerPanel(a, b, net) {
+    const el = $("#map-ruler"); if (!el) return;
+    el.style.display = ruler.on ? "" : "none";
+    if (!ruler.on) return;
+    // hung right under the ruler button (the toolbar lives outside the map card, so position from its screen rect)
+    const br = $("#map-ruler-btn").getBoundingClientRect(), cr = el.offsetParent.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth)) + "px";
+    el.style.top = Math.max(8, br.bottom - cr.top + 6) + "px";
+    if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
+    const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
+    const dz = ha != null && hb != null ? hb - ha : null;
+    const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
+    const parts = (p, gap) => gap ? t("ruler_build_straight") : `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
+    const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
+    const netRow = (mode, sw, kmh) => {
+      if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());
+      if (net[mode] == null) return row(sw, "–", t("ruler_" + mode, { d: t("ruler_none") }));
+      return row(sw, fmtDist(net[mode]), trip(net[mode], kmh) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
+    };
+    el.innerHTML = row("#e8b04b", fmtDist(dist), ruler.b ? "" : "…")
+      + row(null, dz != null ? (dz >= 0 ? "+" : "") + Math.round(dz) + " m" : "–", t("ruler_height"), dz > 0 ? "up" : "down")
+      + row(null, dz != null ? fmtDist(dist + 8 * Math.max(0, dz)) : fmtDist(dist), t("ruler_paid_as"))
+      + netRow("road", "#f0a35e", RULER_SPEED.road) + netRow("rail", "#7fb8ff", RULER_SPEED.rail);
   }
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
@@ -1906,9 +2059,10 @@
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
+    if (!map.zoomedOnce) { map.zoomedOnce = true; const z = +new URLSearchParams(location.search).get("mapzoom"); const tw = z && d.towns.find(x => x.town_id === z); if (tw) { map.scale = 0.25; map.ox = w / 2 - tw.x * map.scale; map.oy = h / 2 + tw.y * map.scale; } }
     const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
-    const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015";
+    const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015", k = isz();
     ctx.fillStyle = th.page; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = th.frame; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
@@ -1916,22 +2070,23 @@
     ctx.font = "12px " + font;
     // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
-    if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
-    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
+    if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
+    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14 * k); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
-    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 14, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 4, y - 4, 8, 8); } });
-    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill(); });
+    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20 * k, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k); } });
+    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill(); });
+    drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
       if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgb(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
-        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
-        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 13, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
-      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, moving ? 4.5 : 3.5, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
-      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 11, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 11, y + 4); }
+        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12 * k, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
+        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 17 * k, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
+      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, (moving ? 5.5 : 4.5) * k, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
+      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 14 * k, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 14 * k, y + 4); }
     });
-    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 14, "#f85149"); });
+    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 15 * k, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 18 * k, "#f85149"); });
     // current camera as a view cone: eye position (behind the target, by dist * cos(pitch)) and two lines diverging
     // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
     // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
@@ -1951,10 +2106,11 @@
     camViews.list.forEach((v0, i) => {
       const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
       const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
-      drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b");
-      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
+      drawIcon(ctx, "star", x, y - 17 * k, 20 * k, "#e8b04b");
+      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, (on ? 11 : 10) * k, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
+    if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
     drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
     $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
@@ -1963,12 +2119,26 @@
     const d = map.data; if (!d) return null;
     const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;
     let best = null, bd = 140;
+    // what a vehicle carries right now, icon + amount per cargo (same layout as the owner tooltips)
+    const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
-    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}`); });
+    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
-    if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));
-    if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}`));
+    // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
+    const cargoTip = (kind, id) => {
+      const c = mapCargo.data && mapCargo.data[kind] && mapCargo.data[kind][String(id)]; if (!c) return "";
+      // one row per layer: label, then icon+figure pairs that never break in the middle
+      const li = (items, f) => items.map(it => `<span class="tc">${cargoIcon({ cargo_key: it.key }, "sm")}<b>${f(it)}</b></span>`).join("");
+      const pc = (it) => it.rate == null ? "–" : Math.round(it.rate * 100) + "%";
+      let s = "";
+      if (c.out.length) s += `<div class="tr"><span class="tl">${t("map_prod")}</span>${li(c.out, pc)}</div>`;
+      if (c.in.length) s += `<div class="tr"><span class="tl">${t("map_need")}</span>${li(c.in, pc)}</div>`;
+      if (c.stock.length) s += `<div class="tr"><span class="tl">${t("map_stock")}</span>${li(c.stock, it => it.capacity ? `${it.amount}/${it.capacity}` : String(it.amount))}</div>`;
+      return s ? `<div class="tipcargo">${s}</div>` : "";
+    };
+    if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}${cargoTip("industries", i.industry_id)}`));
+    if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}${cargoTip("towns", tw.town_id)}`));
     if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", d.headquarters.id ?? null, `<b>${t("map_hq")}</b>`);
     return best ? { ...best, mx, my } : null;
   }

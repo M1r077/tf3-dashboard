@@ -85,7 +85,14 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 
 /* ---------------- layout: 12-column panel grid (order / width / height / visibility are user-editable, see layout.js) */
 .panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: start; margin-bottom: 14px; }
+/* placed (layout.js v2): explicit rows of 10 px, cards sit at {x, y, w, h}; the column gap stays 14 px, rows have none
+   (a card's height is a whole number of rows, the visual gap below it comes from its own margin-bottom) */
+.panels.placed { grid-auto-rows: 10px; row-gap: 0; align-items: stretch; }
+.panels.placed > .card { margin-bottom: 14px; }
 .panels > .card { grid-column: span 12; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.panels > .placeholder { background: rgba(79,138,138,.12); border: 2px dashed var(--accent); border-radius: 10px; margin-bottom: 14px; pointer-events: none; }
+body.layout-dragging { user-select: none; cursor: grabbing; }
+body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px 40px rgba(0,0,0,.6); pointer-events: none; }
 .panels > .card > h2 { flex: none; }
 /* cards of one row share its height (charts and lists); tables, detail panes, the map and user-sized cards keep their own */
 .panels > .card:not(.sized):not(.tablecard):not(.sticky):not(.mapcard):not(.camviews) { align-self: stretch; }
@@ -143,13 +150,25 @@ table.data.compact th, table.data.compact td { padding: 4px 8px; font-size: 12px
 .tablecard h2 { padding: 12px 14px 0; }
 canvas { width: 100%; display: block; }
 .mapcard { padding: 0; position: relative; height: calc(100vh - 220px); overflow: hidden; }
-/* the map spans two grid rows so the views and the travellings cards stack beside it instead of below */
-.panels[data-layout=map] { grid-template-rows: min-content 1fr; }
-.panels[data-layout=map] > .mapcard { grid-row: span 2; }
 .mapcard.sized #map { height: 100%; }
+.panels.placed > .mapcard, .panels.placed > .tablecard, .panels.placed > .sticky { height: auto; max-height: none; position: relative; top: auto; }
 body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8px; top: 0; z-index: 8; margin: 8px 0; pointer-events: auto; }
 #map { width: 100%; height: 100%; cursor: grab; }
-.tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 260px; }
+/* ruler readout: fixed box under the map toolbar, same rows whatever is known, so it never moves over the drawing */
+.mapruler { position: absolute; left: 10px; top: 10px; z-index: 6; background: rgba(11,16,21,.92); border: 1px solid #e8b04b; border-radius: 6px; padding: 6px 10px; font-size: 12px; color: var(--muted); min-width: 260px; pointer-events: none; }
+.mapruler .hint { color: var(--text); }
+.mapruler .r { display: flex; align-items: baseline; gap: 8px; line-height: 18px; }
+.mapruler .r i { display: inline-block; width: 10px; height: 3px; flex: none; align-self: center; border-radius: 1px; }
+.mapruler .r b { color: #fff; font-weight: 600; font-size: 13px; min-width: 64px; }
+.mapruler .r b.up { color: #f08080; } .mapruler .r b.down { color: #9ad39a; }
+.tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 320px; }
+/* cargo figures in the map tooltip: label column, then icon+figure pairs aligned on a baseline */
+.tipcargo { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.tipcargo .tr { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.tipcargo .tl { color: var(--muted); white-space: nowrap; min-width: 64px; }
+.tipcargo .tc { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.tipcargo .tc .ico { margin: 0; width: calc(var(--isz) * 0.65); height: calc(var(--isz) * 0.65); }
+.tipcargo .tc b { font-weight: 600; color: var(--text); }
 
 /* ---------------- toolbar */
 .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
@@ -269,10 +288,12 @@ body.layout-edit .panels > .card.tablecard, body.layout-edit .panels > .card.sti
 /* handles kept inside the card edge: sticking out by 4px made every scrolling card show both scrollbars in edit mode */
 .rz { position: absolute; z-index: 5; }
 .rz-e { top: 0; right: 0; width: 10px; height: 100%; cursor: ew-resize; }
+.rz-w { top: 0; left: 0; width: 10px; height: 100%; cursor: ew-resize; }
 .rz-s { left: 0; bottom: 0; height: 10px; width: 100%; cursor: ns-resize; }
+.rz-n { left: 0; top: 0; height: 8px; width: 100%; cursor: ns-resize; }
 .rz-se { right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
 .rz-se::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
-.rz-e:hover, .rz-s:hover { background: rgba(79,138,138,.25); }
+.rz-e:hover, .rz-s:hover, .rz-w:hover, .rz-n:hover { background: rgba(79,138,138,.25); }
 .rz-ghost { position: absolute; right: 10px; bottom: 10px; background: rgba(15,20,25,.95); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 8px; font-family: var(--mono); font-size: 12px; color: var(--text); pointer-events: none; z-index: 7; }
 #layout-bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; align-items: center; gap: 12px; padding: 10px 18px; background: var(--panel); border-top: 1px solid var(--accent); box-shadow: 0 -8px 30px rgba(0,0,0,.5); }
 body.layout-edit #layout-bar { display: flex; }
@@ -566,3 +587,28 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 .camviews .tr-chain .ch-name { flex: 1; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .camviews .tr-chain .ch-drop { text-align: center; padding: 2px; }
 .camviews .cv[draggable=true] { cursor: grab; }
+
+/* ---- finance journal: the game's Finances table, one column per period. Headers centred, labels and figures left,
+   carriers unfold on click (the game's own grouping), summary block below. */
+.card h2 .h2-tools { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.journal-wrap { overflow-x: auto; }
+table.journal { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
+table.journal th { text-align: center; color: var(--muted); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+table.journal th:first-child { text-align: left; }
+/* the label column stays put while the periods scroll sideways */
+table.journal th:first-child, table.journal td:first-child { position: sticky; left: 0; z-index: 2; background: var(--panel); min-width: 240px; }
+table.journal tr.carrier td:first-child { background: var(--panel2); }
+.journal-wrap { overflow: auto; flex: 1 1 auto; min-height: 0; }
+table.journal td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+table.journal td:first-child { color: var(--text); }
+table.journal tr.carrier td { cursor: pointer; background: var(--panel2); }
+table.journal tr.carrier td:first-child { display: flex; align-items: center; gap: 8px; }
+table.journal tr.carrier.open td:first-child .chev { transform: rotate(90deg); }
+table.journal .chev { display: inline-block; width: 0; height: 0; border: 5px solid transparent; border-left: 6px solid var(--muted); border-right: 0; transition: transform .15s; }
+table.journal tr.carrier .ico { width: var(--isz, 18px); height: var(--isz, 18px); }
+table.journal tr.detail td:first-child { padding-left: 34px; color: var(--muted); }
+table.journal tr.section td { padding-top: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-size: 11px; border-bottom: 0; }
+table.journal tr.section td i { display: block; border-top: 1px solid var(--border); margin-top: 4px; }
+table.journal tr.summary td:first-child { color: var(--text); }
+table.journal tr.strong td { font-weight: 600; }
+table.journal td.zero { color: var(--muted); opacity: .55; }

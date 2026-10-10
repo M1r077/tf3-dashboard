@@ -230,6 +230,90 @@ local function collectFinance(player)
 	return f
 end
 
+-- ---------------------------------------------------------------- finance journal (rev 13)
+-- The game keeps the complete accounting journal in the save game. Instead of rebuilding the past from live
+-- snapshots, the mod asks the engine for the table behind the Finances window
+-- (api.engine.util.finance.computeFinanceTable). The engine chooses the columns itself (fine for the recent past,
+-- coarser further back, whatever interval/count say: these only bound the span), so two views are exported:
+--   "window"  : the game's default ChartConfig = exactly the columns the Finances window shows (4 to 20)
+--   "history" : interval = 1 game year, count = years since 1850 -> every column since the start of the game
+-- Each column comes with the engine's own header ("9/87 - 11/87", "1988 - 1989", "16/3/90 - 31/3/90") which the
+-- dashboard parses for the period bounds. Written to tf3dash_journal.lua once per game month (or after a save game
+-- reload); measured cost on a 70-year game: 2-12 ms per table.
+local JOURNAL_FILE = PREFIX .. "journal"
+local JOURNAL_YEAR_MS = 365 * 4 * 1000  -- the financial year is 365 days of 4 s of simulation, whatever the calendar
+local JOURNAL_MONTH_MS = JOURNAL_YEAR_MS / 12
+local journalLastPeriod, journalLastGameTime, journalDumped = nil, nil, false
+
+-- The journal enums (JournalEntry.Type/Maintenance/Construction) are integers behind userdata without names; keys
+-- are exported as "type/maintenance/construction" numbers (carrier: 0 road, 1 rail, 2 tram, 3 other, 4 air,
+-- 5 water) and named on the dashboard side, where the mapping was checked line by line against the Finances window.
+local function journalKeyPart(v)
+	if v == nil then return "-" end
+	local n = tonumber(v) or tonumber(tostring(v))
+	return n and tostring(n) or tostring(v)
+end
+
+local function journalTable(player, cfg)
+	local fd = api.engine.util.finance.computeFinanceTable(player, cfg)
+	local out = { periods = {}, transport = {}, other = {}, investment = {} }
+	for i, h in ipairs(fd.header or {}) do out.periods[i] = tostring(h) end
+	local n = #out.periods
+	local function rowOf(v) local r = {}; for i = 1, n do r[i] = num(v[i]) or 0 end; return r end
+	local function keyOf(typeKey)
+		local okU, u = pcall(fd.unfoldKey, fd, typeKey)
+		if okU and u then return journalKeyPart(u[1]) .. "/" .. journalKeyPart(u[2]) .. "/" .. journalKeyPart(u[3]) end
+		return tostring(typeKey)
+	end
+	for _, key in ipairs({ "loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance" }) do
+		local v = fd[key]
+		if type(v) == "table" or type(v) == "userdata" then out[key] = rowOf(v) end
+	end
+	fd:foreach_carrier(function(carrier, byType)
+		local c = {}
+		for typeKey, row in pairs(byType) do c[keyOf(typeKey)] = rowOf(row) end
+		out.transport[journalKeyPart(carrier)] = c
+	end)
+	fd:foreach_other(function(kind, row) out.other[journalKeyPart(kind)] = rowOf(row) end)
+	pcall(fd.foreach_investment, fd, function(key, row) out.investment[keyOf(key)] = rowOf(row) end)
+	out.count = n
+	return out
+end
+
+local function collectJournal(player, gameTimeMs)
+	local t0 = os.clock()
+	local out = { game_time_ms = gameTimeMs }
+	local okY, year = pcall(api.engine.util.getYear)
+	out.year = okY and num(year) or nil
+	-- the game's own columns
+	out.window = journalTable(player, api.type.ChartConfig.new())
+	-- every column since the start of the game
+	local cfg = api.type.ChartConfig.new()
+	cfg.interval = JOURNAL_YEAR_MS
+	cfg.count = math.max(1, math.floor(gameTimeMs / JOURNAL_YEAR_MS) + 2)
+	out.history = journalTable(player, cfg)
+	out.duration_ms = (os.clock() - t0) * 1000
+	if not journalDumped and options().debug_log then
+		journalDumped = true
+		log(string.format("journal: window %d cols, history %d cols (%s .. %s), %.0fms, year %s", out.window.count, out.history.count,
+			tostring(out.history.periods[1]), tostring(out.history.periods[out.history.count]), out.duration_ms, tostring(out.year)))
+	end
+	return out
+end
+
+local function journalWriteIfDue(player, gameTimeMs)
+	if gameTimeMs == nil then return false end
+	local period = math.floor(gameTimeMs / JOURNAL_MONTH_MS)
+	if journalLastPeriod == period and journalLastGameTime ~= nil and gameTimeMs >= journalLastGameTime then return false end
+	local ok, j = pcall(collectJournal, player, gameTimeMs)
+	if not ok then log("journal collection failed:", tostring(j)); journalLastPeriod = period; journalLastGameTime = gameTimeMs; return false end
+	local t0 = os.clock()
+	local okW, err = pcall(app.saveUserdata, DIR, JOURNAL_FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), journal = j })
+	if not okW then log("saveUserdata failed for journal:", tostring(err)); return false end
+	journalLastPeriod, journalLastGameTime = period, gameTimeMs
+	debug(string.format("journal written: window %d + history %d cols, collected in %.0fms, saved in %.0fms", j.window.count, j.history.count, j.duration_ms, (os.clock() - t0) * 1000))
+	return true
+end
 -- the player's headquarters (construction with company metadata headquarters = true): its position on the map.
 -- Looked up once and kept: the headquarters cannot be removed, so the scan only runs again while none was found.
 local hqPos
@@ -2229,6 +2313,16 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		local okL, wrote = pcall(linePathsWrite)
 		if not okL then log("line paths write failed:", tostring(wrote)); linePathsDirty = false end
 		if wrote then return end
+	end
+
+	-- finance journal: once per game month (or after a save game reload); its own frame
+	do
+		local okJ, wroteJ = pcall(function()
+			local gt = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
+			return journalWriteIfDue(api.engine.util.getPlayer(), num(gt and gt.gameTime))
+		end)
+		if not okJ then log("journal write failed:", tostring(wroteJ)) end
+		if wroteJ then return end
 	end
 
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge

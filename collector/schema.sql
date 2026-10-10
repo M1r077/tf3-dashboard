@@ -40,6 +40,35 @@ CREATE TABLE IF NOT EXISTS line_path (
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 
+-- the game's own accounting journal (mod rev 13, tf3dash_journal.lua): the table behind the Finances window. The
+-- engine chooses the columns (fine for the recent past, coarser further back); two views are stored, each a set of
+-- columns identified by the engine's own header ("9/87 - 11/87", "1988 - 1989", "16/3/90 - 31/3/90"):
+--   view 'window'  = exactly what the Finances window shows
+--   view 'history' = every column since the start of the game (yearly, finer towards today)
+-- Every write of the mod (once per game month) replaces the view: columns only ever grow or get merged by the engine.
+--   kind: 'transport' (carrier 0 road 1 rail 2 tram 3 other 4 air 5 water), 'investment', 'other', or a summary
+--         ('loan', 'interest', 'loanBorrowing', 'loanRepayment', 'total', 'balance')
+--   key:  "type/maintenance/construction" numbers as unfolded by the engine; see JOURNAL_LINES in app.js
+CREATE TABLE IF NOT EXISTS finance_journal (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    view           TEXT NOT NULL,
+    col            INTEGER NOT NULL,                -- column index within the view, 0 = oldest
+    kind           TEXT NOT NULL,
+    carrier        INTEGER NOT NULL DEFAULT -1,
+    key            TEXT NOT NULL DEFAULT '',
+    amount         INTEGER NOT NULL,
+    PRIMARY KEY (game_id, view, col, kind, carrier, key)
+);
+
+CREATE TABLE IF NOT EXISTS finance_journal_col (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    view           TEXT NOT NULL,
+    col            INTEGER NOT NULL,
+    label          TEXT NOT NULL,                   -- the engine's header, as printed by the game
+    received_at    TEXT NOT NULL,
+    game_year      INTEGER,                         -- game year when the file was written (resolves 2-digit years)
+    PRIMARY KEY (game_id, view, col)
+);
 CREATE TABLE IF NOT EXISTS snapshot (
     snapshot_id    INTEGER PRIMARY KEY,
     game_id        INTEGER NOT NULL REFERENCES game(game_id),

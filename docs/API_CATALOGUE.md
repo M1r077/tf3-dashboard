@@ -79,7 +79,7 @@ Naming convention of `cmd.lua` commands: `{ id = <n>, cmd = "<name>", args = { .
 | Noise per district | `town.getTownNoisePerDistrict` | | EASY |
 | Pollution / noise emitters | `emission.getPollutionEmittersInSettlementArea`, `getNoiseEmittersNearSettlementLandUses` | | EASY |
 | Logbooks (native time series) | `logbook.getLogValuePerYear/MostRecent`, `getChartDiff` | the same curves as the game's statistics, per entity | MEDIUM |
-| Full finance table | `finance.computeFinanceTable(player, config)`, `getAccountChart` | Finances tab identical to the game | MEDIUM |
+| Full finance table | `finance.computeFinanceTable(player, config)`, `getAccountChart` | Finances tab identical to the game | **DONE** (mod rev 13 / companion 0.6.0) - `ChartConfig` with `interval = 1 460 000 ms` (one financial year) and `count = years + 2`; rows keyed `type/maintenance/construction`, carriers 0 road, 1 rail, 2 tram, 3 other, 4 air, 5 water; written once per game month to `tf3dash_journal.lua`, kept forever by the collector (`finance_journal*`) |
 | Entities within a radius | `octree.findEntitiesInCircle(center, r, componentType)` | "what happens around this point" | EASY |
 | Closest town to a position | `town.getClosestTown(pos)` | | DONE (approximated) |
 | Theoretical path | `pathfinding.findPathNodeToNode` | check whether two stations are connected | MEDIUM |

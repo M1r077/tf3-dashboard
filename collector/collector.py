@@ -158,9 +158,16 @@ class Store:
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
-    DATA_VERSION = 1
+    DATA_VERSION = 2
 
     def _migrate(self):
+        # tables whose layout changed before any release and that the mod rewrites in full on its next file: when the
+        # stored layout lacks a column of the current schema, drop and recreate (nothing is lost)
+        for table, must_have in (("finance_journal", "view"), ("finance_journal_col", "view")):
+            cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
+            if cols and must_have not in cols:
+                self.con.execute(f"DROP TABLE {table}")
+        self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
         for table, col, typ in self.MIGRATIONS:
             cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
@@ -276,6 +283,50 @@ class Store:
         self.con.commit()
         return len(rows)
 
+    def ingest_journal(self, snap: dict, jf: dict) -> int:
+        """Replace the game's accounting journal views (mod rev 13, tf3dash_journal.lua) for the game `snap` belongs
+        to. Returns the number of columns stored over both views."""
+        j = jf.get("journal")
+        if not isinstance(j, dict):
+            return 0
+        gid = self.game_id(snap, iso())
+        now = iso()
+        year = j.get("year")
+        total = 0
+        for view in ("window", "history"):
+            tab = j.get(view)
+            if not isinstance(tab, dict):
+                continue
+            periods = [str(p) for p in as_list(tab.get("periods"))]
+            count = len(periods)
+            rows: list[tuple] = []
+
+            def series(kind: str, carrier: int, key: str, vals: Any) -> None:
+                for i, v in enumerate(as_list(vals)[:count]):
+                    if isinstance(v, (int, float)):
+                        rows.append((gid, view, i, kind, carrier, key, int(v)))
+
+            for carrier, by_key in (tab.get("transport") or {}).items():
+                if isinstance(by_key, dict):
+                    for key, vals in by_key.items():
+                        series("transport", int(carrier), str(key), vals)
+            for key, vals in (tab.get("investment") or {}).items():
+                series("investment", -1, str(key), vals)
+            for key, vals in (tab.get("other") or {}).items():
+                series("other", -1, str(key), vals)
+            for kind in ("loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance"):
+                if kind in tab:
+                    series(kind, -1, "", tab[kind])
+            self.con.execute("DELETE FROM finance_journal WHERE game_id=? AND view=?", (gid, view))
+            self.con.execute("DELETE FROM finance_journal_col WHERE game_id=? AND view=?", (gid, view))
+            self.con.executemany(
+                "INSERT INTO finance_journal(game_id, view, col, kind, carrier, key, amount) VALUES (?,?,?,?,?,?,?)", rows)
+            self.con.executemany(
+                "INSERT INTO finance_journal_col(game_id, view, col, label, received_at, game_year) VALUES (?,?,?,?,?,?)",
+                [(gid, view, i, p, now, year) for i, p in enumerate(periods)])
+            total += count
+        self.con.commit()
+        return total
     def ingest(self, snap: dict) -> int | None:
         now = iso()
         real_time = iso(snap.get("real_time")) if isinstance(snap.get("real_time"), (int, float)) else now
@@ -794,6 +845,10 @@ class SlowFiles:
         """tf3dash_line_paths.lua (mod rev 11): the network edges each line leg runs on."""
         return self._changed_file("line_paths", "items")
 
+    def journal(self) -> dict | None:
+        """tf3dash_journal.lua (mod rev 13): the game's accounting journal since the start of the game."""
+        return self._changed_file("journal", "journal")
+
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
         ss = snap.get("slow_seq")
@@ -1024,6 +1079,14 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"line paths ingest failed: {e!r}", "error")
+                        try:
+                            jf = slow_files.journal()
+                            if jf is not None:
+                                n = store.ingest_journal(snap, jf)
+                                say(f"finance journal: {n} periods", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"journal ingest failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

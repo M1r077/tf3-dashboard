@@ -462,7 +462,7 @@
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
-    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); }
+    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
     return o;
   }
 
@@ -752,7 +752,7 @@
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
     const keepStops = state.editStop && state.editStop.line === id && $("#line-stops-wrap tr.editing", el) ? $("#line-stops-wrap", el) : null;
     el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
-      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button>${travel.active && travel.active.kind === "line" && travel.active.id === id ? `<button class="btn" id="line-travel" data-stop="1">${ico("stop", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 ? "disabled" : ""}>${ico("follow", "sm")}${t("line_travel")}</button>`}${music.el && !travel.active ? `<button class="btn" id="line-music-off">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}</div>
+      <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button><button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 || (travel.active && travel.active.kind === "line" && travel.active.id === id) ? "disabled" : ""}>${ico("ct_film", "sm")}${t("line_travel")}</button></div>
       <p class="muted">${l.stop_names.map(esc).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}
         <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
@@ -798,8 +798,7 @@
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     musicTracks();  // prefetch, so "Any" can pick a track synchronously inside the click
-    $("#line-travel").addEventListener("click", async (e) => { if (e.currentTarget.dataset.stop) stopTravelling(); else { trvDraft({ kind: "line", line: l.line_id }); await lineTravelling(l, trv.draft); } renderLineDetail(id); });
-    const mo = $("#line-music-off"); if (mo) mo.addEventListener("click", () => { musicStop(); renderLineDetail(id); });
+    $("#line-travel").addEventListener("click", async () => { trvDraft({ kind: "line", line: l.line_id }); await lineTravelling(l, trv.draft); renderLineDetail(id); });
     bindActions(el);
   }
   // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour):
@@ -844,7 +843,7 @@
     travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length };
     musicRetime(dur);
-    renderCamViews(); renderTravellings(); if (map.data) drawMap($("#map"));
+    renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
   }
 
   // ------------------------------------------------------------ line: stops editor + bulk actions
@@ -1109,7 +1108,9 @@
     const d = await api("/api/industries"); const inds = d.industries || []; state.cache.industries = inds;
     if (!state.selInd) { const u = +new URLSearchParams(location.search).get("ind"); if (u && inds.some(i => i.industry_id === u)) state.selInd = u; }  // deep link ?tab=industries&ind=<id>
     const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
-    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !i.producing || i.closure_time > 0 || i.cargo.some(c => c.direction === "out" && !c.shipped_year)));
+    // "served" = something of yours moves there: an output shipped this year, or (no outputs) an input delivered
+    const served = (i) => { const outs = i.cargo.filter(c => c.direction === "out"); return outs.length ? outs.some(c => c.shipped_year > 0) : i.cargo.some(c => c.direction === "in" && c.delivered_year > 0); };
+    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !served(i) || i.closure_time > 0));
     // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
     const cargoCell = (i, dir) => i.cargo.filter(c => c.direction === dir).map(c => {
       const a = dir === "out" ? c.produced_year : c.consumed_year, m = dir === "out" ? c.max_prod_year : c.max_cons_year;
@@ -1120,7 +1121,7 @@
       { key: "name", label: t("th_industry"), icon: "industry", sticky: true, render: i => `${esc(i.name)} <small class="muted">${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },
       // Industry.upgradeProgress is always 0 in TF3 (TF2 leftover, unused by the game's own GUI): show level / max instead
       { key: "level", label: t("th_level"), num: true, sticky: true, render: i => i.max_level > 0 ? `${i.level ?? "–"}/${i.max_level} ${bar(i.level || 0, i.max_level, i.level >= i.max_level ? "ok" : "")}` : `${i.level ?? "–"}`, sortValue: i => i.max_level > 0 ? (i.level || 0) / i.max_level : -1 },
-      { key: "status", label: t("th_status"), sticky: true, render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", i.boost_rule || i.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
+      { key: "status", label: t("th_status"), sticky: true, render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(i), i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
       { key: "production_rating", label: t("th_yield"), icon: "production", num: true, sticky: true, render: i => i.production_rating == null ? "–" : bar(i.production_rating, 1, i.production_rating < 0.3 ? "bad" : i.production_rating < 0.7 ? "warn" : "ok") },
       { key: "in", label: t("th_inputs"), icon: "cargo_received", render: i => cargoCell(i, "in") },
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
@@ -1133,6 +1134,26 @@
   // Detail card: yearly figures of each cargo over time (produced vs max, shipped; consumed vs max, delivered),
   // plus level and production rating. Game figures only, same as the industry window.
   const CARGO_COLORS = ["#4f8a8a", "#e8b04b", "#58a6ff", "#bc8cff", "#3fb950", "#d62560", "#f0883e", "#8b98a8"];
+  // boosters as the industry window's "Boosters" card shows them: one row per cargo booster rule (what it needs vs
+  // what lies in the piles, its factor, active or not) and the workers booster (workers who came recently vs the half
+  // of the capacity it takes, the productivity applied now, the factor it can reach). The chip sums what is active.
+  const boostPct = (f) => f == null ? "" : "+" + Math.round((f >= 1 ? f - 1 : f) * 100) + " %";
+  function boostChip(i, always) {
+    const bl = i.boosters || []; if (!bl.length && !i.boost_rule && !i.boost_persons) return "";
+    const act = bl.filter(b => b.active);
+    const total = act.reduce((m, b) => m * (b.kind === "workers" ? (b.potential || b.factor || 1) : 1 + (b.factor || 0)), 1);
+    const on = act.length > 0 || (!bl.length && (i.boost_rule || i.boost_persons));
+    if (!on && !always) return "";  // tables: only when a booster is active; the detail card always says 0/n
+    return `<span class="chip ${on ? "info" : ""}" title="${esc(t("boost_hint", { a: act.length, n: bl.length }))}">${ico("booster", "sm")}${bl.length ? (on ? boostPct(total) : `${act.length}/${bl.length}`) : t("boost")}</span>`;
+  }
+  function boostRows(bl) {
+    if (!bl || !bl.length) return "";
+    return `<h2>${ico("booster")}${t("boosters")}</h2><table class="kv boosters">${bl.map(b => {
+      const tick = b.active ? `<span class="chip ok">${ico("check", "sm")}${t("boost_active")}</span>` : `<span class="chip">${t("boost_inactive")}</span>`;
+      if (b.kind === "workers") return `<tr><td>${ico("town_workplaces", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num ${b.active ? "pos" : "muted"}">${b.potential != null ? boostPct(b.potential) : (b.active ? boostPct(b.factor) : "")}</td><td>${tick}</td></tr>`;
+      return `<tr><td>${(b.needs || []).map(n => cargoChip(n)).join(" ")}</td><td>${(b.needs || []).map(n => bar(n.have || 0, n.need || 0, (n.have || 0) >= (n.need || 0) ? "ok" : "", `${int(n.have)}/${int(n.need)}`)).join("<br>")}</td><td class="num ${b.active ? "pos" : "muted"}">${boostPct(b.factor)}</td><td>${tick}</td></tr>`;
+    }).join("")}</table>`;
+  }
   async function renderIndustryDetail(id) {
     const ind = (state.cache.industries || []).find(x => x.industry_id === id); if (!ind) return;
     const h = await api("/api/industry_history", { id, limit: settings.history, range: settings.range });
@@ -1148,13 +1169,14 @@
       else { e.a[i] = c.consumed_year; e.m[i] = c.max_cons_year; e.s[i] = c.delivered_year; }
     }
     const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
-    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", ind.boost_rule || ind.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
+    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(ind, true), ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
     const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
     $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}${ind.thrown_away ? ` <span class="chip warn">${t("det_thrown")} ${int(ind.thrown_away)}</span>` : ""}${ind.closure_time > 0 ? ` <span class="chip bad">${t("det_closure")} ${int(ind.closure_time)}</span>` : ""}</p>
       <table class="kv">${(ind.cargo || []).map(c => { const out = c.direction === "out", a = out ? c.produced_year : c.consumed_year, m = out ? c.max_prod_year : c.max_cons_year, sh = out ? c.shipped_year : c.delivered_year;
         return `<tr><td>${cargoChip(c)} <small class="muted">${out ? t("th_outputs") : t("th_inputs")}</small></td><td>${m != null || a != null ? `${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)} <small class="muted" title="${esc(out ? t("shipped") : t("delivered"))}">${ico(out ? "cargo_supplied" : "cargo_received", "sm")}${int(sh)}</small>` : ""}${c.capacity != null ? ` <span class="pile" title="${esc(t("det_piles"))}">${ico("stock_full", "sm")}<span class="mono">${int(c.stock)}/${int(c.capacity)}</span></span>` : ""}</td></tr>`; }).join("")}</table>
+      ${boostRows(ind.boosters)}
       ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
       ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
       <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
@@ -1321,6 +1343,7 @@
     const c = (o && o.company) || {}, f = (o && o.finance) || {};
     $("#company-table").innerHTML = [
       [t("balance"), money(f.balance)], [t("debt"), money(f.loan)], [t("annual_result"), money(f.earnings_ytd)], [t("assets"), money(c.total_assets)], [t("score"), int(c.total_score)],
+      [t("fleet_by_type"), [["veh_train", c.rail_vehicles], ["veh_tram", c.trams], ["veh_truck", c.road_vehicles], ["veh_plane", c.aircrafts], ["veh_ship", c.ships]].filter(([, n]) => n != null).map(([i, n]) => `<span class="chip" style="margin-right:4px">${ico(i, "sm")}${n}</span>`).join("") || "–"],
       [t("lines"), int(c.number_of_lines)], [t("stations"), t("stations_detail", { n: int(c.total_stations), r: c.rail_stations ?? "–", ro: c.road_stations ?? "–", t: c.tram_stations ?? "–", a: c.aircraft_stations ?? "–", w: c.ship_stations ?? "–" })],
       [t("tracks"), t("electrified", { a: km(c.track_length_m), b: km(c.track_electric_m) })], [t("roads"), km(c.road_length_m)],
       [t("bridges_tunnels"), `${km(c.bridge_length_m)} / ${km(c.tunnel_length_m)}`], [t("towns_supplied"), int(c.supplied_towns)], [t("industries_connected"), int(c.connected_industries)],
@@ -1366,7 +1389,6 @@
     // spiral: orbit while coming closer (dir = 1) or drifting away
     spiral: (v, p) => { const n = 40, far = v.dist * (1 + 1.5 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { const t = i / n; const d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle + 2 * Math.PI * t, pitch: v.pitch }); } return pts; },
   };
-  const TRAVEL_MOVE_ICON = { orbit: "reset", dolly: "speed", flyover: "follow", sweep: "reverse", spiral: "line" };
   const travel = { active: null, sel: null };  // { kind: "view"|"chain", id, points } = what we asked the mod to play
   function playTravelling(kind, points, prefs) {
     const loop = prefs.loop && kind !== "dolly" && kind !== "flyover";
@@ -1376,10 +1398,10 @@
     travel.active = { kind, points, loop, at: Date.now(), dur: prefs.dur };
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop, n: points.length };
     musicStart(prefs);
-    renderCamViews(); renderTravellings(); if (map.data) drawMap($("#map"));
+    renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
   }
   function stopTravelling() {
-    sendCmd("camera_stop", {}); travel.active = null; if (camViews.cur) camViews.cur.path = null; musicStop(); renderCamViews(); renderTravellings(); if (map.data) drawMap($("#map"));
+    sendCmd("camera_stop", {}); travel.active = null; if (camViews.cur) camViews.cur.path = null; musicStop(); renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
   }
   // music on the dashboard side (the game has no "play this file" API): tracks served from <companion>/music/,
   // fade in over 2 s and out over the last 3 s of the travelling; stops with it
@@ -1395,7 +1417,7 @@
     if (!prefs.music) return;  // "" = off; "auto" = any track of the folder (none there = silence); else a file name
     let file = prefs.music;
     // "auto" = the player's own files, or the game's soundtrack when music/ is empty
-    if (file === "auto") { const tracks = (music.list && music.list.length) ? music.list : (music.game || []); if (!tracks.length) { musicTracks(); return; } file = tracks[Math.floor(Math.random() * tracks.length)]; }
+    if (file === "auto" || file === "game") { const tracks = file === "game" || !(music.list && music.list.length) ? (music.game || []) : music.list; if (!tracks.length) { musicTracks(); return; } file = tracks[Math.floor(Math.random() * tracks.length)]; }
     const el = new Audio("music/" + encodeURIComponent(file)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
     el.play().catch(e => { $("#cmd-status").textContent = t("cam_music_blocked"); $("#cmd-status").className = "cmdstatus bad"; console.warn("music", e); });
     const vol = prefs.vol ?? 0.6, t0 = Date.now();
@@ -1444,7 +1466,7 @@
       <span class="cv-n" title="Shift+${i + 1}">${i + 1}</span>
       <button class="cv-go" data-act="go" title="${esc(t("cam_go_hint", { n: i + 1 }))} · ${v.follow ? esc(t("cam_follow_view", { v: v.follow_name || v.follow })) : fmtCam(v)}" ${off ? "disabled" : ""}>${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</button>
       <span class="cv-tools">
-        <button class="btn" data-act="travel" title="${esc(t("cam_travel_here"))}" ${off ? "disabled" : ""}>${ico("follow", "sm")}</button>
+        <button class="btn" data-act="travel" title="${esc(t("cam_travel_here"))}" ${off ? "disabled" : ""}>${ico("ct_film", "sm")}</button>
         <button class="btn" data-act="update" title="${esc(t("cam_update"))}">${ico("star_outline", "sm")}</button>
         <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">${ico("edit", "sm")}</button>
         <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>▲</button>
@@ -1453,10 +1475,9 @@
       </span></div>`;
     // the travelling settings and buttons live in their own panel (renderTravellings); the views' tools only
     // hand a draft over to it
-    const path = cur.path;
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
-      `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}${path ? " · " + t("cam_travel") : ""}</div>`;
+      `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
     $(".cv-save", box).addEventListener("click", async () => {
       const cur = camViews.cur; if (!cur) return;
       // following a vehicle: offer to attach the view to it (recalled = follow it again with this framing)
@@ -1469,8 +1490,8 @@
       el.addEventListener("dragstart", e => { e.dataTransfer.effectAllowed = "copy"; e.dataTransfer.setData("text/plain", "view:" + id); });
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
-        if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); renderTravellings(); }
-        else if (a === "travel") { travel.sel = v.id; trvDraft({ kind: "view", view: v.id }); if (!trvPlay(trv.draft)) { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; } }
+        if (a === "go") { travel.sel = v.id; gotoView(v); renderCamViews(); renderTravellings(); renderWorkshop(); }
+        else if (a === "travel") { travel.sel = v.id; trvDraft({ kind: "view", view: v.id }); if (!trvPlay(trv.draft)) trvFail(); }
         else if (a === "update") { if (await modal.confirm(t("cam_update_confirm", { name: v.name }), { title: t("cam_update_title"), ok: t("cam_replace_ok") })) editViews({ action: "update", id, camera: camViews.cur, attach: !!(camViews.cur && camViews.cur.follow && v.follow) }); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: v.name, ok: t("cam_rename_ok") }); if (name) editViews({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editViews({ action: "move", id, delta: a === "up" ? -1 : 1 });
@@ -1480,23 +1501,30 @@
   }
 
 
-  // ------------------------------------------------------------ travellings panel
-  // A travelling is a recipe {kind: "view"|"chain"|"line", view?, line?, move, dir, amp, dur, loop, music, vol, tail}
+  // ------------------------------------------------------------ travellings: workshop + saved list
+  // A travelling is a recipe {kind: "view"|"chain"|"line", view?, line?, views?, move, dir, amp, dur, loop, music, vol, tail}
   // rebuilt from the current state when played (today's vehicles on the line, a view that follows its vehicle).
-  // The panel holds ONE draft (what the view/line buttons hand over, editable) and the saved list (db/travellings.json,
-  // per savegame, max 20). Playing anything also makes it the draft, so "save" always keeps what was just seen.
-  const trv = { list: [], draft: null, loaded: false, editing: null };
+  // Three cards in the column next to the map, in the order of use:
+  //   Camera views  - the subjects (recall a view, or play a travelling around it with the current draft settings)
+  //   Workshop      - ONE draft: subject + settings, the player (Play/Stop/progress, the only place they live) and Save.
+  //                   The pencil of a saved travelling loads it here (apply / cancel) instead of editing in place.
+  //   Travellings   - the saved list (db/travellings.json, per savegame, max 20): play, edit, rename, order, delete.
+  // Playing anything (a view's or a line's button included) makes it the draft, so Save always keeps what was just seen.
+  const trv = { list: [], draft: null, loaded: false, editing: null, line: null };
   const SPEC_KEYS = ["kind", "view", "line", "views", "move", "dir", "amp", "dur", "loop", "music", "vol", "tail"];
+  const KIND_ICO = { view: "star", chain: "line_stations", line: "configure_line" };
   // the views of a chain, in order: the recipe's own list (ids that still exist) or every view of the panel
   const chainViews = (s) => (s.views ? s.views.map(id => camViews.list.find(v => v.id === id)).filter(Boolean) : camViews.list);
   const specOf = (o) => { const s = {}; SPEC_KEYS.forEach(k => { if (o[k] !== undefined) s[k] = o[k]; }); return s; };
-  // the draft starts from the browser preferences (last used settings) + the subject
-  function trvDraft(subject) { trv.draft = { ...travelPrefs(), ...subject }; if (subject.kind === "line") trv.line = subject.line; saveTravelPrefs(specOf(trv.draft)); renderTravellings(); }
+  // the draft starts from the browser preferences (last used settings) + the subject; handing a subject over
+  // leaves the edit mode (what plays is the draft, not the saved travelling being edited)
+  function trvDraft(subject) { trv.editing = null; trv.draft = { ...travelPrefs(), ...subject }; if (subject.kind === "line") trv.line = subject.line; saveTravelPrefs(specOf(trv.draft)); renderWorkshop(); renderTravellings(); }
   function trvSubjectName(s) {
     if (s.kind === "chain") return t("trv_chain_n", { n: chainViews(s).length });
     if (s.kind === "line") { const l = (state.lines || []).find(x => x.line_id === s.line) || (map.data && (map.data.lines || []).find(x => x.line_id === s.line)); return l ? l.name : t("line") + " " + s.line; }
     const v = camViews.list.find(x => x.id === s.view); return v ? v.name : t("trv_view_gone");
   }
+  const trvFail = () => { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; };
   // run a recipe: returns false when the subject no longer exists
   function trvPlay(s) {
     const tp = { ...TRAVEL_DEFAULTS, ...s };
@@ -1512,69 +1540,69 @@
       j = await r.json(); if (!j.ok && !j.error) j.error = String(r.status);
     } catch (e) { j = { ok: false, error: e.message }; }
     if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error }); $("#cmd-status").className = "cmdstatus bad"; return false; }
-    trv.list = j.items || []; renderTravellings(); return true;
+    trv.list = j.items || []; renderTravellings(); renderWorkshop(); return true;
   }
   async function loadTravellings() { try { const j = await api("/api/travellings"); trv.list = j.items || []; } catch (e) { trv.list = []; } trv.loaded = true; }
-  function renderTravellings() {
-    const box = $("#travellings"); if (!box) return;
+  // what is being played right now, for the player row: name + kind icon
+  function trvPlayingName() {
+    const a = travel.active; if (!a) return "";
+    if (a.kind === "line") return trvSubjectName({ kind: "line", line: a.id });
+    if (a.kind === "chain") return t("trv_chain_n", { n: a.points.length });
+    const v = travel.sel && camViews.list.find(x => x.id === travel.sel); return v ? v.name : "";
+  }
+  // the player row: Play when idle, Stop + progress + what plays otherwise; music tail = the track left to finish
+  function trvPlayer(tp, off, editing) {
+    // playing = what we asked for (travel.active) until the mod reports the path ended; progress from the snapshot
+    const path = travel.active ? ((camViews.cur && camViews.cur.path) || { progress: 0 }) : null;
+    if (path) return `<div class="tr-row tr-player"><button class="btn primary" data-travel="stop">${ico("ct_stop", "sm")}${t("cam_travel_stop")}</button><span class="tr-now">${esc(trvPlayingName())}</span><span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span></div>`;
+    return `<div class="tr-row tr-player"><button class="btn ${editing ? "" : "primary"}" data-travel="play" ${off || !tp ? "disabled" : ""}>${ico("ct_play", "sm")}${t("trv_play")}</button>
+      ${editing ? `<button class="btn primary" data-tapply>${ico("check", "sm")}${t("trv_apply")}</button><button class="btn" data-tcancel>${ico("close", "sm")}${t("trv_cancel")}</button>` : ""}
+      ${tp && !editing && trv.list.length < 20 ? `<button class="btn" data-travel="save" title="${esc(t("trv_save_hint"))}">${ico("ct_save", "sm")}${t("trv_save")}</button>` : ""}
+      ${music.el ? `<button class="btn" data-tmute title="${esc(t("cam_music_off"))}">${ico("noise", "sm")}${t("cam_music_off")}</button>` : ""}</div>`;
+  }
+  function renderWorkshop() {
+    const box = $("#trv-workshop"); if (!box) return;
     const cur = camViews.cur, off = cmdOff();
     if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
-    // always a draft: the selected view (or the first one) with the browser preferences
+    // always a draft once there is a view: the selected view (or the first one) with the browser preferences
     if (!trv.draft && camViews.list.length) { const pf = travelPrefs(); trv.draft = { ...pf, kind: pf.kind === "chain" && camViews.list.length >= 2 ? "chain" : "view", view: (travel.sel && camViews.list.find(v => v.id === travel.sel)) ? travel.sel : (camViews.list.find(v => v.id === pf.view) ? pf.view : camViews.list[0].id) }; }
     if (trv.draft && trv.draft.kind === "view" && !camViews.list.find(v => v.id === trv.draft.view)) trv.draft = camViews.list.length ? { ...trv.draft, view: camViews.list[0].id } : null;
-    const path = cur.path, d = trv.draft, editing = trv.editing != null ? trv.list.find(x => x.id === trv.editing) : null;
-    // the settings being edited: a saved travelling (pencil) or the draft
-    const tp = editing || d;
+    const editing = trv.editing != null ? trv.list.find(x => x.id === trv.editing) : null;
+    if (trv.editing != null && !editing) trv.editing = null;
+    // the settings shown: the saved travelling loaded by its pencil (a copy, applied on request) or the draft
+    const tp = editing ? trv.edit : trv.draft;
+    if (!tp) { box.innerHTML = cmdHint() + `<p class="cv-empty">${t("trv_no_view")}</p>` + trvPlayer(null, off); bindPlayer(box, null); return; }
     const seg = (name, opts, val, fmt) => `<span class="seg" data-tset="${name}">${opts.map(o => `<button data-v="${o}" class="${String(val) === String(o) ? "active" : ""}">${fmt ? fmt(o) : o}</button>`).join("")}</span>`;
-    const kindIco = (s) => s.kind === "line" ? ico("line", "sm") : s.kind === "chain" ? ico("line", "sm") : ico(TRAVEL_MOVE_ICON[s.move] || "reset", "sm");
-    const summary = (s) => `${s.dur} s · ×${s.amp}${s.loop ? " · " + t("cam_travel_loop") : ""}${s.music ? " · " + ico("noise", "sm") : ""}`;
-    const row = (s, i) => `<div class="cv ${trv.editing === s.id ? "on" : ""}" data-id="${s.id}">
-      <span class="cv-n">${i + 1}</span>
-      <button class="cv-go" data-act="play" title="${esc(trvSubjectName(s))} · ${esc(summary(s).replace(/<[^>]+>/g, ""))}" ${off ? "disabled" : ""}>${kindIco(s)}${esc(s.name)}</button>
-      <span class="cv-tools">
-        <button class="btn" data-act="edit" title="${esc(t("trv_edit"))}">${ico("settings", "sm")}</button>
-        <button class="btn" data-act="rename" title="${esc(t("cam_rename"))}">${ico("edit", "sm")}</button>
-        <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>▲</button>
-        <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>▼</button>
-        <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">✕</button>
-      </span></div>`;
-    // subject: a view (pick by number), the chain of views, the line handed over by a line sheet (kept in the draft)
-    const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat((tp && tp.kind === "line") || trv.line ? ["line"] : []);
-    const KIND_ICO = { view: "star", chain: "line", line: "configure_line" };
-    const settings = tp ? `<div class="cv-travel">
-        <div class="tr-row"><span class="lbl">${editing ? kindIco(tp) + esc(editing.name) : t("trv_draft")}</span>
+    // subject: a view (number + name), the chain of views, the line handed over by a line sheet (kept in the draft)
+    const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat(tp.kind === "line" || trv.line ? ["line"] : []);
+    const viewPick = tp.kind === "view" ? `<span class="seg wrap" data-tset="view">${camViews.list.map((v, i) => `<button data-v="${v.id}" class="${v.id === tp.view ? "active" : ""}" title="${esc(v.name)}"><b>${i + 1}</b> ${esc(v.name.length > 12 ? v.name.slice(0, 11) + "…" : v.name)}</button>`).join("")}</span>` : "";
+    box.innerHTML = cmdHint() + `<div class="cv-travel ${editing ? "editing" : ""}">
+        <div class="tr-row tr-head">${editing ? `<button class="lbl tr-name" data-trename title="${esc(t("cam_rename"))}">${ico("ct_edit", "sm")}${esc(editing.name)}</button>` : `<span class="lbl">${t("trv_draft")}</span>`}
           ${seg("kind", kinds, tp.kind, k => `<span title="${esc(t("trv_kind_" + k))}">${ico(KIND_ICO[k], "sm")}</span>`)}
-          ${tp.kind === "view" ? seg("view", camViews.list.map(v => v.id), tp.view, id => { const v = camViews.list.find(x => x.id === id); return `<span title="${esc(v.name)}">${camViews.list.indexOf(v) + 1}</span>`; }) : `<span class="muted small">${esc(trvSubjectName(tp))}</span>`}
-          ${editing ? `<button class="btn" data-tdone title="${esc(t("trv_done"))}">${ico("check", "sm")}</button>` : ""}</div>
-        ${tp.kind === "view" ? `<div class="tr-row"><span class="lbl">${t("cam_travel")}</span>${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico(TRAVEL_MOVE_ICON[m], "sm")}</span>`)}
-          <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("reverse", "sm")}</button></div>
+          ${tp.kind !== "view" ? `<span class="muted small">${esc(trvSubjectName(tp))}</span>` : ""}</div>
+        ${viewPick ? `<div class="tr-row">${viewPick}</div>` : ""}
+        ${tp.kind === "chain" ? `<div class="tr-chain" data-chain>${chainViews(tp).map((v, i) => `<div class="cv ch" draggable="true" data-ci="${i}"><span class="cv-n">${i + 1}</span><span class="ch-name">${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</span><button class="btn" data-chrm="${i}" title="${esc(t("trv_chain_remove"))}">${ico("ct_remove", "sm")}</button></div>`).join("")}<div class="ch-drop muted small">${t("trv_chain_hint")}</div></div>` : ""}
+        ${tp.kind === "view" ? `<div class="tr-row"><span class="lbl">${t("cam_travel")}</span>${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico("own/move_" + m, "sm")}</span>`)}
+          <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("own/move_reverse", "sm")}</button></div>
         <div class="tr-row"><span class="muted small tr-desc">${t("cam_move_" + tp.move)}</span></div>` : ""}
-        ${tp.kind === "chain" ? `<div class="tr-chain" data-chain>${chainViews(tp).map((v, i) => `<div class="cv ch" draggable="true" data-ci="${i}"><span class="cv-n">${i + 1}</span><span class="ch-name">${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</span><button class="btn" data-chrm="${i}" title="${esc(t("trv_chain_remove"))}">✕</button></div>`).join("")}<div class="ch-drop muted small">${t("trv_chain_hint")}</div></div>` : ""}
         <div class="tr-row"><span class="lbl">${t("cam_travel_dur")}</span>${seg("dur", [10, 20, 40, 90], tp.dur, x => x + " s")}
-          <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("reset", "sm")}</button></div>
+          <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("refresh", "sm")}</button></div>
         <div class="tr-row"><span class="lbl">${tp.kind === "line" ? t("trv_alt") : t("cam_travel_amp")}</span>${seg("amp", [0.5, 1, 2], tp.amp, a => "×" + a)}</div>
         <div class="tr-row" id="tr-music"></div>
-        <div class="tr-row">
-          ${path ? `<button class="btn primary" data-travel="stop">${ico("play_pause", "sm")}${t("cam_travel_stop")}</button><span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span>`
-                 : `<button class="btn primary" data-travel="play" ${off ? "disabled" : ""}>${ico("play_1", "sm")}${t("trv_play")}</button>`}
-          ${!editing && trv.list.length < 20 ? `<button class="btn" data-travel="save" title="${esc(t("trv_save_hint"))}">${ico("star", "sm")}${t("trv_save")}</button>` : ""}
-        </div>
-      </div>` : "";
-    box.innerHTML = cmdHint() +
-      (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`) +
-      settings +
-      (path && !tp ? `<div class="tr-row"><button class="btn primary" data-travel="stop">${ico("play_pause", "sm")}${t("cam_travel_stop")}</button><span class="bar travel"><i style="width:${Math.round((path.progress || 0) * 100)}%"></i></span></div>` : "");
-    // settings: segments and toggles (edit the saved travelling in place, or the draft)
-    const applyAll = (patch) => { if (editing) editTravellings({ action: "update", id: editing.id, spec: { ...specOf(editing), ...patch } }); else { Object.assign(tp, patch); saveTravelPrefs(specOf(tp)); renderTravellings(); } };
-    const apply = (k, v) => applyAll({ [k]: v });
+      </div><div class="tr-foot">${trvPlayer(tp, off, editing)}</div>`;
+    // settings: segments and toggles change the copy being edited or the draft (the draft is also the browser preference)
+    const apply = (k, v) => { tp[k] = v; if (!editing) saveTravelPrefs(specOf(tp)); renderWorkshop(); };
+    const applyAll = (patch) => { Object.assign(tp, patch); if (!editing) saveTravelPrefs(specOf(tp)); renderWorkshop(); };
     $$("[data-tset] button, .btn[data-tset]", box).forEach(b => b.addEventListener("click", () => {
       const k = b.dataset.tset || b.closest("[data-tset]").dataset.tset;
       const val = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
       if (k === "dir") apply("dir", -(tp.dir || 1)); else if (k === "loop") apply("loop", !tp.loop);
-      else if (k === "kind") { const patch = { kind: val }; if (val === "chain" && !tp.views) patch.views = camViews.list.map(v => v.id); if (val === "line" && trv.line && !editing) patch.line = trv.line; applyAll(patch); }
+      else if (k === "kind") { const patch = { kind: val }; if (val === "chain" && !tp.views) patch.views = camViews.list.map(v => v.id); if (val === "line" && trv.line && !tp.line) patch.line = trv.line; applyAll(patch); }
       else apply(k, val);
     }));
-    const done = $("[data-tdone]", box); if (done) done.addEventListener("click", () => { trv.editing = null; renderTravellings(); });
+    const ap = $("[data-tapply]", box); if (ap) ap.addEventListener("click", async () => { if (await editTravellings({ action: "update", id: editing.id, spec: specOf(tp) })) { trv.editing = null; renderWorkshop(); renderTravellings(); } });
+    const rn = $("[data-trename]", box); if (rn) rn.addEventListener("click", async () => { const name = await modal.prompt(t("cam_name_prompt"), { value: editing.name, ok: t("cam_rename_ok") }); if (name) editTravellings({ action: "rename", id: editing.id, name }); });
+    const cc = $("[data-tcancel]", box); if (cc) cc.addEventListener("click", () => { trv.editing = null; renderWorkshop(); renderTravellings(); });
     // chain editor: drag a row to reorder, drop a view from the camera views card to append it, x removes
     const chainBox = $("[data-chain]", box);
     if (chainBox) {
@@ -1596,36 +1624,52 @@
         chainBox.classList.remove("drag-over");
       });
     }
-    $$("[data-travel]", box).forEach(b => b.addEventListener("click", async () => {
-      const a = b.dataset.travel;
-      if (a === "stop") return stopTravelling();
-      if (a === "play" && tp) { if (!trvPlay(tp)) { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; } return; }
-      if (a === "save" && d) { const name = await modal.prompt(t("cam_name_prompt"), { value: trvSubjectName(d).slice(0, 40), ok: t("trv_save") }); if (name) { await editTravellings({ action: "add", name, spec: specOf(d) }); } }
-    }));
+    bindPlayer(box, tp);
     // music row (async: the track list comes from the server); two groups: the player's files, the game's soundtrack
-    if (tp) musicTracks().then(() => {
+    musicTracks().then(() => {
       const row = $("#tr-music", box); if (!row) return;
       const own = music.list || [], game = music.game || [];
       const label = (x) => x.startsWith("game:") ? x.slice(5).replace(/^.*\//, "") : x;
       const btn = (x) => `<button data-v="${esc(x)}" class="${tp.music === x ? "active" : ""}" title="${esc(label(x))}">${esc(label(x).replace(/\.[^.]+$/, "").slice(0, 18))}</button>`;
       if (!own.length && !game.length) { row.innerHTML = `<span class="lbl">${ico("noise", "sm")}${t("cam_music")}</span><span class="muted small">${t("cam_music_none")}</span>`; return; }
-      row.innerHTML = `<span class="lbl">${ico("noise", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button><button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>${own.map(btn).join("")}</span>
-        ${game.length ? `<span class="seg wrap" data-tset="music"><span class="lbl">${t("trv_music_game")}</span>${game.map(btn).join("")}</span>` : ""}
+      row.innerHTML = `<span class="lbl">${ico("noise", "sm")}${t("cam_music")}</span><span class="seg wrap" data-tset="music"><button data-v="" class="${tp.music ? "" : "active"}">${t("none")}</button>${own.length ? `<button data-v="auto" class="${tp.music === "auto" ? "active" : ""}" title="${esc(t("cam_music_auto_hint"))}">${t("cam_music_auto")}</button>` : ""}${game.length ? `<button data-v="game" class="${tp.music === "game" || (!own.length && tp.music === "auto") ? "active" : ""}" title="${esc(t("trv_music_game_hint"))}">${t("trv_music_game")}</button>` : ""}${own.map(btn).join("")}</span>
         <input type="range" min="0" max="1" step="0.05" value="${tp.vol}" data-tvol title="${esc(t("cam_music_vol"))}">
-        <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("play_1", "sm")}${t("cam_music_tail")}</button>
-        ${music.el && !path ? `<button class="btn" data-tmute title="${esc(t("cam_music_off"))}">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}`;
+        <button class="btn tgl ${tp.tail ? "active" : ""}" data-ttail title="${esc(t("cam_music_tail_hint"))}">${ico("ct_play", "sm")}${t("cam_music_tail")}</button>`;
       $$("[data-tset=music] button", row).forEach(b => b.addEventListener("click", () => apply("music", b.dataset.v)));
       $("[data-ttail]", row).addEventListener("click", () => apply("tail", !tp.tail));
-      const mute = $("[data-tmute]", row); if (mute) mute.addEventListener("click", () => { musicStop(); renderTravellings(); });
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; if (!editing) saveTravelPrefs(specOf(tp)); if (music.el) music.el.volume = tp.vol; });
-      $("[data-tvol]", row).addEventListener("change", e => { if (editing) apply("vol", +e.target.value); });
     });
+  }
+  function bindPlayer(box, tp) {
+    $$("[data-travel]", box).forEach(b => b.addEventListener("click", async () => {
+      const a = b.dataset.travel;
+      if (a === "stop") return stopTravelling();
+      if (a === "play" && tp) { if (!trvPlay(tp)) trvFail(); return; }
+      if (a === "save" && tp) { const name = await modal.prompt(t("cam_name_prompt"), { value: trvSubjectName(tp).slice(0, 40), ok: t("trv_save") }); if (name) await editTravellings({ action: "add", name, spec: specOf(tp) }); }
+    }));
+    const mute = $("[data-tmute]", box); if (mute) mute.addEventListener("click", () => { musicStop(); renderWorkshop(); });
+  }
+  function renderTravellings() {
+    const box = $("#travellings"); if (!box) return;
+    const cur = camViews.cur, off = cmdOff();
+    if (cur === null) { box.innerHTML = `<div class="cmdhint">${ico("alert", "sm")}<span>${t("cam_needs_rev7")}</span></div>`; return; }
+    const summary = (s) => `${s.dur} s · ×${s.amp}${s.loop ? " · " + t("cam_travel_loop") : ""}${s.music ? " · ♪" : ""}`;
+    const row = (s, i) => `<div class="cv ${trv.editing === s.id ? "on" : ""}" data-id="${s.id}">
+      <span class="cv-n">${i + 1}</span>
+      <button class="cv-go" data-act="play" title="${esc(t("trv_play"))} · ${esc(trvSubjectName(s))} · ${esc(summary(s))}" ${off ? "disabled" : ""}>${ico(KIND_ICO[s.kind] || "star", "sm")}<span class="cv-name">${esc(s.name)}</span></button>
+      <span class="cv-tools">
+        <button class="btn" data-act="edit" title="${esc(t("trv_edit"))}">${ico("ct_edit", "sm")}</button>
+        <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>${ico("ct_up", "sm")}</button>
+        <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>${ico("ct_down", "sm")}</button>
+        <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">${ico("ct_trash", "sm")}</button>
+      </span></div>`;
+    box.innerHTML = cmdHint() + (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`);
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, s = trv.list.find(x => x.id === id); if (!s) return;
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
-        if (a === "play") { if (!trvPlay(s)) { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; } }
-        else if (a === "edit") { trv.editing = trv.editing === id ? null : id; renderTravellings(); }
+        if (a === "play") { if (!trvPlay(s)) trvFail(); }
+        else if (a === "edit") { if (trv.editing === id) trv.editing = null; else { trv.editing = id; trv.edit = { ...TRAVEL_DEFAULTS, ...specOf(s) }; } renderTravellings(); renderWorkshop(); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: s.name, ok: t("cam_rename_ok") }); if (name) editTravellings({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editTravellings({ action: "move", id, delta: a === "up" ? -1 : 1 });
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: s.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) { if (trv.editing === id) trv.editing = null; editTravellings({ action: "delete", id }); } }
@@ -1692,7 +1736,7 @@
     map.gameKey = gameKey || map.gameKey;
     // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
-    renderCamViews(); renderTravellings();
+    renderCamViews(); renderTravellings(); renderWorkshop();
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
     const canvas = $("#map");

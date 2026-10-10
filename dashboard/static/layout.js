@@ -52,10 +52,17 @@
   /** Flow cards left to right, top to bottom, into the grid (first layout, v1 migration, new panels). */
   function flow(items, start) {
     let x = 0, y = start ? start.y : 0, rowH = 0;
+    const placed = [];
     for (const it of items) {
+      // data-under="<panel>" in the HTML: stack this card below that one (same column), e.g. the three camera cards
+      // next to the map; falls back to the normal left-to-right flow when the anchor is not in this batch
+      const under = it.under && placed.find(p => p.id === it.under);
+      if (under) { it.x = under.x; it.y = under.y + under.h; it.w = Math.min(it.w, COLS - it.x); placed.push(it); continue; }
       if (x + it.w > COLS) { x = 0; y += rowH; rowH = 0; }
       it.x = x; it.y = y; x += it.w; rowH = Math.max(rowH, it.h);
+      placed.push(it);
     }
+    // the stacked cards may stick out below the row they joined: the next flow row starts under everything
     return items;
   }
 
@@ -93,7 +100,7 @@
       const old = st || {};
       const order = (old.order || []).filter(id => def.order.includes(id)).concat(def.order.filter(id => !(old.order || []).includes(id)));
       const byId = Object.fromEntries(cardsOf(container).map(c => [c.dataset.panel, c]));
-      const items = order.map(id => { const p = (old.panels || {})[id] || {}; const c = byId[id]; return { id, w: Math.max(MIN_W, Math.min(COLS, p.w || def.w[id])), h: p.h ? Math.max(MIN_H, Math.round(p.h / ROW)) : measure(container, c), hidden: !!p.hidden }; });
+      const items = order.map(id => { const p = (old.panels || {})[id] || {}; const c = byId[id]; return { id, under: c.dataset.under, w: Math.max(MIN_W, Math.min(COLS, p.w || def.w[id])), h: p.h ? Math.max(MIN_H, Math.round(p.h / ROW)) : measure(container, c), hidden: !!p.hidden }; });
       flow(items.filter(it => !it.hidden));
       st = { v: 2, panels: {} };
       items.forEach(it => { st.panels[it.id] = { x: it.x || 0, y: it.y || 0, w: it.w, h: it.h, hidden: it.hidden }; });
@@ -104,10 +111,20 @@
     if (missing.length) {
       const byId = Object.fromEntries(cardsOf(container).map(c => [c.dataset.panel, c]));
       const bottom = Math.max(0, ...Object.values(st.panels).filter(p => !p.hidden).map(p => p.y + p.h));
-      const items = missing.map(id => ({ id, w: def.w[id], h: measure(container, byId[id]), hidden: false }));
-      flow(items, { y: bottom });
-      items.forEach(it => { st.panels[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h, hidden: false }; });
+      // a new card that asks to sit under an existing one goes there when that card's column is free below it
+      const items = missing.map(id => ({ id, under: byId[id].dataset.under, w: def.w[id], h: measure(container, byId[id]), hidden: false }));
+      const rest = [];
+      for (const it of items) {
+        const a = it.under && st.panels[it.under];
+        if (a && !a.hidden) {
+          const y = Math.max(a.y + a.h, ...Object.values(st.panels).filter(p => !p.hidden && p.x < a.x + a.w && p.x + p.w > a.x).map(p => p.y + p.h));
+          st.panels[it.id] = { x: a.x, y, w: Math.min(it.w, COLS - a.x), h: it.h, hidden: false };
+        } else rest.push(it);
+      }
+      flow(rest, { y: Math.max(bottom, ...Object.values(st.panels).filter(p => !p.hidden).map(p => p.y + p.h)) });
+      items.forEach(it => { if (!st.panels[it.id]) st.panels[it.id] = { x: it.x, y: it.y, w: it.w, h: it.h, hidden: false }; });
       save();
+      return st;
     }
     return st;
   }

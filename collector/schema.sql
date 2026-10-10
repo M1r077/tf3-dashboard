@@ -354,6 +354,7 @@ CREATE TABLE IF NOT EXISTS industry_state (
     boost_persons     INTEGER,
     production_rating REAL,
     thrown_away       INTEGER,
+    boosters          TEXT,                         -- JSON, the industry window's "Boosters" card: [{kind: cargo|workers, active, factor, needs:[{cargo_type, need, have}] | workers, need, capacity, potential}]
     PRIMARY KEY (snapshot_id, industry_id)
 );
 

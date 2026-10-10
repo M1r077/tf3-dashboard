@@ -584,8 +584,21 @@ def api_industries(q: dict) -> dict:
     cmap: dict[int, list] = {}
     for c in cargo:
         cmap.setdefault(c["industry_id"], []).append(c)
+    names = {c["cargo_id"]: (c["name"], c["key"]) for c in rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=?", (gid,))}
     for i in inds:
         i["cargo"] = cmap.get(i["industry_id"], [])
+        # boosters (JSON from the mod): name the cargo each cargo booster needs
+        try:
+            bl = json.loads(i.get("boosters") or "null")
+        except ValueError:
+            bl = None
+        if isinstance(bl, list):
+            for bo in bl:
+                for n in bo.get("needs") or []:
+                    nm = names.get(n.get("cargo_type"))
+                    if nm:
+                        n["cargo"], n["cargo_key"] = nm
+        i["boosters"] = bl
     return {"industries": inds}
 
 

@@ -104,6 +104,9 @@ body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px
 .panels > .card.sticky.sized { overflow: auto; }
 .panels > .card.sticky.sized > .minilist, .panels > .card.sticky.sized > table { flex: none; overflow: visible; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
+/* a uPlot host in a user-sized card: the plot is sized by script, the legend above it must never push past the card */
+.panels > .card.sized > .uchart { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.panels > .card.sized > .uchart > .uplot { flex: none; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }
 .panels > .card.tablecard.sized > table, .panels > .card.sized:has(> table) > table { flex: none; overflow: visible; }
@@ -360,6 +363,10 @@ h2 .ico { color: var(--accent); }
 /* camera views panel (Map tab): one row per saved view, the slot number doubles as the Shift+N shortcut */
 .camviews .cv-save { width: 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .camviews .cv-list { display: flex; flex-direction: column; gap: 4px; }
+/* user-sized camera cards: the body takes the rest of the card and scrolls (the "save view" button stays put) */
+.panels > .card.camviews.sized > #cam-views, .panels > .card.camviews.sized > #trv-workshop, .panels > .card.camviews.sized > #travellings { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.panels > .card.camviews.sized > #cam-views > .cv-list, .panels > .card.camviews.sized > #travellings > .cv-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.panels > .card.camviews.sized > #trv-workshop > .cv-travel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .cv { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
 .cv .cv-n { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
 .cv.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
@@ -373,7 +380,25 @@ h2 .ico { color: var(--accent); }
 .camviews .cv-cur { margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .camviews .cv-empty { font-size: 12px; color: var(--muted); margin: 4px 0; }
 /* travelling: play the saved views as one smooth camera path */
-.camviews .cv-travel { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; }
+.camviews .cv-travel { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.camviews .cv-travel.editing { padding: 6px; margin: -6px; border: 1px solid var(--warn); border-radius: 8px; }
+.camviews .cv-travel .tr-head .lbl { font-weight: 600; color: var(--text); gap: 4px; }
+.workshop { display: flex; flex-direction: column; }
+.workshop > #trv-workshop { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.workshop .cv-travel { overflow: auto; flex: 1; min-height: 0; }
+.workshop .tr-foot { flex: none; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.workshop .tr-foot .tr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.workshop .tr-foot .btn.primary { display: inline-flex; align-items: center; gap: 4px; }
+.workshop .tr-foot .bar.travel { flex: 1 1 100%; width: auto; height: 6px; margin-top: 2px; }
+.workshop .tr-foot .bar.travel > i { background: var(--accent); }
+.camviews .cv-travel .tr-now { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.camviews .cv-travel .seg.wrap[data-tset=view] button b { color: var(--muted); font-weight: 600; margin-right: 2px; }
+.camviews .cv-travel .seg.wrap[data-tset=view] button.active b { color: #fff; }
+.travellings .cv .cv-go { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.travellings .cv .cv-go .cv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.travellings .cv .cv-go small { font-size: 11px; white-space: nowrap; }
+.camviews .cv-travel .tr-name { background: none; border: 0; cursor: pointer; padding: 0; font: inherit; }
+.camviews .cv-travel .tr-name:hover { color: var(--accent, #58a6ff); }
 .camviews .cv-travel .tr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .camviews .cv-travel .lbl { color: var(--muted); display: inline-flex; align-items: center; min-width: 54px; }
 .camviews .cv-travel .seg.wrap { flex-wrap: wrap; }
@@ -586,7 +611,9 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 /* chain editor inside a travelling: ordered views, drag to reorder, drop a view from the views card */
 .camviews .tr-chain { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 4px; border: 1px dashed var(--border); border-radius: 6px; }
 .camviews .tr-chain.drag-over { border-color: var(--accent); }
-.camviews .tr-chain .cv.ch { cursor: grab; }
+.camviews .tr-chain .cv.ch { cursor: grab; grid-template-columns: 22px 1fr auto; }
+.camviews .tr-chain .cv.ch > .btn { padding: 1px 4px; opacity: .5; }
+.camviews .tr-chain .cv.ch:hover > .btn { opacity: 1; }
 .camviews .tr-chain .cv.ch.drag-over { outline: 2px solid var(--accent); }
 .camviews .tr-chain .ch-name { flex: 1; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .camviews .tr-chain .ch-drop { text-align: center; padding: 2px; }
@@ -616,3 +643,7 @@ table.journal tr.section td i { display: block; border-top: 1px solid var(--bord
 table.journal tr.summary td:first-child { color: var(--text); }
 table.journal tr.strong td { font-weight: 600; }
 table.journal td.zero { color: var(--muted); opacity: .55; }
+/* industry boosters (the game's "Boosters" card): needs vs piles, factor, active */
+table.kv.boosters td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.kv.boosters td:first-child { white-space: nowrap; }
+table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }

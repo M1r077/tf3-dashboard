@@ -238,6 +238,7 @@ ICONS: dict[str, tuple[str, str]] = {
     "cargo_received": (GUI, "gui/entity_window/icons/symbol_cargo_received@2x.tga"),
     "cargo_supplied": (GUI, "gui/entity_window/icons/symbol_cargo_supplied@2x.tga"),
     "production": (GUI, "gui/entity_window/icons/production_arrow@2x.tga"),
+    "booster": (GUI, "gui/entity_window/icons/production_booster@2x.tga"),
     "stop": (GUI, "gui/entity_window/icons/stop@2x.tga"),
     "arrow_up": (GUI, "gui/entity_window/icons/symbol_arrow_up@2x.tga"),
     "refresh": (GUI, "gui/entity_window/icons/symbol_arrows_refresh@2x.tga"),
@@ -252,6 +253,20 @@ ICONS: dict[str, tuple[str, str]] = {
     "play_4": (GUI, "gui/game_bar/icons/playback_play_4@2x.tga"),
     "camera": (GUI, "gui/game_bar/icons/symbol_camera@2x.tga"),
     "follow": (GUI, "gui/camera_tool/icons/camera@2x.tga"),
+    # the game's camera manager (Gestionnaire de caméra): the travellings panels reuse its vocabulary, so an icon
+    # never means something else here than in the game
+    "ct_play": (GUI, "gui/camera_tool/icons/play@2x.tga"),
+    "ct_pause": (GUI, "gui/camera_tool/icons/pause@2x.tga"),
+    "ct_stop": (GUI, "gui/camera_tool/icons/stop@2x.tga"),
+    "ct_record": (GUI, "gui/camera_tool/icons/record@2x.tga"),
+    "ct_save": (GUI, "gui/camera_tool/icons/save@2x.tga"),
+    "ct_load": (GUI, "gui/camera_tool/icons/load@2x.tga"),
+    "ct_trash": (GUI, "gui/camera_tool/icons/trash_bin19@2x.tga"),
+    "ct_edit": (GUI, "gui/camera_tool/icons/edit@2x.tga"),
+    "ct_film": (GUI, "gui/camera_tool/icons/fps@2x.tga"),
+    "ct_up": (GUI, "gui/camera_tool/icons/up_thin@2x.tga"),
+    "ct_down": (GUI, "gui/camera_tool/icons/down_thin@2x.tga"),
+    "ct_remove": (GUI, "gui/camera_tool/icons/remove@2x.tga"),
     # savegames / backups (settings panel)
     "save": (GUI, "gui/main/icons/symbol_save_floppy_42@2x.tga"),
     "load_game": (GUI, "gui/menu/icons/load_game@2x.tga"),

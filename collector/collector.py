@@ -687,9 +687,10 @@ class Store:
                 (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y),
             )
             self.con.execute(
-                "INSERT OR REPLACE INTO industry_state VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO industry_state VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
-                 b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away")),
+                 b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away"),
+                 json.dumps(i["boosters"], separators=(",", ":")) if isinstance(i.get("boosters"), list) and i["boosters"] else None),
             )
             # piles: per (direction, cargo type) the amount lying there and the pile size; summed when an
             # industry has several stocks of the same cargo. Storage stocks count as "out" (a warehouse ships them).

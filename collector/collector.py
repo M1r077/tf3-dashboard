@@ -90,6 +90,15 @@ def _local_offset() -> int:
     return int(round(now - dt.datetime.fromtimestamp(now).replace(tzinfo=dt.timezone.utc).timestamp())) * -1
 
 
+# every INSERT names its columns: a database created by an older companion may carry extra or fewer columns
+# (migrations add them), and a positional VALUES list then fails on every slow cycle (0.6.1 -> 0.6.3: boosters)
+TOWN_STATE_COLS = ("snapshot_id, town_id, development_active, cap_res, cap_com, cap_ind, used_res, used_com, used_ind, stations, "
+                   "noise_db, pollution_db, area_km2, line_usage, traffic_speed, reach_com_private, reach_com_public, reach_ind_private, "
+                   "reach_ind_public, hap_inside_unhappy, hap_inside_total, hap_car_unhappy, hap_car_total, hap_walk_unhappy, hap_walk_total, "
+                   "hap_to_res_unhappy, hap_to_res_total, hap_to_nonres_unhappy, hap_to_nonres_total, hap_from_res_unhappy, hap_from_res_total, "
+                   "hap_from_nonres_unhappy, hap_from_nonres_total")
+
+
 def _chunks(seq: list, n: int):
     for i in range(0, len(seq), n):
         yield seq[i:i + n]
@@ -164,7 +173,8 @@ class Store:
         ("industry_cargo", "capacity", "INTEGER"),
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
-        ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per 10 min
+        ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per game day
+        ("industry_state", "boosters", "TEXT"),  # 0.6.1 added it to the schema but not here: pre-0.6.1 databases lost every slow cycle since
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -479,7 +489,7 @@ class Store:
         if not isinstance(f, dict):
             return
         self.con.execute(
-            "INSERT OR REPLACE INTO finance VALUES (?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO finance(snapshot_id, balance, loan, earnings_ytd, passengers_transported, cargo_transported) VALUES (?,?,?,?,?,?)",
             (sid, f.get("balance"), f.get("loan"), f.get("earnings_year_to_date"),
              f.get("passengers_transported"), f.get("cargo_transported")),
         )
@@ -582,7 +592,7 @@ class Store:
             )
             q = l.get("quality") or {}
             self.con.execute(
-                "INSERT OR REPLACE INTO line_state VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO line_state(snapshot_id, line_id, stops, vehicles, max_frequency, throughput, persons_on_line, pax_bad, pax_total, pax_avg_quality, cargo_bad, cargo_total, cargo_avg_quality) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, lid, l.get("stops"), l.get("vehicles"), hz_to_headway(l.get("max_frequency")), l.get("throughput"), l.get("persons_on_line"),
                  q.get("pax_bad"), q.get("pax_total"), q.get("pax_avg"), q.get("cargo_bad"), q.get("cargo_total"), q.get("cargo_avg")),
             )
@@ -590,7 +600,7 @@ class Store:
             shift = -1 if (self._schema or 1) < 2 else 0
             for cap in as_list(l.get("capacity")):
                 if isinstance(cap, dict) and cap.get("cargo_type") is not None and (cap.get("capacity") or cap.get("used")):
-                    self.con.execute("INSERT OR REPLACE INTO line_capacity VALUES (?,?,?,?,?)",
+                    self.con.execute("INSERT OR REPLACE INTO line_capacity(snapshot_id, line_id, cargo_id, used, capacity) VALUES (?,?,?,?,?)",
                                      (sid, lid, cap["cargo_type"] + shift, cap.get("used"), cap.get("capacity")))
             stops = as_list(l.get("stop_list"))
             if stops:
@@ -630,7 +640,7 @@ class Store:
                    is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y""",
                 (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y),
             )
-            self.con.execute("INSERT OR REPLACE INTO station_state VALUES (?,?,?,?,?,?,?)",
+            self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines) VALUES (?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))
 
     def _towns(self, sid: int, gid: int, now: str, ts: Any):
@@ -657,20 +667,20 @@ class Store:
                     r.get("com_private"), r.get("com_public"), r.get("ind_private"), r.get("ind_public")]
             for k in ("inside", "by_car", "walking", "to_resident", "to_non_resident", "from_resident", "from_non_resident"):
                 vals.extend(pair(h.get(k)))
-            self.con.execute("INSERT OR REPLACE INTO town_state VALUES (" + ",".join("?" * len(vals)) + ")", vals)
+            self.con.execute("INSERT OR REPLACE INTO town_state(" + TOWN_STATE_COLS + ") VALUES (" + ",".join("?" * len(vals)) + ")", vals)
             for sc in as_list(t.get("stock")):
                 if isinstance(sc, dict) and sc.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO town_cargo VALUES (?,?,?,?,?)",
+                    self.con.execute("INSERT OR REPLACE INTO town_cargo(snapshot_id, town_id, cargo_id, stock, capacity) VALUES (?,?,?,?,?)",
                                      (sid, tid, sc["cargo_type"], sc.get("stock"), sc.get("capacity")))
             for sp in as_list(t.get("supply")):  # mod schema 3+
                 if isinstance(sp, dict) and sp.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO town_supply VALUES (?,?,?,?,?,?)",
+                    self.con.execute("INSERT OR REPLACE INTO town_supply(snapshot_id, town_id, land_use, cargo_id, v1, v2) VALUES (?,?,?,?,?,?)",
                                      (sid, tid, sp.get("land_use") or 0, sp["cargo_type"], sp.get("v1"), sp.get("v2")))
             for tl in as_list(t.get("top_lines")):
                 if isinstance(tl, dict) and tl.get("line") is not None:
                     ru, rt = pair(tl.get("resident"))
                     nu, nt = pair(tl.get("non_resident"))
-                    self.con.execute("INSERT OR REPLACE INTO town_top_line VALUES (?,?,?,?,?,?,?)", (sid, tid, tl["line"], ru, rt, nu, nt))
+                    self.con.execute("INSERT OR REPLACE INTO town_top_line(snapshot_id, town_id, line_id, resident_unhappy, resident_total, nonresident_unhappy, nonresident_total) VALUES (?,?,?,?,?,?,?)", (sid, tid, tl["line"], ru, rt, nu, nt))
 
     def _industries(self, sid: int, gid: int, now: str, inds: Any):
         for i in as_list(inds):
@@ -686,7 +696,8 @@ class Store:
                 (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y),
             )
             self.con.execute(
-                "INSERT OR REPLACE INTO industry_state VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT OR REPLACE INTO industry_state(snapshot_id, industry_id, level, closure_time, manual, producing, boost_rule,
+                   boost_persons, production_rating, thrown_away, boosters) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
                  b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away"),
                  json.dumps(i["boosters"], separators=(",", ":")) if isinstance(i.get("boosters"), list) and i["boosters"] else None),
@@ -702,15 +713,15 @@ class Store:
             for c in as_list(i.get("inputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
                     pile = piles.pop(("in", c["cargo_type"]), (None, None))
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo(snapshot_id, industry_id, cargo_id, direction, produced_year, max_prod_year, shipped_year, consumed_year, max_cons_year, delivered_year, stock, capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                                      (sid, iid, c["cargo_type"], "in", None, None, None, c.get("consumed_year"), c.get("max_consumption_year"), c.get("delivered_year"), pile[0], pile[1]))
             for c in as_list(i.get("outputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
                     pile = piles.pop(("out", c["cargo_type"]), (None, None))
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo(snapshot_id, industry_id, cargo_id, direction, produced_year, max_prod_year, shipped_year, consumed_year, max_cons_year, delivered_year, stock, capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                                      (sid, iid, c["cargo_type"], "out", c.get("produced_year"), c.get("max_production_year"), c.get("shipped_year"), None, None, None, pile[0], pile[1]))
             for (direction, ct), pile in piles.items():  # piles without a rule (warehouses, storage stocks)
-                self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                self.con.execute("INSERT OR REPLACE INTO industry_cargo(snapshot_id, industry_id, cargo_id, direction, produced_year, max_prod_year, shipped_year, consumed_year, max_cons_year, delivered_year, stock, capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                                  (sid, iid, ct, direction, None, None, None, None, None, None, pile[0], pile[1]))
 
     def _depots(self, sid: int, gid: int, now: str, ds: Any):
@@ -724,7 +735,7 @@ class Store:
                    x=COALESCE(excluded.x, depot.x), y=COALESCE(excluded.y, depot.y)""",
                 (gid, d["id"], d.get("name"), clean_enum(d.get("carrier")), x, y),
             )
-            self.con.execute("INSERT OR REPLACE INTO depot_state VALUES (?,?,?,?,?,?,?)",
+            self.con.execute("INSERT OR REPLACE INTO depot_state(snapshot_id, depot_id, vehicles, incoming, maintenance_pool, pool_max, pool_avg) VALUES (?,?,?,?,?,?,?)",
                              (sid, d["id"], d.get("vehicles"), d.get("incoming"), d.get("maintenance_pool"), d.get("pool_max"), d.get("pool_avg")))
 
     # ------------------------------------------------------------ retention / aggregation
@@ -888,9 +899,12 @@ class Store:
         c = self.con
         stats = {}
         stats["snapshots"] = c.execute("DELETE FROM snapshot WHERE game_id=?", (gid,)).rowcount
-        for tbl in ("line_stop", "line", "vehicle", "station", "town", "industry", "depot", "cargo_type",
-                    "agg_fleet_min", "agg_vehicle_min", "agg_finance_min", "agg_meta"):
-            stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
+        # every table with a game_id column (found in the live schema, so a new table cannot be forgotten here and
+        # trip the FOREIGN KEY on `game` - geo / finance_journal / line_path did exactly that in 0.6.3)
+        tables = [r["name"] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('game', 'snapshot')")]
+        for tbl in tables:
+            if any(col["name"] == "game_id" for col in c.execute(f"PRAGMA table_info({tbl})")):
+                stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
         stats["game"] = c.execute("DELETE FROM game WHERE game_id=?", (gid,)).rowcount
         c.commit()
         self._game_cache = {k: v for k, v in self._game_cache.items() if v != gid}
@@ -917,7 +931,13 @@ class Store:
             r = self.con.execute("SELECT game_id FROM game WHERE key=?", (key,)).fetchone()
             if not r:
                 continue
-            st = self.forget_game(r["game_id"])
+            try:
+                st = self.forget_game(r["game_id"])
+            except sqlite3.Error as e:
+                self.con.rollback()
+                if say:
+                    say(f"could not forget save {key}: {e}", "error")
+                continue
             done = True
             if say:
                 say(f"forgot save {key} on request of the dashboard: {st['snapshots']} snapshots", "ok")
@@ -1147,6 +1167,17 @@ def main(argv: list[str] | None = None) -> int:
             say(f"{args.live.name} is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
                 "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded",
                 "wait")
+        elif (dg.get("live_age_s") or 0) > 120:
+            # the game is closed (or paused for long): say so at once, with what the dashboard will show meanwhile
+            last = store.con.execute("""SELECT g.label, g.key, s.year, s.month, s.day, s.real_time FROM snapshot s JOIN game g USING(game_id)
+                                         ORDER BY s.snapshot_id DESC LIMIT 1""").fetchone()
+            age = dg["live_age_s"]
+            ago = f"{age / 60:.0f} min" if age < 5400 else f"{age / 3600:.1f} h" if age < 172800 else f"{age / 86400:.0f} d"
+            if last:
+                say(f"game closed (last export {ago} ago): the dashboard shows the last recorded situation of "
+                    f"'{last['label'] or last['key']}' ({last['year']}-{last['month']:02d}-{last['day']:02d}) until the game writes again", "wait")
+            else:
+                say(f"game closed (last export {ago} ago) and nothing recorded yet: start the game with the mod enabled", "wait")
     last_log_sig = None
 
     def report_game_log():

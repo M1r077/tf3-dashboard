@@ -23,8 +23,9 @@ if not defined EXTRACT (
     for /f %%i in ('%PY% -c "import os;print(int(os.path.getmtime(r'dashboard/extract_icons.py')>os.path.getmtime(r'dashboard/static/icons/_manifest.json')))"') do if "%%i"=="1" set EXTRACT=1
 )
 if defined EXTRACT (
-    echo extracting the game's icons, a few seconds...
+    echo %TIME:~0,8% extracting the game's icons from the local installation, 20-40 seconds, the browser waits meanwhile...
     %PY% dashboard\extract_icons.py
+    echo %TIME:~0,8% icons done.
     echo.
 )
 

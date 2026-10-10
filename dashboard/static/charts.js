@@ -80,7 +80,7 @@
   // ================================================================ line charts (uPlot)
   // Same call shape as before: lineChart(canvas, series, labels, opts). The <canvas> is used as an anchor:
   // a <div class="uchart"> is created right after it (once) and uPlot renders there; the canvas stays hidden.
-  //   series: [{ name, values, color, area, axis:'left'|'right', unit, dash, width, step }]
+  //   series: [{ name, values, color, area, axis:'left'|'right', unit, dash, width, step, icon }]  (icon: optional HTML before the name, legend + tooltip)
   //   opts:   { ts: [x values: unix s, or game seconds when `real` is given], real: [unix s]|null, aggFrom: index|null,
   //             zeroBase, rightAxis, unit, rightUnit, percent, stacked, yMin, yMax, badges, syncKey, onSelect(fromTs, toTs) }
   // Features: drag-to-zoom (double-click to reset), legend click to hide a series, synchronized cursor
@@ -144,7 +144,7 @@
           const lines = series.map((s, si) => {
             if (!u.series[si + 1].show) return null;
             const v = s.values[i]; if (v == null) return null;
-            return `<span style="color:${s.color}">●</span> ${s.name}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
+            return `<span style="color:${s.color}">●</span> ${s.icon || ""}${s.name}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
           }).filter(Boolean);
           if (!lines.length) { el.style.display = "none"; return; }
           const isAgg = opts.aggFrom != null && i < opts.aggFrom;
@@ -303,6 +303,15 @@
     }
     const u = new uPlot(uopts, [xs, ...data], host);
     uplots.set(host, u);
+    // a series may carry `icon` (an HTML snippet, e.g. the cargo type's picture): uPlot writes legend labels as text,
+    // so put the icon in front of the label afterwards. Same icon in the tooltip (above).
+    if (series.some(s => s.icon)) {
+      const byName = new Map(series.map(s => [s.name, s.icon]));
+      host.querySelectorAll(".u-legend .u-series .u-label").forEach(lab => {
+        const icon = byName.get(lab.textContent);
+        if (icon) lab.insertAdjacentHTML("afterbegin", icon);
+      });
+    }
     fitHost(canvas, host, u, w);
     if (keepX && timeAxis) {
       // follow the live edge: if the previous zoom touched the end, shift the window with the new data

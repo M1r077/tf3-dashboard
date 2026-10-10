@@ -1241,10 +1241,10 @@
     bindActions(el); sectionize(el);
     const tx = tsOpts(hist, "ind");
     // one colour per cargo: solid = produced/consumed, dashed = shipped/delivered, faint = yearly maximum
-    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo); return [
-      { name: `${n} · ${aName}`, values: e.a, color: col },
-      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4] },
-      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4] },
+    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo), ic = cargoIcon(e.c, "sm"); return [
+      { name: `${n} · ${aName}`, values: e.a, color: col, icon: ic },
+      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4], icon: ic },
+      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4], icon: ic },
     ]; });
     if (outs.length) Charts.lineChart($("#chart-ind-out"), cargoSeries(outs, t("ind_produced"), t("shipped")), labels, { zeroBase: true, ...tx });
     if (ins.length) Charts.lineChart($("#chart-ind-in"), cargoSeries(ins, t("ind_consumed"), t("delivered")), labels, { zeroBase: true, ...tx });
@@ -1390,8 +1390,8 @@
     ], hl, { unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: pick("total"), color: "#e8b04b", area: true, unit: "$", step: true }], hl, { zeroBase: true, unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-transport"), [
-      { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
-      { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
+      { icon: cargoIcon({ cargo_key: "passengers", cargo: t("passengers") }, "sm"), name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
+      { icon: cargoIcon({ cargo_key: "_mixed", cargo: t("cargo") }, "sm"), name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
     ], labels, { rightAxis: true, zeroBase: true, ...tx });
     // company figures (slow export): network size and company value over the same range
     const comp = fin.company || [], clabels = comp.map(x => dateLabel(x)), ctx = tsOpts(comp, "fin");
@@ -1752,7 +1752,12 @@
   const kb = (n) => n == null ? "" : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
   async function renderSaves() {
     const box = $("#saves"); if (!box) return;
-    let d; try { d = await api("/api/games"); } catch (e) { box.innerHTML = `<p class="muted">${esc(String(e))}</p>`; return; }
+    let d; try { d = await api("/api/games"); } catch (e) {
+      // the server is not answering (starting, or stopped): say so and retry while the panel is open
+      box.innerHTML = `<p class="muted">${esc(t("server_starting"))}</p>`;
+      setTimeout(() => { if ($("#settings").classList.contains("open")) renderSaves(); }, 2000);
+      return;
+    }
     const games = d.games || [], backups = d.backups || [];
     const gameRow = (gm) => {
       // current = the save the pages show; latest = the save the game last wrote. They differ only offline, when
@@ -2335,8 +2340,12 @@
     if (!ruler.on) return;
     // hung right under the ruler button (the toolbar lives outside the map card, so position from its screen rect)
     const br = $("#map-ruler-btn").getBoundingClientRect(), cr = el.offsetParent.getBoundingClientRect();
-    el.style.left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth)) + "px";
-    el.style.top = Math.max(8, br.bottom - cr.top + 6) + "px";
+    const left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth));
+    let top = Math.max(8, br.bottom - cr.top + 6);
+    // never over the legend (top-right box): when the two would overlap sideways, hang the readout under the legend
+    const lg = $("#map-legend"); const lr = lg && lg.offsetParent ? lg.getBoundingClientRect() : null;
+    if (lr && left + el.offsetWidth > lr.left - cr.left - 8 && top < lr.bottom - cr.top + 6) top = lr.bottom - cr.top + 6;
+    el.style.left = left + "px"; el.style.top = top + "px";
     if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
     const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
     const dz = ha != null && hb != null ? hb - ha : null;
@@ -2344,10 +2353,11 @@
     const parts = (p, gap) => gap ? t("ruler_build_straight") : `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
     const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
     const netRow = (mode, sw, kmh) => {
-      if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());
-      if (net[mode] == null) return row(sw, "–", t("ruler_" + mode, { d: t("ruler_none") }));
+      const lab = `${ico(mode === "rail" ? "veh_train" : "veh_truck", "sm")}`;  // the game's carrier icons: the colour alone said nothing
+      if (!net || !net.available) return row(sw, "…", lab + t("ruler_" + mode, { d: "" }).trim());
+      if (net[mode] == null) return row(sw, "–", lab + t("ruler_" + mode, { d: t("ruler_none") }));
       const owned = net[mode + "_kmh"] > 0;
-      return row(sw, fmtDist(net[mode]), trip(net[mode], owned ? net[mode + "_kmh"] : kmh, owned) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
+      return row(sw, fmtDist(net[mode]), lab + trip(net[mode], owned ? net[mode + "_kmh"] : kmh, owned) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
     };
     el.innerHTML = row("#e8b04b", fmtDist(dist), ruler.b ? "" : "…")
       + row(null, dz != null ? (dz >= 0 ? "+" : "") + Math.round(dz) + " m" : "–", t("ruler_height"), dz > 0 ? "up" : "down")
@@ -2468,12 +2478,21 @@
   document.addEventListener("pointercancel", pointerUp, true);
   document.addEventListener("click", pointerUp, true);
   window.addEventListener("blur", pointerUp);
+  const PAGE_T0 = Date.now(); let gotFirst = false;
   async function refresh() {
     if (busy || pointerDown) { again = true; return; } busy = true;
     try {
-      const o = await renderTop();
+      const o = await renderTop(); gotFirst = true;
       if (o && RENDER[state.tab]) await RENDER[state.tab](o);
-    } catch (e) { $("#st-dot").className = "dot dead"; $("#st-text").textContent = t("server_down", { msg: e.message }); console.error(e); }
+    } catch (e) {
+      // the server is not answering. Right after run_dashboard.cmd this is normal for up to ~40 s (first start extracts
+      // the game's icons): say "starting" and retry fast rather than a red error nobody asked for
+      const starting = Date.now() - PAGE_T0 < 60000 && !gotFirst;
+      $("#st-dot").className = "dot " + (starting ? "stale" : "dead");
+      $("#st-text").textContent = starting ? t("server_starting") : t("server_down", { msg: e.message });
+      if (!starting) console.error(e);
+      if (starting) setTimeout(refresh, 1500);
+    }
     busy = false;
     if (again) { again = false; refresh(); }
   }

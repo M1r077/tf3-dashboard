@@ -125,7 +125,7 @@ window.I18N = {
     chart_hint: "drag: zoom · double-click: reset · click a legend entry: hide/show",
     network_growth: "Network", company_growth: "Company value",
     set_layout: "Panels", layout_edit: "Arrange panels", layout_reset_all: "Reset all tabs", layout_reset_tab: "Reset this tab", layout_done: "Done",
-    layout_hint: "Drag a panel by its handle to reorder. Drag the right / bottom edge to resize (width in grid columns). Esc to finish.",
+    layout_hint: "Drag a panel by its title bar and drop it anywhere: it snaps to the grid and to its neighbours, the others make room. Drag any edge to resize. Esc to finish.",
     layout_hidden: "Hidden panels:", layout_drag: "Drag to move", layout_hide: "Hide this panel", layout_auto_height: "Automatic height",
     panel: { "veh-table": "Vehicle list", "lines-table": "Line list", "towns-table": "Town list", "ind-table": "Industry list", "st-table": "Stations", "dep-table": "Depots", map: "Map" },
     // enums
@@ -252,7 +252,7 @@ window.I18N = {
     chart_hint: "glisser : zoom · double-clic : réinitialiser · clic sur la légende : masquer/afficher",
     network_growth: "Réseau", company_growth: "Valeur de la compagnie",
     set_layout: "Panneaux", layout_edit: "Organiser les panneaux", layout_reset_all: "Réinitialiser tous les onglets", layout_reset_tab: "Réinitialiser cet onglet", layout_done: "Terminé",
-    layout_hint: "Glissez un panneau par sa poignée pour le déplacer. Tirez le bord droit / bas pour le redimensionner (largeur en colonnes). Échap pour terminer.",
+    layout_hint: "Glissez un panneau par sa barre de titre et posez-le où vous voulez : il s’aligne sur la grille et sur ses voisins, les autres font de la place. Tirez un bord pour le redimensionner. Échap pour terminer.",
     layout_hidden: "Panneaux masqués :", layout_drag: "Glisser pour déplacer", layout_hide: "Masquer ce panneau", layout_auto_height: "Hauteur automatique",
     panel: { "veh-table": "Liste des véhicules", "lines-table": "Liste des lignes", "towns-table": "Liste des villes", "ind-table": "Liste des industries", "st-table": "Gares", "dep-table": "Dépôts", map: "Carte" },
     state: { EN_ROUTE: "en route", AT_TERMINAL: "au terminal", IN_DEPOT: "au dépôt", GOING_TO_DEPOT: "vers dépôt" },
@@ -378,7 +378,7 @@ window.I18N = {
     chart_hint: "Ziehen: Zoom · Doppelklick: zurücksetzen · Klick auf Legende: ein-/ausblenden",
     network_growth: "Netz", company_growth: "Unternehmenswert",
     set_layout: "Panels", layout_edit: "Panels anordnen", layout_reset_all: "Alle Tabs zurücksetzen", layout_reset_tab: "Diesen Tab zurücksetzen", layout_done: "Fertig",
-    layout_hint: "Panel am Griff ziehen, um es zu verschieben. Rechten / unteren Rand ziehen, um die Grösse zu ändern (Breite in Spalten). Esc zum Beenden.",
+    layout_hint: "Panel an der Titelleiste ziehen und beliebig ablegen: es rastet am Raster und an den Nachbarn ein, die anderen machen Platz. Beliebigen Rand ziehen, um die Grösse zu ändern. Esc zum Beenden.",
     layout_hidden: "Ausgeblendete Panels:", layout_drag: "Ziehen zum Verschieben", layout_hide: "Dieses Panel ausblenden", layout_auto_height: "Automatische Höhe",
     panel: { "veh-table": "Fahrzeugliste", "lines-table": "Linienliste", "towns-table": "Städteliste", "ind-table": "Industrieliste", "st-table": "Bahnhöfe", "dep-table": "Depots", map: "Karte" },
     state: { EN_ROUTE: "unterwegs", AT_TERMINAL: "am Terminal", IN_DEPOT: "im Depot", GOING_TO_DEPOT: "zum Depot" },
@@ -520,7 +520,7 @@ window.I18N = {
     network_growth: "Rede", company_growth: "Valor da empresa",
     // panel layout
     set_layout: "Painéis", layout_edit: "Organizar painéis", layout_reset_all: "Redefinir todas as abas", layout_reset_tab: "Redefinir esta aba", layout_done: "Concluído",
-    layout_hint: "Arraste um painel pela alça para reordenar. Arraste a borda direita / inferior para redimensionar (largura em colunas da grade). Esc para terminar.",
+    layout_hint: "Arraste um painel pela barra de título e solte onde quiser: ele se alinha à grade e aos vizinhos, os outros abrem espaço. Arraste qualquer borda para redimensionar. Esc para terminar.",
     layout_hidden: "Painéis ocultos:", layout_drag: "Arraste para mover", layout_hide: "Ocultar este painel", layout_auto_height: "Altura automática",
     panel: { "veh-table": "Lista de veículos", "lines-table": "Lista de linhas", "towns-table": "Lista de cidades", "ind-table": "Lista de indústrias", "st-table": "Estações", "dep-table": "Depósitos", map: "Mapa" },
     // enums

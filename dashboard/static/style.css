@@ -85,7 +85,14 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 
 /* ---------------- layout: 12-column panel grid (order / width / height / visibility are user-editable, see layout.js) */
 .panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: start; margin-bottom: 14px; }
+/* placed (layout.js v2): explicit rows of 10 px, cards sit at {x, y, w, h}; the column gap stays 14 px, rows have none
+   (a card's height is a whole number of rows, the visual gap below it comes from its own margin-bottom) */
+.panels.placed { grid-auto-rows: 10px; row-gap: 0; align-items: stretch; }
+.panels.placed > .card { margin-bottom: 14px; }
 .panels > .card { grid-column: span 12; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.panels > .placeholder { background: rgba(79,138,138,.12); border: 2px dashed var(--accent); border-radius: 10px; margin-bottom: 14px; pointer-events: none; }
+body.layout-dragging { user-select: none; cursor: grabbing; }
+body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px 40px rgba(0,0,0,.6); pointer-events: none; }
 .panels > .card > h2 { flex: none; }
 /* cards of one row share its height (charts and lists); tables, detail panes, the map and user-sized cards keep their own */
 .panels > .card:not(.sized):not(.tablecard):not(.sticky):not(.mapcard):not(.camviews) { align-self: stretch; }
@@ -143,10 +150,8 @@ table.data.compact th, table.data.compact td { padding: 4px 8px; font-size: 12px
 .tablecard h2 { padding: 12px 14px 0; }
 canvas { width: 100%; display: block; }
 .mapcard { padding: 0; position: relative; height: calc(100vh - 220px); overflow: hidden; }
-/* the map spans two grid rows so the views and the travellings cards stack beside it instead of below */
-.panels[data-layout=map] { grid-template-rows: min-content 1fr; }
-.panels[data-layout=map] > .mapcard { grid-row: span 2; }
 .mapcard.sized #map { height: 100%; }
+.panels.placed > .mapcard, .panels.placed > .tablecard, .panels.placed > .sticky { height: auto; max-height: none; position: relative; top: auto; }
 body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8px; top: 0; z-index: 8; margin: 8px 0; pointer-events: auto; }
 #map { width: 100%; height: 100%; cursor: grab; }
 .tip { position: absolute; pointer-events: none; background: rgba(15,20,25,.95); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; max-width: 260px; }
@@ -269,10 +274,12 @@ body.layout-edit .panels > .card.tablecard, body.layout-edit .panels > .card.sti
 /* handles kept inside the card edge: sticking out by 4px made every scrolling card show both scrollbars in edit mode */
 .rz { position: absolute; z-index: 5; }
 .rz-e { top: 0; right: 0; width: 10px; height: 100%; cursor: ew-resize; }
+.rz-w { top: 0; left: 0; width: 10px; height: 100%; cursor: ew-resize; }
 .rz-s { left: 0; bottom: 0; height: 10px; width: 100%; cursor: ns-resize; }
+.rz-n { left: 0; top: 0; height: 8px; width: 100%; cursor: ns-resize; }
 .rz-se { right: 0; bottom: 0; width: 18px; height: 18px; cursor: nwse-resize; z-index: 6; }
 .rz-se::after { content: ""; position: absolute; right: 6px; bottom: 6px; width: 8px; height: 8px; border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent); }
-.rz-e:hover, .rz-s:hover { background: rgba(79,138,138,.25); }
+.rz-e:hover, .rz-s:hover, .rz-w:hover, .rz-n:hover { background: rgba(79,138,138,.25); }
 .rz-ghost { position: absolute; right: 10px; bottom: 10px; background: rgba(15,20,25,.95); border: 1px solid var(--accent); border-radius: 6px; padding: 3px 8px; font-family: var(--mono); font-size: 12px; color: var(--text); pointer-events: none; z-index: 7; }
 #layout-bar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; align-items: center; gap: 12px; padding: 10px 18px; background: var(--panel); border-top: 1px solid var(--accent); box-shadow: 0 -8px 30px rgba(0,0,0,.5); }
 body.layout-edit #layout-bar { display: flex; }

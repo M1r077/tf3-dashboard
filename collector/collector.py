@@ -188,6 +188,9 @@ class Store:
             n = 0
             for row in self.con.execute("SELECT game_id FROM game").fetchall():
                 n += self._drop_dead_branches(row["game_id"])
+            # per-vehicle minutes recorded before this version: take the clock of the fleet minute (same bucket)
+            self.con.execute("""UPDATE agg_vehicle_min SET game_time_ms = (SELECT f.game_time_ms FROM agg_fleet_min f
+                                WHERE f.game_id=agg_vehicle_min.game_id AND f.bucket=agg_vehicle_min.bucket) WHERE game_time_ms IS NULL""")
             self.con.execute("PRAGMA user_version = 3")
             self.con.commit()
             if n:

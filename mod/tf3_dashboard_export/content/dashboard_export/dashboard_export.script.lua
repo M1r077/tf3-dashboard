@@ -968,7 +968,9 @@ local function townItem(item, ctx)
 end
 
 local function industriesBegin(cargoNames)
-	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)), { names = cargoNames }
+	local ctx = { names = cargoNames }
+	pcall(function() local gt = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME); ctx.game_time_ms = num(gt and gt.gameTime) end)
+	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)), ctx
 end
 
 local function industryItem(i, ctx)
@@ -1005,6 +1007,64 @@ local function industryItem(i, ctx)
 						rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
 					end
 				end
+			end)
+			-- boosters, as the industry window's "Boosters" card computes them (gui/main/industry_util.tl):
+			--   cargo boosters = the stock-list rules flagged `booster`: active while the last apply's interval still runs,
+			--     or when the input piles hold what the rule needs; factor = rule.boostFactor (+50 % ...)
+			--   workers booster = PERSON_CAPACITY: boosted when the workers who came recently (industry_workers.gs state)
+			--     reach half the capacity; factor = stockList.modifiers.productivity (what applies now),
+			--     potential = the construction's workersBoostFactor (or the seeded 1.5..2.5 the game draws)
+			pcall(function()
+				local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST)
+				if not s then return end
+				local rules, datas = arr(s.rules), arr(s.ruleDatas)
+				local nowMs = ctx.game_time_ms or 0
+				local sys = api.engine.system.simEntityAtStockSystem
+				local boosters = {}
+				for ri, rule in ipairs(rules) do
+					if rule.booster then
+						local active = false
+						local hist = datas[ri] and arr(datas[ri].applyHistory) or {}
+						local last = hist[#hist]
+						if last and (num(last.time) or 0) + (num(last.interval) or 0) >= nowMs then active = true end
+						local needs = {}
+						local inputs = arr(rule.input)[1] and arr(arr(rule.input)[1]) or {}
+						local can = true
+						for j, n in ipairs(inputs) do
+							n = num(n) or 0
+							if n > 0 then
+								local okc, have = pcall(sys.getStockCount, sl, j - 1)
+								local st = arr(s.stocks)[j]
+								local ct = st and num(st.cargoType)
+								needs[#needs + 1] = { cargo_type = ct, cargo = ct and cargoNames[ct] or nil, need = n, have = okc and num(have) or 0 }
+								if not okc or (num(have) or 0) < n then can = false end
+							end
+						end
+						if not active and can and #needs > 0 then active = true end
+						boosters[#boosters + 1] = { kind = "cargo", rule = ri, active = active, factor = num(rule.boostFactor), needs = needs }
+					end
+				end
+				pcall(function()
+					local pc = api.engine.getComponent(i, api.type.ComponentType.PERSON_CAPACITY)
+					if not pc or (num(pc.capacity) or 0) <= 0 then return end
+					local cap = num(pc.capacity)
+					local workers = 0
+					pcall(function()
+						local se = api.engine.system.gameScriptSystem.getEntityForGameScript("::/industries/industry_workers.gs")
+						local gs = api.engine.getComponent(se, api.type.ComponentType.GAME_SCRIPT)
+						local st = gs and gs.state_native and gs.state_native:findPath({ "industriesState", i })
+						if st then local tbl = st:asTable(); workers = tbl and tbl.lastVisitors and #arr(tbl.lastVisitors) or 0 end
+					end)
+					local need = math.ceil(cap * 0.5)
+					local potential = nil
+					pcall(function()
+						local ce = api.engine.system.streetConnectorSystem.getConstructionEntityForSubconstruction(i)
+						local c = ce and api.engine.getComponent(ce, api.type.ComponentType.CONSTRUCTION)
+						if c and c.persistentMetadata and c.persistentMetadata.workersBoostFactor then potential = num(c.persistentMetadata.workersBoostFactor) end
+					end)
+					boosters[#boosters + 1] = { kind = "workers", active = workers > 0 and workers >= need, factor = num(s.modifiers and s.modifiers.productivity), potential = potential, workers = workers, need = need, capacity = cap }
+				end)
+				if #boosters > 0 then rec.boosters = boosters end
 			end)
 			pcall(function()
 				local io = arr(api.engine.util.stock.getInputsOutputsFromRules(sl))

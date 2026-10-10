@@ -238,6 +238,7 @@ ICONS: dict[str, tuple[str, str]] = {
     "cargo_received": (GUI, "gui/entity_window/icons/symbol_cargo_received@2x.tga"),
     "cargo_supplied": (GUI, "gui/entity_window/icons/symbol_cargo_supplied@2x.tga"),
     "production": (GUI, "gui/entity_window/icons/production_arrow@2x.tga"),
+    "booster": (GUI, "gui/entity_window/icons/production_booster@2x.tga"),
     "stop": (GUI, "gui/entity_window/icons/stop@2x.tga"),
     "arrow_up": (GUI, "gui/entity_window/icons/symbol_arrow_up@2x.tga"),
     "refresh": (GUI, "gui/entity_window/icons/symbol_arrows_refresh@2x.tga"),

@@ -1119,7 +1119,7 @@
       { key: "name", label: t("th_industry"), icon: "industry", sticky: true, render: i => `${esc(i.name)} <small class="muted">${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },
       // Industry.upgradeProgress is always 0 in TF3 (TF2 leftover, unused by the game's own GUI): show level / max instead
       { key: "level", label: t("th_level"), num: true, sticky: true, render: i => i.max_level > 0 ? `${i.level ?? "–"}/${i.max_level} ${bar(i.level || 0, i.max_level, i.level >= i.max_level ? "ok" : "")}` : `${i.level ?? "–"}`, sortValue: i => i.max_level > 0 ? (i.level || 0) / i.max_level : -1 },
-      { key: "status", label: t("th_status"), sticky: true, render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", i.boost_rule || i.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
+      { key: "status", label: t("th_status"), sticky: true, render: i => [i.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, i.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(i), i.manual ? `<span class="chip warn">${t("manual")}</span>` : "", i.thrown_away ? `<span class="chip warn">${t("thrown", { n: i.thrown_away })}</span>` : ""].join(""), sortValue: i => (i.producing ? 0 : 2) + (i.closure_time > 0 ? 1 : 0) },
       { key: "production_rating", label: t("th_yield"), icon: "production", num: true, sticky: true, render: i => i.production_rating == null ? "–" : bar(i.production_rating, 1, i.production_rating < 0.3 ? "bad" : i.production_rating < 0.7 ? "warn" : "ok") },
       { key: "in", label: t("th_inputs"), icon: "cargo_received", render: i => cargoCell(i, "in") },
       { key: "out", label: t("th_outputs"), icon: "cargo_supplied", render: i => cargoCell(i, "out") },
@@ -1132,6 +1132,25 @@
   // Detail card: yearly figures of each cargo over time (produced vs max, shipped; consumed vs max, delivered),
   // plus level and production rating. Game figures only, same as the industry window.
   const CARGO_COLORS = ["#4f8a8a", "#e8b04b", "#58a6ff", "#bc8cff", "#3fb950", "#d62560", "#f0883e", "#8b98a8"];
+  // boosters as the industry window's "Boosters" card shows them: one row per cargo booster rule (what it needs vs
+  // what lies in the piles, its factor, active or not) and the workers booster (workers who came recently vs the half
+  // of the capacity it takes, the productivity applied now, the factor it can reach). The chip sums what is active.
+  const boostPct = (f) => f == null ? "" : "+" + Math.round((f >= 1 ? f - 1 : f) * 100) + " %";
+  function boostChip(i) {
+    const bl = i.boosters || []; if (!bl.length && !i.boost_rule && !i.boost_persons) return "";
+    const act = bl.filter(b => b.active);
+    const total = act.reduce((m, b) => m * (b.kind === "workers" ? (b.factor || 1) : 1 + (b.factor || 0)), 1);
+    const on = act.length > 0 || (!bl.length && (i.boost_rule || i.boost_persons));
+    return `<span class="chip ${on ? "info" : ""}" title="${esc(t("boost_hint", { a: act.length, n: bl.length }))}">${ico("booster", "sm")}${bl.length ? (on ? boostPct(total) : `${act.length}/${bl.length}`) : t("boost")}</span>`;
+  }
+  function boostRows(bl) {
+    if (!bl || !bl.length) return "";
+    return `<h2>${ico("booster")}${t("boosters")}</h2><table class="kv boosters">${bl.map(b => {
+      const tick = b.active ? `<span class="chip ok">${ico("check", "sm")}${t("boost_active")}</span>` : `<span class="chip">${t("boost_inactive")}</span>`;
+      if (b.kind === "workers") return `<tr><td>${ico("town_workplaces", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num">${b.active ? boostPct(b.factor) : (b.potential != null ? `<span class="muted">${boostPct(b.potential)}</span>` : "")}</td><td>${tick}</td></tr>`;
+      return `<tr><td>${(b.needs || []).map(n => cargoChip(n)).join(" ")}</td><td>${(b.needs || []).map(n => bar(n.have || 0, n.need || 0, (n.have || 0) >= (n.need || 0) ? "ok" : "", `${int(n.have)}/${int(n.need)}`)).join("<br>")}</td><td class="num">${boostPct(b.factor)}</td><td>${tick}</td></tr>`;
+    }).join("")}</table>`;
+  }
   async function renderIndustryDetail(id) {
     const ind = (state.cache.industries || []).find(x => x.industry_id === id); if (!ind) return;
     const h = await api("/api/industry_history", { id, limit: settings.history, range: settings.range });
@@ -1147,13 +1166,14 @@
       else { e.a[i] = c.consumed_year; e.m[i] = c.max_cons_year; e.s[i] = c.delivered_year; }
     }
     const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
-    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", ind.boost_rule || ind.boost_persons ? `<span class="chip info">${t("boost")}</span>` : "", ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
+    const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(ind), ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
     const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
     $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}${ind.thrown_away ? ` <span class="chip warn">${t("det_thrown")} ${int(ind.thrown_away)}</span>` : ""}${ind.closure_time > 0 ? ` <span class="chip bad">${t("det_closure")} ${int(ind.closure_time)}</span>` : ""}</p>
       <table class="kv">${(ind.cargo || []).map(c => { const out = c.direction === "out", a = out ? c.produced_year : c.consumed_year, m = out ? c.max_prod_year : c.max_cons_year, sh = out ? c.shipped_year : c.delivered_year;
         return `<tr><td>${cargoChip(c)} <small class="muted">${out ? t("th_outputs") : t("th_inputs")}</small></td><td>${m != null || a != null ? `${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)} <small class="muted" title="${esc(out ? t("shipped") : t("delivered"))}">${ico(out ? "cargo_supplied" : "cargo_received", "sm")}${int(sh)}</small>` : ""}${c.capacity != null ? ` <span class="pile" title="${esc(t("det_piles"))}">${ico("stock_full", "sm")}<span class="mono">${int(c.stock)}/${int(c.capacity)}</span></span>` : ""}</td></tr>`; }).join("")}</table>
+      ${boostRows(ind.boosters)}
       ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
       ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
       <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;

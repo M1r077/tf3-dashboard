@@ -636,3 +636,7 @@ table.journal tr.section td i { display: block; border-top: 1px solid var(--bord
 table.journal tr.summary td:first-child { color: var(--text); }
 table.journal tr.strong td { font-weight: 600; }
 table.journal td.zero { color: var(--muted); opacity: .55; }
+/* industry boosters (the game's "Boosters" card): needs vs piles, factor, active */
+table.kv.boosters td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.kv.boosters td:first-child { white-space: nowrap; }
+table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }

@@ -289,6 +289,14 @@ Three independent parts:
      eye-track preview follows the draft when it is a movement around a view.
      Music: "None", "Game" (a random track of the soundtrack), "Any" (a random own file; shown only when `music/` has
      files), or one own file.
+   - **Industry boosters** (`industry_state.boosters`, JSON): computed by the mod like the industry window's
+     `IndustryBoosters` card (`gui/main/industry_util.tl`): a cargo booster = a stock-list rule flagged `booster`,
+     active while its last apply's interval still runs or when the input piles hold what it needs, factor =
+     `rule.boostFactor`; the workers booster = `PERSON_CAPACITY`, active when the workers who came recently
+     (`industry_workers.gs` state, `lastVisitors`) reach half the capacity, factor applied = `modifiers.productivity`,
+     potential = the construction's `workersBoostFactor` when it is persisted (else unknown: the game draws a seeded
+     1.5..2.5 in its own code). Industries tab: chip "+x %" (product of the active factors) or "0/n", card "Boosters"
+     with one row per booster.
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
      the Advanced Camera Tool); not exposed in the UI until tested in a free game.
    - **Finance journal** (mod 13 / companion 0.6.0, `tf3dash_journal.lua`): the Finances tab shows the game's own

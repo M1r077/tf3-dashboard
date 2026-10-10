@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
     capacities  TEXT,                             -- mod rev 8+: JSON {"<cargo id>": capacity} = what the vehicle can carry
+    top_speed   INTEGER,                          -- km/h, the slowest part of the consist (model metadata)
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)
 );

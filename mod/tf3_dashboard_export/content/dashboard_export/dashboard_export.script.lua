@@ -571,6 +571,17 @@ local function vehicleStaticItem(v)
 		end
 		if #parts > 0 then rec.model_key = parts[1]:gsub("^%-", ""); rec.parts = table.concat(parts, ",") end
 	end)
+	pcall(function()
+		-- top speed of the consist in km/h = the slowest part (metadata.landVehicle / waterVehicle / airVehicle.topSpeed, m/s)
+		local top
+		for _, p in ipairs(arr(tv.transportVehicleConfig.vehicles)) do
+			local md = api.res.modelRep.get(p.part.modelId); md = md and md.metadata
+			local lv = md and (md.landVehicle or md.waterVehicle or md.airVehicle)
+			local ts = lv and num(lv.topSpeed)
+			if ts and ts > 0 and (not top or ts < top) then top = ts end
+		end
+		if top then rec.top_speed = math.floor(top * 3.6 + 0.5) end
+	end)
 	pcall(function() rec.running_cost = num(api.engine.util.vehicle.getRunningCost(v)) end)
 	pcall(function() rec.value = num(api.engine.util.vehicle.getDepreciatedValue(v)) end)
 	pcall(function()

@@ -154,6 +154,7 @@ class Store:
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
         ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
+        ("vehicle", "top_speed", "INTEGER"),   # km/h, the slowest part of the consist (model metadata)
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
     )
@@ -537,17 +538,17 @@ class Store:
             vid = v["id"]
             caps = v.get("capacities")
             self.con.execute(
-                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, last_seen, icon_type, model, model_key, parts, capacities)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, last_seen, icon_type, model, model_key, parts, capacities, top_speed)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=COALESCE(excluded.name, vehicle.name),
                    carrier=COALESCE(excluded.carrier, vehicle.carrier), capacity=COALESCE(excluded.capacity, vehicle.capacity),
                    last_seen=excluded.last_seen,
                    icon_type=COALESCE(excluded.icon_type, vehicle.icon_type), model=COALESCE(excluded.model, vehicle.model),
                    model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts),
-                   capacities=COALESCE(excluded.capacities, vehicle.capacities)""",
+                   capacities=COALESCE(excluded.capacities, vehicle.capacities), top_speed=COALESCE(excluded.top_speed, vehicle.top_speed)""",
                 (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now,
                  clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts"),
-                 json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None),
+                 json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None, v.get("top_speed")),
             )
             x, y, _z = xyz(v.get("pos"))
             cargo = v.get("cargo")
@@ -862,7 +863,7 @@ def read_live(path: Path, retries: int = 5, delay: float = 0.2) -> dict | None:
 # assembles a schema-3-shaped snapshot (everything in one dict) so that Store.ingest did not have to change.
 SLOW_SECTIONS = ("company", "cargo_types", "lines", "stations", "towns", "industries", "depots", "vehicles")
 # static vehicle fields moved to slow_vehicles.lua in schema 4
-VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_key", "parts", "running_cost", "value")
+VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_key", "parts", "running_cost", "value", "top_speed")
 
 
 class SlowFiles:

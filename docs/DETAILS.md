@@ -430,6 +430,10 @@ Three independent parts:
      A->B ("not linked: build straight") rather than a detour over an unrelated piece of network. Segment lengths are
      chords (curves are under-estimated by a few %); the travel times use placeholder speeds (50 km/h road, 80 rail)
      until the vehicle catalogue is exported. 4-6 ms per call on a 4 800 segment map.
+     Travel times (mod 14): timed with the fastest vehicle the player owns per carrier (ehicle.top_speed, km/h,
+     the slowest part of the consist from the model metadata; trams count as road) - what a new line would really
+     run at, not a catalogue best case. Without any vehicle of that carrier the panel falls back to 50 / 80 km/h and
+     says so.
    - **Cargo layers** (companion 0.6.0): toggles production / demand / stocks. `/api/map_cargo` returns, per industry
      and town, `out` (produced / max per year), `in` (delivered / max consumption), `stock` (amount / capacity) from
      `industry_cargo`, `town_supply` and `town_cargo` of the last snapshot (14 KB, ~45 ms). Rows of cargo icons:

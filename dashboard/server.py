@@ -867,6 +867,10 @@ def api_distance(q: dict) -> dict:
             out[mode + "_points"] = r["points"]  # the way over the existing network
             out[mode + "_legs"] = r["legs"]      # the two straight legs to build, A -> network and network -> B
             out[mode + "_gap"] = r["gap"]        # True when A and B are on separate networks: the second leg bridges them
+    # fastest vehicle the player owns per carrier (km/h): the speed the ruler times the trip with. TRAM counts as road.
+    for row in rows("""SELECT CASE WHEN carrier='TRAM' THEN 'ROAD' ELSE carrier END AS c, MAX(top_speed) AS v FROM vehicle
+                       WHERE game_id=? AND top_speed IS NOT NULL AND carrier IN ('ROAD','TRAM','RAIL') GROUP BY c""", (gid,)):
+        out[row["c"].lower() + "_kmh"] = row["v"]
     out["ms"] = int((time.time() - t0) * 1000)
     return out
 

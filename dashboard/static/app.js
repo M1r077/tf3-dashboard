@@ -1982,7 +1982,7 @@
     const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
     const dz = ha != null && hb != null ? hb - ha : null;
     const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
-    const parts = (p, gap) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B` + (gap ? " " + t("ruler_gap") : "");
+    const parts = (p, gap) => gap ? t("ruler_build_straight") : `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
     const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
     const netRow = (mode, sw, kmh) => {
       if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());

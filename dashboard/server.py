@@ -783,8 +783,8 @@ def api_distance(q: dict) -> dict:
     """Ruler helper: shortest distance over the existing network between two map points, by road and by rail.
     ?ax=&ay=&bx=&by= (world metres). Each end is projected on the nearest segment of that network, whatever the
     distance; the answer gives the two approach walks and the network length ({mode}_parts) and the polyline. A mode
-    is never null once the network has a segment: when the two ends sit on separate networks the answer uses the
-    existing network as far as it helps and bridges the rest with a straight leg ({mode}_gap). Lengths are sums of
+    is never null once the network has a segment: when the two ends are not connected by it the proposal is to build
+    straight from A to B ({mode}_gap true, one dashed leg, no network part). Lengths are sums of
     straight segments (curves are slightly under-measured). Read only, nothing is sent to the game."""
     gid = _gid()
     try:
@@ -860,16 +860,13 @@ def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> d
             if nd < dist.get(m, 1e18):
                 dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
     pos = gr["pos"]
-    gap = False
     if best is None:
-        # not connected: still a proposal. Use the network as far as it helps, i.e. the reachable node that minimises
-        # "way over the network + straight line to B", then a leg to build from there to B.
-        bx2, by2 = bx, by
-        best_n = min(dist, key=lambda n: dist[n] + math.hypot(pos[n][0] - bx2, pos[n][1] - by2))
-        best = dist[best_n]
-        pbx, pby = pos[best_n]
-        db = math.hypot(pbx - bx, pby - by)
-        gap = True
+        # not connected: the proposal is to build straight from A to B (a stub of unrelated network near A or B is
+        # not a way, so none is drawn). Flagged "gap" so the dashboard shows the whole thing dashed.
+        air = math.hypot(bx - ax, by - ay)
+        return {"approach_a": 0.0, "network": 0.0, "approach_b": air, "total": air, "gap": True,
+                "points": [], "legs": [[[ax, ay], [bx, by]]]}
+    gap = False
     nodes = [best_n]; n = best_n
     while n in prev:
         n = prev[n][0]; nodes.append(n)

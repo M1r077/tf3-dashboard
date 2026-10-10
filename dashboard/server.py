@@ -1593,6 +1593,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_error(self, fmt, *args):  # routed through log_message already (4xx/5xx)
         pass
 
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass
+
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -1607,10 +1613,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 data = ROUTES[u.path](parse_qs(u.query))
                 self._send(200, json.dumps(data, default=str).encode("utf-8"), "application/json; charset=utf-8")
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass  # the browser went away mid-answer (reload, tab closed): nothing to tell anyone
             except sqlite3.OperationalError as e:
                 self._send(503, json.dumps({"error": str(e)}).encode(), "application/json")
             except Exception as e:  # noqa: BLE001
-                self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+                try:
+                    self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
+                except OSError:
+                    pass
             return
         if u.path.startswith("/music/"):
             # audio for the travelling, whole file (browsers cope without range requests for local files)

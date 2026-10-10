@@ -435,6 +435,9 @@ CREATE TABLE IF NOT EXISTS alert (
 CREATE INDEX IF NOT EXISTS ix_alert_snapshot ON alert(snapshot_id, kind);
 
 -- ---------------------------------------------------------------- aggregates (retention)
+-- One timeline per save, like the game: when the simulation clock (snapshot.game_time_ms) goes backwards the player
+-- reloaded an older savegame, and everything recorded beyond that point is deleted (collector, _track_reload). The
+-- clock is therefore monotonic within a game and the charts use it as their time axis.
 -- Detail rows (one per snapshot, every ~2 s) are kept for `detail_hours`; older snapshots are rolled up into
 -- one row per minute bucket (bucket = unix minute of real_time) and the detail rows are deleted (CASCADE).
 -- The aggregates are filled continuously by the collector (for closed minutes), so charts can read
@@ -459,6 +462,7 @@ CREATE TABLE IF NOT EXISTS agg_vehicle_min (
     vehicle_id   INTEGER NOT NULL,
     bucket       INTEGER NOT NULL,
     n            INTEGER NOT NULL,
+    game_time_ms INTEGER,                       -- simulation clock at the end of the minute
     year INTEGER, month INTEGER, day INTEGER,
     state        TEXT,                          -- dominant state of the minute
     speed_ms     REAL, load REAL, maintenance REAL,

@@ -121,6 +121,7 @@ class Store:
         self._game_cache: dict[str, int] = {}
         self._last_slow_seq: dict[int, int] = {}
         self._schema: int | float | None = None  # mod export schema of the snapshot being ingested
+        self.note: str | None = None  # one-line event for the console (set by ingest, printed by the loop)
 
     # columns added after the first release; CREATE TABLE IF NOT EXISTS does not add them to old DBs
     MIGRATIONS = (
@@ -153,12 +154,13 @@ class Store:
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
-        ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot: detects a reload of an older save
-        ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day}]: each time the game date went backwards
+        ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
+        ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
+        ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
-    DATA_VERSION = 2
+    DATA_VERSION = 3
 
     def _migrate(self):
         # tables whose layout changed before any release and that the mod rewrites in full on its next file: when the
@@ -180,7 +182,45 @@ class Store:
             self.con.execute("DELETE FROM line_capacity WHERE IFNULL(used,0)=0 AND IFNULL(capacity,0)=0")
             self.con.execute("UPDATE line_capacity SET cargo_id = cargo_id - 1")
             self.con.execute("PRAGMA user_version = 1")
+        if v < 3:
+            # one timeline per save, like the game: measurements taken after a point the player later reloaded
+            # belong to a branch that no longer exists. Drop them once for what was recorded before this rule.
+            n = 0
+            for row in self.con.execute("SELECT game_id FROM game").fetchall():
+                n += self._drop_dead_branches(row["game_id"])
+            self.con.execute("PRAGMA user_version = 3")
+            self.con.commit()
+            if n:
+                self.con.execute("VACUUM")
         self.con.commit()
+
+    def _drop_dead_branches(self, gid: int) -> int:
+        """Walk the snapshots of a game from the latest backwards and delete every one whose simulation clock is
+        ahead of a later snapshot (recorded, then abandoned by a reload). Returns the number deleted."""
+        rows = self.con.execute("SELECT snapshot_id, game_time_ms FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC", (gid,)).fetchall()
+        floor, dead = None, []
+        for r in rows:
+            if floor is not None and r["game_time_ms"] > floor:
+                dead.append(r["snapshot_id"])
+            else:
+                floor = r["game_time_ms"]
+        for chunk in _chunks(dead, 500):
+            marks = ",".join("?" * len(chunk))
+            self.con.execute(f"DELETE FROM snapshot WHERE snapshot_id IN ({marks})", chunk)
+        # the per-minute aggregates carry the clock too: same walk, by minute; the dead minutes are removed from the
+        # three aggregate tables (per-vehicle minutes older than this version have no clock and stay)
+        aggs = self.con.execute("SELECT bucket, game_time_ms FROM agg_finance_min WHERE game_id=? AND game_time_ms IS NOT NULL ORDER BY bucket DESC", (gid,)).fetchall()
+        floor, dead_min = None, []
+        for r in aggs:
+            if floor is not None and r["game_time_ms"] > floor:
+                dead_min.append(r["bucket"])
+            else:
+                floor = r["game_time_ms"]
+        for chunk in _chunks(dead_min, 500):
+            marks = ",".join("?" * len(chunk))
+            for table in ("agg_fleet_min", "agg_finance_min", "agg_vehicle_min"):
+                self.con.execute(f"DELETE FROM {table} WHERE game_id=? AND bucket IN ({marks})", [gid, *chunk])
+        return len(dead) + len(dead_min)
 
     # ------------------------------------------------------------ game
     def game_id(self, snap: dict, now: str) -> int:
@@ -204,26 +244,33 @@ class Store:
         self._game_cache[key] = gid
         return gid
 
-    def _track_game_day(self, gid: int, t: dict, now: str) -> None:
-        """Remember the game date of the last snapshot. When it goes backwards by more than a day for the same
-        save, the player reloaded an older savegame: log it in game.reloads (the history is kept, the dashboard
-        shows a marker). The same key (player entity) is reused by the game for every load of that save."""
-        y, m, d = t.get("year"), t.get("month"), t.get("day")
-        if not all(isinstance(v, (int, float)) for v in (y, m, d)):
+    def _track_reload(self, gid: int, sid: int, t: dict, now: str) -> None:
+        """One timeline per save, the way the game keeps its own history. The simulation clock (game_time_ms) only
+        goes backwards when the player reloads an older savegame; everything recorded beyond that point was a branch
+        the player abandoned, so it is deleted (snapshot children cascade, aggregates by their clock). The reload is
+        logged in game.reloads for the date tile. The same key (player entity) is reused for every load of a save."""
+        gt = t.get("game_time_ms")
+        if not isinstance(gt, (int, float)):
             return
-        day = int(y) * 10000 + int(m) * 100 + int(d)
-        row = self.con.execute("SELECT last_game_day, reloads FROM game WHERE game_id=?", (gid,)).fetchone()
-        last = row["last_game_day"] if row else None
-        if last is not None and day < last - 1:
+        prev = self.con.execute("SELECT game_time_ms FROM snapshot WHERE game_id=? AND snapshot_id<? AND game_time_ms IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid, sid)).fetchone()
+        y, m, d = t.get("year"), t.get("month"), t.get("day")
+        day = int(y) * 10000 + int(m) * 100 + int(d) if all(isinstance(v, (int, float)) for v in (y, m, d)) else None
+        if prev and prev["game_time_ms"] > gt:
+            row = self.con.execute("SELECT last_game_day, reloads FROM game WHERE game_id=?", (gid,)).fetchone()
+            deleted = self.con.execute("DELETE FROM snapshot WHERE game_id=? AND snapshot_id<? AND game_time_ms > ?", (gid, sid, gt)).rowcount
+            for table in ("agg_fleet_min", "agg_finance_min", "agg_vehicle_min"):
+                self.con.execute(f"DELETE FROM {table} WHERE game_id=? AND game_time_ms > ?", (gid, gt))
             try:
-                reloads = json.loads(row["reloads"]) if row["reloads"] else []
+                reloads = json.loads(row["reloads"]) if row and row["reloads"] else []
             except ValueError:
                 reloads = []
-            reloads.append({"at": now, "from_day": last, "to_day": day})
-            reloads = reloads[-20:]
-            self.con.execute("UPDATE game SET reloads=? WHERE game_id=?", (json.dumps(reloads), gid))
-        if last != day:
-            self.con.execute("UPDATE game SET last_game_day=? WHERE game_id=?", (day, gid))
+            reloads.append({"at": now, "from_day": row["last_game_day"] if row else None, "to_day": day,
+                            "game_time_ms": int(gt), "deleted": deleted})
+            self.con.execute("UPDATE game SET reloads=? WHERE game_id=?", (json.dumps(reloads[-20:]), gid))
+            back = (prev["game_time_ms"] - gt) / 1000
+            self.note = f"savegame reloaded ({back:.0f} s of simulation back): {deleted} snapshots of the abandoned branch removed"
+        if day is not None:
+            self.con.execute("UPDATE game SET last_game_day=? WHERE game_id=? AND IFNULL(last_game_day,-1)<>?", (day, gid, day))
 
     def _label_game(self, gid: int, towns: Any) -> None:
         """game.label = '<first town> · <first seen year>' once towns are known (slow section)."""
@@ -356,7 +403,7 @@ class Store:
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:
             self.con.execute("UPDATE game SET lang=? WHERE game_id=? AND (lang IS NULL OR lang<>?)", (t["lang"], gid, t["lang"]))
-        self._track_game_day(gid, t, now)
+        self._track_reload(gid, sid, t, now)
         for e in as_list(snap.get("errors")):
             self.con.execute("INSERT INTO snapshot_error(snapshot_id, section, error) VALUES (?,?,?)",
                              (sid, g(e, "section"), g(e, "error")))
@@ -692,8 +739,8 @@ class Store:
             GROUP BY b""", (gid, gid, lo, hi))
         n = c.execute("SELECT changes()").fetchone()[0]
         c.execute(f"""
-            INSERT OR REPLACE INTO agg_vehicle_min(game_id, vehicle_id, bucket, n, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index)
-            SELECT s.game_id, vs.vehicle_id, {bucket} b, COUNT(*), MAX(s.year), MAX(s.month), MAX(s.day),
+            INSERT OR REPLACE INTO agg_vehicle_min(game_id, vehicle_id, bucket, n, game_time_ms, year, month, day, state, speed_ms, load, maintenance, x, y, line_id, stop_index)
+            SELECT s.game_id, vs.vehicle_id, {bucket} b, COUNT(*), MAX(s.game_time_ms), MAX(s.year), MAX(s.month), MAX(s.day),
                    (SELECT state FROM vehicle_state q JOIN snapshot sq USING(snapshot_id) WHERE q.vehicle_id=vs.vehicle_id AND sq.game_id=s.game_id
                       AND (CAST(strftime('%s', sq.real_time) AS INTEGER) - {off}) / 60 * 60 = {bucket} GROUP BY state ORDER BY COUNT(*) DESC LIMIT 1),
                    AVG(vs.speed_ms), AVG(vs.load), AVG(vs.maintenance), AVG(vs.x), AVG(vs.y), MAX(vs.line_id), MAX(vs.stop_index)
@@ -1052,6 +1099,10 @@ def main(argv: list[str] | None = None) -> int:
                         snap = slow_files.merge(snap)
                     try:
                         sid = store.ingest(snap)
+                        if store.note:
+                            flush_minute()
+                            say(store.note, "warn")
+                            store.note = None
                     except Exception as e:  # noqa: BLE001 - one bad snapshot must not kill the collector
                         import traceback
                         store.con.rollback()

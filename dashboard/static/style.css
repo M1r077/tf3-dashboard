@@ -100,6 +100,9 @@ body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px
 /* a card with a user-set height: its scrollable body fills the rest */
 .panels > .card.sized { overflow: hidden; }
 .panels > .card.sized > .alerts, .panels > .card.sized > .minilist, .panels > .card.sized > table, .panels > .card.sized > pre { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+/* a detail pane scrolls as a whole: its lists keep their natural height instead of shrinking into a tiny scroller */
+.panels > .card.sticky.sized { overflow: auto; }
+.panels > .card.sticky.sized > .minilist, .panels > .card.sticky.sized > table { flex: none; overflow: visible; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }

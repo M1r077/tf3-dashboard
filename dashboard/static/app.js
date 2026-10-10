@@ -1321,6 +1321,7 @@
     const c = (o && o.company) || {}, f = (o && o.finance) || {};
     $("#company-table").innerHTML = [
       [t("balance"), money(f.balance)], [t("debt"), money(f.loan)], [t("annual_result"), money(f.earnings_ytd)], [t("assets"), money(c.total_assets)], [t("score"), int(c.total_score)],
+      [t("fleet_by_type"), [["veh_train", c.rail_vehicles], ["veh_tram", c.trams], ["veh_truck", c.road_vehicles], ["veh_plane", c.aircrafts], ["veh_ship", c.ships]].filter(([, n]) => n != null).map(([i, n]) => `<span class="chip" style="margin-right:4px">${ico(i, "sm")}${n}</span>`).join("") || "–"],
       [t("lines"), int(c.number_of_lines)], [t("stations"), t("stations_detail", { n: int(c.total_stations), r: c.rail_stations ?? "–", ro: c.road_stations ?? "–", t: c.tram_stations ?? "–", a: c.aircraft_stations ?? "–", w: c.ship_stations ?? "–" })],
       [t("tracks"), t("electrified", { a: km(c.track_length_m), b: km(c.track_electric_m) })], [t("roads"), km(c.road_length_m)],
       [t("bridges_tunnels"), `${km(c.bridge_length_m)} / ${km(c.tunnel_length_m)}`], [t("towns_supplied"), int(c.supplied_towns)], [t("industries_connected"), int(c.connected_industries)],

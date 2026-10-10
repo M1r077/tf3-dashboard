@@ -99,6 +99,7 @@ window.I18N = {
     journal_view_window: "As in the game", journal_view_history: "Whole game",    company: "Company", costs_by_carrier: "Running costs by carrier", per_year: "/ yr", debt: "Debt", annual_result: "Annual result", assets: "Assets", score: "Score",
     lines: "Lines", stations_detail: "{n} (rail {r}, road {ro}, tram {t}, air {a}, water {w})", tracks: "Tracks", electrified: "{a} incl. {b} electrified", roads: "Roads",
     bridges_tunnels: "Bridges / tunnels", towns_supplied: "Towns supplied", industries_connected: "Industries connected", top_speed: "Top speed", longest_train: "Longest train",
+    fleet_by_type: "Fleet by type",
     passengers: "Passengers", no_data: "no data",
     // empty tables
     empty_filtered: "Nothing matches the filters", empty_filtered_hint: "Clear the text or the type / state filters.",
@@ -231,6 +232,7 @@ window.I18N = {
     journal_view_window: "Comme en jeu", journal_view_history: "Toute la partie",    company: "Entreprise", costs_by_carrier: "Coûts d'exploitation par transporteur", per_year: "/ an", debt: "Dette", annual_result: "Résultat annuel", assets: "Actifs", score: "Score",
     lines: "Lignes", stations_detail: "{n} (rail {r}, route {ro}, tram {t}, air {a}, eau {w})", tracks: "Voies", electrified: "{a} dont {b} électrifiées", roads: "Routes",
     bridges_tunnels: "Ponts / tunnels", towns_supplied: "Villes desservies", industries_connected: "Industries connectées", top_speed: "Vitesse max", longest_train: "Plus long train",
+    fleet_by_type: "Parc par type",
     passengers: "Passagers", no_data: "aucune donnée",
     // tables vides
     empty_filtered: "Rien ne correspond aux filtres", empty_filtered_hint: "Effacez le texte ou les filtres de type / d'état.",
@@ -360,6 +362,7 @@ window.I18N = {
     journal_view_window: "Wie im Spiel", journal_view_history: "Ganzes Spiel",    company: "Unternehmen", costs_by_carrier: "Betriebskosten nach Verkehrsträger", per_year: "/ Jahr", debt: "Schulden", annual_result: "Jahresergebnis", assets: "Vermögen", score: "Punkte",
     lines: "Linien", stations_detail: "{n} (Bahn {r}, Strasse {ro}, Tram {t}, Luft {a}, Wasser {w})", tracks: "Gleise", electrified: "{a} davon {b} elektrifiziert", roads: "Strassen",
     bridges_tunnels: "Brücken / Tunnel", towns_supplied: "Versorgte Städte", industries_connected: "Angebundene Industrien", top_speed: "Höchsttempo", longest_train: "Längster Zug",
+    fleet_by_type: "Flotte nach Typ",
     passengers: "Passagiere", no_data: "keine Daten",
     // leere Tabellen
     empty_filtered: "Nichts entspricht den Filtern", empty_filtered_hint: "Text löschen oder die Typ- / Zustandsfilter zurücksetzen.",
@@ -504,6 +507,7 @@ window.I18N = {
     journal_view_window: "Como no jogo", journal_view_history: "Jogo inteiro",    company: "Empresa", costs_by_carrier: "Custos operacionais por modal", per_year: "/ ano", debt: "Dívida", annual_result: "Resultado anual", assets: "Patrimônio", score: "Pontuação",
     lines: "Linhas", stations_detail: "{n} (ferrovia {r}, rodovia {ro}, bonde {t}, aéreo {a}, hidrovia {w})", tracks: "Trilhos", electrified: "{a} incl. {b} eletrificados", roads: "Estradas",
     bridges_tunnels: "Pontes / túneis", towns_supplied: "Cidades abastecidas", industries_connected: "Indústrias conectadas", top_speed: "Velocidade máxima", longest_train: "Trem mais longo",
+    fleet_by_type: "Frota por tipo",
     passengers: "Passageiros", no_data: "sem dados",
     // tabelas vazias
     empty_filtered: "Nada corresponde aos filtros", empty_filtered_hint: "Apague o texto ou os filtros de tipo / estado.",
@@ -600,6 +604,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   cam_views: "镜头视角", cam_save: "保存当前视角", cam_rename: "重命名", cam_delete: "删除", cam_current: "当前镜头", cam_default_name: "视角 {n}", confirm_title: "请确认",
   // towns
   th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_pollution: "污染", th_pollution_title: "城市区域内的累计污染，游戏自身数值（并非分贝；用于城市间比较）", det_top_speed: "最高速度", det_running_cost: "年运营成本", det_value: "价值", det_days_depot: "在车库天数", det_days_terminal: "在站台天数", det_closest_town: "最近城镇", det_no_path: "无路径", det_user_stopped: "已被你停止", det_position: "位置", det_last_seen: "最后出现", det_parts: "编组", det_frequency: "班次间隔", det_throughput: "年运量", det_on_line: "线上", det_quality: "评级", det_modes: "运输方式", det_group: "车站组", det_piles: "库存", det_pile_in: "输入", det_pile_out: "输出", det_dev_active: "增长中", det_dev_inactive: "增长已关闭", det_traffic: "交通速度", det_noise: "噪音", det_pollution: "污染", det_area: "面积", det_pool: "维护储备", det_pool_avg: "平均状态", det_incoming: "前往中", det_in_depot: "在车库", det_max_level: "最高等级", det_closure: "关闭中", det_thrown: "已丢弃", det_capacity: "容量", det_terminal_cap: "站台", det_pool_cap: "储备", det_overflow: "溢出", det_stops: "站点", det_lines: "线路", det_vehicles: "载具", th_stations: "车站", th_growth: "增长",
+  fleet_by_type: "按类型的车队",
   map_depots: "车库", legend_depot: "车库",
   th_waiting: "等待中",
   waiting_bad: "{n} 不满",

@@ -1885,7 +1885,6 @@
   const townRadius = (tw) => Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10)));
   const cargoAny = () => $("#map-prod").checked || $("#map-need").checked || $("#map-stock").checked;
   async function loadMapCargo() {
-    if (!cargoAny()) return;
     try { mapCargo.data = await api("/api/map_cargo"); mapCargo.at = Date.now(); } catch (e) { /* keep what we have */ }
   }
   const cargoImg = (key) => mapIcon("cargo/" + (CARGO_ICON_FILES.has(key) ? key : "_mixed"));
@@ -1896,19 +1895,19 @@
       if (!items || !items.length) return;
       const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
       let x0, y0;  // top-left of the row
-      if (side === "above") { x0 = cx - w / 2; y0 = cy - 14 - hmax; }
-      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 14; }
-      else { x0 = cx + 14; y0 = cy - hmax / 2; }
+      if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 - hmax; }
+      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17; }
+      else { x0 = cx + 17; y0 = cy - hmax / 2; }
       ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
       let x = x0;
       items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
       ctx.globalAlpha = 1;
     };
-    const fixed = () => 20;
-    const grow = (it) => 14 + Math.min(18, Math.sqrt(it.amount || 0) * 1.2);
+    const fixed = () => 16;
+    const grow = (it) => 12 + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);
     const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
-    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 12); else if (side === "below") ctx.lineTo(cx, cy + 12); else ctx.lineTo(cx + 12, cy); ctx.stroke(); };
+    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15); else if (side === "below") ctx.lineTo(cx, cy + 15); else ctx.lineTo(cx + 15, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
       const c = cd[kind][String(o[idKey])]; if (!c) return;
       let [x, y] = P(o.x, o.y);
@@ -1919,7 +1918,7 @@
       if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
-      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 20 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
     });
     if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
     if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
@@ -2067,22 +2066,22 @@
     // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
-    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
+    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
-    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 14, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 4, y - 4, 8, 8); } });
-    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill(); });
+    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5, y - 5, 10, 10); } });
+    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); });
     drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
       if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgb(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
-        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
-        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 13, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
-      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, moving ? 4.5 : 3.5, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
-      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 11, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 11, y + 4); }
+        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
+        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 17, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
+      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, moving ? 5.5 : 4.5, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
+      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 14, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 14, y + 4); }
     });
-    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 14, "#f85149"); });
+    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 18, "#f85149"); });
     // current camera as a view cone: eye position (behind the target, by dist * cos(pitch)) and two lines diverging
     // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
     // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
@@ -2102,8 +2101,8 @@
     camViews.list.forEach((v0, i) => {
       const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
       const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
-      drawIcon(ctx, "star", x, y - 14, 16, "#e8b04b");
-      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 9 : 8, 0, 7); ctx.fill(); ctx.stroke();
+      drawIcon(ctx, "star", x, y - 17, 20, "#e8b04b");
+      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 11 : 10, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
     if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
@@ -2119,8 +2118,18 @@
     camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
-    if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}`));
-    if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}`));
+    // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
+    const cargoTip = (kind, id) => {
+      const c = mapCargo.data && mapCargo.data[kind] && mapCargo.data[kind][String(id)]; if (!c) return "";
+      const li = (items, f) => items.map(it => `${cargoIcon({ cargo_key: it.key }, "sm")}${f(it)}`).join(" ");
+      let s = "";
+      if (c.out.length) s += `<br><span class="muted">${t("map_prod")}</span> ${li(c.out, it => it.rate == null ? "" : Math.round(it.rate * 100) + "%")}`;
+      if (c.in.length) s += `<br><span class="muted">${t("map_need")}</span> ${li(c.in, it => it.rate == null ? "" : Math.round(it.rate * 100) + "%")}`;
+      if (c.stock.length) s += `<br><span class="muted">${t("map_stock")}</span> ${li(c.stock, it => it.capacity ? `${it.amount}/${it.capacity}` : String(it.amount))}`;
+      return s;
+    };
+    if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}${cargoTip("industries", i.industry_id)}`));
+    if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}${cargoTip("towns", tw.town_id)}`));
     if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", d.headquarters.id ?? null, `<b>${t("map_hq")}</b>`);
     return best ? { ...best, mx, my } : null;
   }

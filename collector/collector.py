@@ -1158,6 +1158,17 @@ def main(argv: list[str] | None = None) -> int:
             say(f"{args.live.name} is not there yet: start the game and enable 'Second Screen Dashboard' in the Mods menu of your "
                 "savegame (subscribing in the Mod Hub is not enough), the file appears a few seconds after the map is loaded",
                 "wait")
+        elif (dg.get("live_age_s") or 0) > 120:
+            # the game is closed (or paused for long): say so at once, with what the dashboard will show meanwhile
+            last = store.con.execute("""SELECT g.label, g.key, s.year, s.month, s.day, s.real_time FROM snapshot s JOIN game g USING(game_id)
+                                         ORDER BY s.snapshot_id DESC LIMIT 1""").fetchone()
+            age = dg["live_age_s"]
+            ago = f"{age / 60:.0f} min" if age < 5400 else f"{age / 3600:.1f} h" if age < 172800 else f"{age / 86400:.0f} d"
+            if last:
+                say(f"game closed (last export {ago} ago): the dashboard shows the last recorded situation of "
+                    f"'{last['label'] or last['key']}' ({last['year']}-{last['month']:02d}-{last['day']:02d}) until the game writes again", "wait")
+            else:
+                say(f"game closed (last export {ago} ago) and nothing recorded yet: start the game with the mod enabled", "wait")
     last_log_sig = None
 
     def report_game_log():

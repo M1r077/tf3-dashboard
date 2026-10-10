@@ -2473,12 +2473,21 @@
   document.addEventListener("pointercancel", pointerUp, true);
   document.addEventListener("click", pointerUp, true);
   window.addEventListener("blur", pointerUp);
+  const PAGE_T0 = Date.now(); let gotFirst = false;
   async function refresh() {
     if (busy || pointerDown) { again = true; return; } busy = true;
     try {
-      const o = await renderTop();
+      const o = await renderTop(); gotFirst = true;
       if (o && RENDER[state.tab]) await RENDER[state.tab](o);
-    } catch (e) { $("#st-dot").className = "dot dead"; $("#st-text").textContent = t("server_down", { msg: e.message }); console.error(e); }
+    } catch (e) {
+      // the server is not answering. Right after run_dashboard.cmd this is normal for up to ~40 s (first start extracts
+      // the game's icons): say "starting" and retry fast rather than a red error nobody asked for
+      const starting = Date.now() - PAGE_T0 < 60000 && !gotFirst;
+      $("#st-dot").className = "dot " + (starting ? "stale" : "dead");
+      $("#st-text").textContent = starting ? t("server_starting") : t("server_down", { msg: e.message });
+      if (!starting) console.error(e);
+      if (starting) setTimeout(refresh, 1500);
+    }
     busy = false;
     if (again) { again = false; refresh(); }
   }

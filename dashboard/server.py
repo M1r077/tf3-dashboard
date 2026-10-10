@@ -783,8 +783,9 @@ def api_distance(q: dict) -> dict:
     """Ruler helper: shortest distance over the existing network between two map points, by road and by rail.
     ?ax=&ay=&bx=&by= (world metres). Each end is projected on the nearest segment of that network, whatever the
     distance; the answer gives the two approach walks and the network length ({mode}_parts) and the polyline. A mode
-    comes back null when the two ends are not connected. Lengths are sums of straight segments (curves are slightly
-    under-measured). Read only, nothing is sent to the game."""
+    is never null once the network has a segment: when the two ends sit on separate networks the answer uses the
+    existing network as far as it helps and bridges the rest with a straight leg ({mode}_gap). Lengths are sums of
+    straight segments (curves are slightly under-measured). Read only, nothing is sent to the game."""
     gid = _gid()
     try:
         pt = [float(q.get(k, ["nan"])[0]) for k in ("ax", "ay", "bx", "by")]
@@ -803,7 +804,9 @@ def api_distance(q: dict) -> dict:
         out[mode] = r["total"] if r else None
         if r:
             out[mode + "_parts"] = [r["approach_a"], r["network"], r["approach_b"]]
-            out[mode + "_points"] = r["points"]
+            out[mode + "_points"] = r["points"]  # the way over the existing network
+            out[mode + "_legs"] = r["legs"]      # the two straight legs to build, A -> network and network -> B
+            out[mode + "_gap"] = r["gap"]        # True when A and B are on separate networks: the second leg bridges them
     out["ms"] = int((time.time() - t0) * 1000)
     return out
 
@@ -838,7 +841,8 @@ def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> d
     la, lb = math.hypot(ea[2] - ea[0], ea[3] - ea[1]), math.hypot(eb[2] - eb[0], eb[3] - eb[1])
     if ea is eb:  # both on the same segment
         net = abs(ta - tb) * la
-        return {"approach_a": da, "network": net, "approach_b": db, "total": da + net + db, "points": [[ax, ay], [pax, pay], [pbx, pby], [bx, by]]}
+        return {"approach_a": da, "network": net, "approach_b": db, "total": da + net + db, "gap": False,
+                "points": [[pax, pay], [pbx, pby]], "legs": [[[ax, ay], [pax, pay]], [[pbx, pby], [bx, by]]]}
     srcs = {key(ea[0], ea[1]): ta * la, key(ea[2], ea[3]): (1 - ta) * la}
     dsts = {key(eb[0], eb[1]): tb * lb, key(eb[2], eb[3]): (1 - tb) * lb}
     dist = dict(srcs); prev = {}; pq = [(d, n) for n, d in srcs.items()]; heapq.heapify(pq)
@@ -855,15 +859,24 @@ def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> d
             nd = d + w
             if nd < dist.get(m, 1e18):
                 dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
+    pos = gr["pos"]
+    gap = False
     if best is None:
-        return None
+        # not connected: still a proposal. Use the network as far as it helps, i.e. the reachable node that minimises
+        # "way over the network + straight line to B", then a leg to build from there to B.
+        bx2, by2 = bx, by
+        best_n = min(dist, key=lambda n: dist[n] + math.hypot(pos[n][0] - bx2, pos[n][1] - by2))
+        best = dist[best_n]
+        pbx, pby = pos[best_n]
+        db = math.hypot(pbx - bx, pby - by)
+        gap = True
     nodes = [best_n]; n = best_n
     while n in prev:
         n = prev[n][0]; nodes.append(n)
     nodes.reverse()
-    pos = gr["pos"]
-    pts = [[ax, ay], [pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + [[pbx, pby], [bx, by]]
-    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "points": pts}
+    pts = [[pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + ([[pbx, pby]] if not gap else [])
+    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "gap": gap,
+            "points": pts, "legs": [[[ax, ay], [pax, pay]], [[pbx, pby], [bx, by]]]}
 
 
 def _water_route(geo: dict, ax: float, ay: float, bx: float, by: float) -> list | None:

@@ -1951,13 +1951,17 @@
     const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
     // the network routes first, under the straight segment: road in the street colour, rail in the track colour
     const net = ruler.b && ruler.net;
-    const route = (pts, color) => {
+    // solid = the way over the existing network, dashed = the legs to build (A to the network, network to B; when
+    // A and B sit on separate networks the second leg bridges the gap)
+    const route = (pts, color, dashed) => {
       if (!pts || pts.length < 2) return;
-      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.globalAlpha = .9; ctx.beginPath();
-      pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = dashed ? 2 : 3; ctx.lineJoin = "round"; ctx.globalAlpha = .9;
+      if (dashed) ctx.setLineDash([5, 5]);
+      ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
       ctx.stroke(); ctx.restore();
     };
-    if (net) { route(net.road_points, "#f0a35e"); route(net.rail_points, "#7fb8ff"); }
+    const show = (mode, color) => { route(net[mode + "_points"], color, false); (net[mode + "_legs"] || []).forEach(l => route(l, color, true)); };
+    if (net) { show("road", "#f0a35e"); show("rail", "#7fb8ff"); }
     if (a) dot(a);
     if (a && b) {
       const [ax, ay] = P(a.x, a.y), [bx, by] = P(b.x, b.y);
@@ -1979,9 +1983,9 @@
         // fastest vehicle available at the current date will replace them.
         const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
         // approach from A to the network, the way over it, approach to B: "A +300 m · 3.5 km · +23 m B"
-        const parts = (p) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
+        const parts = (p, gap) => `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B` + (gap ? " " + t("ruler_gap") : "");
         const netLine = (mode, sw, kmh) => net[mode] != null
-          ? { sw, v: fmtDist(net[mode]), s: trip(net[mode], kmh) + (net[mode + "_parts"] ? "   " + parts(net[mode + "_parts"]) : "") }
+          ? { sw, v: fmtDist(net[mode]), s: trip(net[mode], kmh) + (net[mode + "_parts"] ? "   " + parts(net[mode + "_parts"], net[mode + "_gap"]) : "") }
           : { sw, v: "", s: t("ruler_" + mode, { d: t("ruler_none") }) };
         lines.push(netLine("road", "#f0a35e", RULER_SPEED.road));
         lines.push(netLine("rail", "#7fb8ff", RULER_SPEED.rail));

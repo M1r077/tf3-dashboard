@@ -4,7 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased
 
-The database stays small: beyond the 2-hour detail window the slow history (lines, towns, stations, industries, depots, ~20 KB per snapshot) is thinned to one point per 10 minutes instead of being kept in full for 14 days, per-vehicle minutes are kept for 7 days (the fleet and finance minutes stay), and the collector compacts the file once an hour (WAL truncated, VACUUM when a quarter of the file is free). A 0.5 GB database was reported; the same data now takes tens of megabytes. Operations keeps its charts when no detail is left (after a long pause) by reading the minute aggregates. Travellings: a saved chain keeps its own list of views (it was dropped on save and fell back to every view).
+The database stays small and the history stays for good: beyond the 2-hour detail window the slow history (lines, towns, stations, industries, depots, ~20 KB per snapshot) is thinned to one point per game day and then kept for as long as the save exists (it used to be kept in full for 14 days and then purged). Per-vehicle minutes are kept for 7 days (the fleet and finance minutes stay), and the collector compacts the file once an hour (WAL truncated, VACUUM when a quarter of the file is free). A 0.5 GB database was reported; the same data takes a few megabytes. Operations keeps its charts when no detail is left (after a long pause) by reading the minute aggregates. Travellings: a saved chain keeps its own list of views (it was dropped on save and fell back to every view).
 
 ## Companion 0.6.3 - 10 October 2026 (mod 14 unchanged)
 

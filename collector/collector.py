@@ -733,14 +733,14 @@ class Store:
     # detail (one row per snapshot) is kept for `detail_hours`; everything older is rolled up into the
     # agg_*_min tables (one row per real-time minute) and deleted. Slow sections (lines, towns, stations,
     # industries, depots: one row per ~30 s, ~20 KB per snapshot on a medium network) are thinned beyond
-    # `detail_hours` to one snapshot per SLOW_THIN_S and purged after `slow_days`. Per-vehicle minutes
+    # `detail_hours` to the last snapshot of each GAME day (calendar date of the snapshot: pauses and game
+    # speed take care of themselves) and then kept for as long as the game exists in the database - the game
+    # itself never forgets its logbooks either; `--forget-game` is the only purge. Per-vehicle minutes
     # (agg_vehicle_min, ~100 B x vehicles x minutes) are dropped after `vehicle_days`; the fleet and
     # finance minutes are a few hundred bytes each and are kept.
-    SLOW_THIN_S = 600
-
-    def rollup(self, detail_hours: float = 2.0, slow_days: float = 14.0, vehicle_days: float = 7.0, say=None) -> dict:
+    def rollup(self, detail_hours: float = 2.0, vehicle_days: float = 7.0, say=None) -> dict:
         c = self.con
-        stats = {"agg_minutes": 0, "deleted_snapshots": 0, "purged_slow": 0, "thinned_slow": 0, "vehicle_minutes": 0}
+        stats = {"agg_minutes": 0, "deleted_snapshots": 0, "thinned_slow": 0, "vehicle_minutes": 0}
         now = time.time()
         for row in c.execute("SELECT game_id FROM game").fetchall():
             gid = row["game_id"]
@@ -760,7 +760,7 @@ class Store:
                 c.execute("INSERT INTO agg_meta(game_id, agg_until) VALUES (?,?) ON CONFLICT(game_id) DO UPDATE SET agg_until=excluded.agg_until", (gid, last_closed))
             # 2) delete detail snapshots older than detail_hours (CASCADE removes vehicle_state, finance, alert...)
             #    only if their minute has been aggregated. Slow-section rows ride on snapshots too, so keep the
-            #    snapshot row itself when it carries slow data younger than slow_days: we delete only the heavy
+            #    snapshot row itself when it carries slow data (thinned in step 3): we delete only the heavy
             #    children instead.
             cutoff = iso(now - detail_hours * 3600)
             cutoff_min = int((now - detail_hours * 3600) // 60) * 60
@@ -778,36 +778,34 @@ class Store:
                              (SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ?)""", (gid, cutoff))
                 c.execute("""DELETE FROM alert WHERE snapshot_id IN
                              (SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ?)""", (gid, cutoff))
-            # 3) thin slow sections older than detail_hours: keep the last snapshot of each SLOW_THIN_S bucket,
-            #    delete the others (CASCADE drops their line/town/station/industry/depot rows). Processed
-            #    incrementally from thin_until, closed buckets only, so each call touches a bounded range.
-            thin_cut_s = (now - detail_hours * 3600) // self.SLOW_THIN_S * self.SLOW_THIN_S
+            # 3) thin slow sections older than detail_hours: of each game day (year, month, day of the snapshot)
+            #    keep the latest snapshot of the whole game and delete the older ones in the window (CASCADE drops
+            #    their line/town/station/industry/depot rows). Processed incrementally from thin_until, rounded to
+            #    the minute, so each pass touches a bounded range; the game day in progress keeps its newest point.
+            thin_cut = iso(int((now - detail_hours * 3600) // 60) * 60)
             thin_from = meta["thin_until"] if meta and meta["thin_until"] else None
-            thin_cut = iso(thin_cut_s)
             if thin_from is None or thin_from < thin_cut:
-                lo_clause, lo_args = ("AND real_time >= ?", (thin_from,)) if thin_from else ("", ())
-                off = _local_offset()
-                b = f"(CAST(strftime('%s', real_time) AS INTEGER) - {off}) / {self.SLOW_THIN_S}"
+                # the game day straddling thin_until got a newer point since: re-scan the window's last day
+                # too (cheap, it holds at most a handful of rows). Also catches a database thinned by the
+                # 0.6.4 pre-release on a real-time grid.
+                lo = iso(_epoch(thin_from) - 86400) if thin_from else None
+                lo_clause, lo_args = ("AND real_time >= ?", (lo,)) if lo else ("", ())
                 cur = c.execute(f"""DELETE FROM snapshot WHERE snapshot_id IN (
                         SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ? {lo_clause}
-                          AND snapshot_id NOT IN (
-                            SELECT MAX(snapshot_id) FROM snapshot WHERE game_id=? AND real_time < ? {lo_clause} GROUP BY {b}))""",
-                    (gid, thin_cut, *lo_args, gid, thin_cut, *lo_args))
+                          AND snapshot_id NOT IN (SELECT MAX(snapshot_id) FROM snapshot WHERE game_id=?
+                                                  AND snapshot_id IN (SELECT snapshot_id FROM company) GROUP BY year, month, day))""",
+                    (gid, thin_cut, *lo_args, gid))
                 stats["thinned_slow"] += cur.rowcount or 0
                 c.execute("INSERT INTO agg_meta(game_id, agg_until, thin_until) VALUES (?,0,?) ON CONFLICT(game_id) DO UPDATE SET thin_until=excluded.thin_until",
                           (gid, thin_cut))
-            # 4) purge slow sections older than slow_days entirely
-            slow_cut = iso(now - slow_days * 86400)
-            cur = c.execute("DELETE FROM snapshot WHERE game_id=? AND real_time < ?", (gid, slow_cut))
-            stats["purged_slow"] += cur.rowcount or 0
-            # 5) per-vehicle minutes older than vehicle_days (the fleet minutes stay)
+            # 4) per-vehicle minutes older than vehicle_days (the fleet minutes stay)
             if vehicle_days > 0:
                 cur = c.execute("DELETE FROM agg_vehicle_min WHERE game_id=? AND bucket < ?", (gid, int(now - vehicle_days * 86400)))
                 stats["vehicle_minutes"] += cur.rowcount or 0
         c.commit()
-        if (stats["deleted_snapshots"] or stats["purged_slow"] or stats["thinned_slow"] or stats["vehicle_minutes"]) and say:
+        if (stats["deleted_snapshots"] or stats["thinned_slow"] or stats["vehicle_minutes"]) and say:
             say(f"rollup: +{stats['agg_minutes']} min aggregated, {stats['deleted_snapshots']} detail snapshots folded, "
-                f"{stats['thinned_slow']} slow snapshots thinned, {stats['purged_slow']} purged, {stats['vehicle_minutes']} vehicle minutes dropped")
+                f"{stats['thinned_slow']} slow snapshots thinned to one per game day, {stats['vehicle_minutes']} vehicle minutes dropped")
         return stats
 
     # ------------------------------------------------------------ housekeeping (space)
@@ -1064,8 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--status", action="store_true", help="print database summary and exit")
     ap.add_argument("--poll", type=float, default=0.5, help="seconds between file checks")
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--detail-hours", type=float, default=2.0, help="keep per-snapshot detail (vehicles, alerts, finance) for this many hours; older data is rolled up per minute (0 = never)")
-    ap.add_argument("--slow-days", type=float, default=14.0, help="purge lines/towns/stations/industries history older than this many days (thinned to one point per 10 min beyond --detail-hours)")
+    ap.add_argument("--detail-hours", type=float, default=2.0, help="keep per-snapshot detail (vehicles, alerts, finance) for this many hours; older data is rolled up per minute, and lines/towns/stations/industries to one point per game day, kept forever (0 = never)")
     ap.add_argument("--vehicle-days", type=float, default=7.0, help="keep per-vehicle minute history for this many days (0 = forever)")
     ap.add_argument("--rollup", action="store_true", help="run the retention roll-up and the compaction once and exit")
     ap.add_argument("--list-games", action="store_true", help="list the saves (games) recorded in the database and exit")
@@ -1086,7 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
         print(store.status())
         return 0
     if args.rollup:
-        st = store.rollup(args.detail_hours or 1e9, args.slow_days, args.vehicle_days, say=print)
+        st = store.rollup(args.detail_hours or 1e9, args.vehicle_days, say=print)
         print(st); print(store.compact(say=lambda m, *_: print(m), min_free_pages=0, min_free_ratio=0.0)); print(store.status())
         return 0
     if args.list_games:
@@ -1184,7 +1181,7 @@ def main(argv: list[str] | None = None) -> int:
                     continue
             if args.detail_hours > 0 and time.time() >= next_rollup:
                 try:
-                    store.rollup(args.detail_hours, args.slow_days, args.vehicle_days, say=say)
+                    store.rollup(args.detail_hours, args.vehicle_days, say=say)
                 except sqlite3.Error as e:
                     say(f"rollup failed: {e}", "error")
                 next_rollup = time.time() + 60

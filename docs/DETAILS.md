@@ -141,9 +141,11 @@ Three independent parts:
    - slow sections are only stored when they were re-collected (`slow_seq` changed)
    - retention (`Store.rollup`, every 60 s): per-snapshot detail (vehicles, alerts, finance) is kept for 2 h, then rolled
      up per minute into `agg_*_min`; beyond 2 h the slow snapshots (lines, towns, stations, industries, depots: ~20 KB
-     each) are thinned to the last one of each 10-minute bucket (`agg_meta.thin_until` marks the progress, so each pass
-     only touches new buckets); slow history is purged after 14 days and per-vehicle minutes after 7 days
-     (`--detail-hours`, `--slow-days`, `--vehicle-days`)
+     each) are thinned to the last slow snapshot of each game day (`year, month, day` of the snapshot: pauses and game
+     speed need no special case; `agg_meta.thin_until` marks the progress, each pass re-scans one day back). Slow
+     history is then kept for as long as the game exists (no purge: the game never forgets its logbooks either;
+     `--forget-game` is the only way out). Per-vehicle minutes are dropped after 7 days
+     (`--detail-hours`, `--vehicle-days`). Size: ~20 KB per game day, ~7 MB per game year on a medium network.
    - space (`Store.compact`, 2 min after start then hourly): `wal_checkpoint(TRUNCATE)`, and `VACUUM` when the freelist
      is at least 25 % of the file (and 2500+ pages). Measured: 132 MB with 75 MB free -> 26 MB in 0.2 s. Without it the
      file never shrinks and the WAL grows while the server holds read transactions (a 0.5 GB database was reported).

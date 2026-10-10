@@ -126,6 +126,9 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   vehicle purchases), kept for the whole savegame. Cards can be dragged and resized; the layout is saved per browser.
 - **Settings ▸ Savegames and backups** — one backup = database + camera views for the current savegame; restore
   the views, or the whole database at the next start.
+- **Game closed?** The dashboard still works: it shows the last recorded situation of your save (an amber bar says
+  so, commands are off) so you can plan the next session on the couch. With several saves in the database, pick the
+  one to look at in Settings ▸ Savegames ("View"); the live game takes over again as soon as it writes.
 - Languages: English, French, German, Brazilian Portuguese, partial Chinese — follows the game language automatically.
 
 ## Configuration

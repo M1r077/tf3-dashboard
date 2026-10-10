@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+Game closed: the dashboard shows the last recorded situation of the save and says so in an amber bar under the header (save, game date, how long ago); the game-control buttons are off and commands are refused instead of piling up in a file nobody reads. With several saves in the database, Settings > Savegames gets a "View" button per save to look at another one offline; the live game takes over again as soon as it writes. Every "latest snapshot" lookup on the server is now scoped to the shown save.
+
 ## Companion 0.6.3 - 10 October 2026 (mod 14 unchanged)
 
 Detail cards (vehicle, line, town, industry, station) keep their scroll position across the periodic refresh instead of jumping back to the top. Their sections can be arranged: hover a section title for move up / move down / fold buttons (charts on top, vehicle list below, a folded list out of the way); the arrangement is remembered per card, and in a user-sized card the charts take the room a folded section frees.

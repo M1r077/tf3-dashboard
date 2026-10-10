@@ -310,6 +310,7 @@ body.layout-edit #layout-bar { display: flex; }
 #layout-bar .ico { color: var(--accent); }
 #layout-bar .btn { display: inline-flex; align-items: center; gap: 6px; }
 #layout-bar .btn .ico { margin: 0; color: var(--text); }
+.btn.sm { padding: 2px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary .ico { color: #fff; }
 .setrow .btns { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -505,9 +506,16 @@ table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertic
 #saves .save-d { color: var(--muted); margin-top: 2px; }
 #saves .save-d.warn { color: var(--warn); }
 #saves .save-a { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-#saves .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--ok); color: #082; color: #fff; }
+#saves .tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--muted); color: #fff; }
+#saves .tag.ok { background: var(--ok); }
+#saves .save-h .btn.sm { margin-left: 6px; }
 #saves .small, .muted.small { font-size: 11px; }
 #k-date.rewound { color: var(--warn); }
+/* offline: the game is closed (or another save is shown); the figures are the last recorded, for thinking not acting */
+.offlinebar { display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
+.offlinebar .ico { color: var(--warn); }
+.offlinebar .btn.sm { margin-left: auto; }
+body.offline #k-date { color: var(--warn); }
 /* stacked gauges in a cell (quality pax + cargo, one gauge per cargo type): one compact row each, shorter bars */
 .qstack { display: inline-flex; flex-direction: column; gap: 2px; vertical-align: middle; }
 .qstack > span { display: inline-flex; align-items: center; white-space: nowrap; line-height: calc(var(--isz) * 0.75); }

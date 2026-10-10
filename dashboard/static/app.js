@@ -62,7 +62,9 @@
   }
   $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); if (o) renderSaves(); });
   $("#settings-close").addEventListener("click", () => { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); });
-  document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
+  document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear, #offline-pick")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
+  // offline bar: "choose a save" opens the settings at the savegames list
+  $("#offline-pick").addEventListener("click", async () => { $("#settings").classList.add("open"); $("#gear").classList.add("open"); await renderSaves(); const s = $("#saves"); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); });
   $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); }));
   $("#set-refresh").addEventListener("input", e => { settings.refresh = +e.target.value; applySettings(); });
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
@@ -166,7 +168,7 @@
   const dateLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月${s.day ? s.day + "日" : ""}` : `${s.day ? s.day + " " : ""}${MON()[s.month]} ${s.year}`;
   const headway = (sec) => sec == null ? "–" : sec >= 3600 ? (sec / 3600).toFixed(1) + " h" : sec >= 60 ? Math.round(sec / 60) + " min" : Math.round(sec) + " s";
   const rgb = (r, g, b) => (r == null) ? "#8b98a8" : `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
-  const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (d < 90) return Math.round(d) + " s"; if (d < 5400) return Math.round(d / 60) + " min"; return (d / 3600).toFixed(1) + " h"; };
+  const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (d < 90) return Math.round(d) + " s"; if (d < 5400) return Math.round(d / 60) + " min"; if (d < 172800) return (d / 3600).toFixed(1) + " h"; return Math.round(d / 86400) + " d"; };
   const bar = (v, max, cls = "", txt) => { const p = max ? Math.min(100, 100 * v / max) : 0; return `<span class="bar ${cls}"><i style="width:${p}%"></i></span> <span class="mono">${txt != null ? txt : Math.round(p) + "%"}</span>`; };
   const barQuality = (bad, total) => { if (!total) return '<span class="muted">–</span>'; const p = pct(bad, total); const cls = p > 30 ? "bad" : p > 10 ? "warn" : "ok"; return `<span class="bar ${cls}"><i style="width:${p}%"></i></span> <span class="mono">${p.toFixed(0)}% (${bad}/${total})</span>`; };
   const fillCls = (p) => p >= 80 ? "ok" : p < 25 ? "warn" : "";
@@ -267,13 +269,15 @@
     const c = (o && o.commands) || {};
     cmd.enabled = c.enabled !== false; cmd.accepted = c.accepted;
     const bar = $("#game-speed"); const btns = $$(".sbtn", bar);
-    const off = !cmd.enabled || cmd.accepted === 0;
+    const offline = !!(o && o.live && o.live.offline);
+    const off = !cmd.enabled || cmd.accepted === 0 || offline;
+    const offMsg = offline ? t("commands_offline") : cmd.enabled ? t("commands_off") : t("commands_na");
     btns.forEach(b => { b.disabled = off; b.classList.toggle("active", o && o.snapshot && String(o.snapshot.speed) === b.dataset.speed); });
-    bar.title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : "";
+    bar.title = off ? offMsg : "";
     const mpd = o && o.snapshot ? o.snapshot.millis_per_day : null;
     const calFactor = mpd == null ? null : mpd === 0 ? 0 : Math.round(4000 / mpd * 100) / 100;  // 0 = calendar paused (the date stands still, the simulation runs)
     $$("#cal-speed .cbtn").forEach(b => { b.disabled = off; b.classList.toggle("active", calFactor != null && +b.dataset.cal === calFactor); });
-    $("#cal-speed").title = off ? (cmd.enabled ? t("commands_off") : t("commands_na")) : t("calendar_speed") + (calFactor == null ? "" : calFactor === 0 ? ` · ${t("pause")}` : ` · ${calFactor}x`);
+    $("#cal-speed").title = off ? offMsg : t("calendar_speed") + (calFactor == null ? "" : calFactor === 0 ? ` · ${t("pause")}` : ` · ${calFactor}x`);
     const st = $("#cmd-status");
     if (c.ack && cmd.lastSent && c.ack.id === cmd.lastSent.id) {
       st.textContent = `${c.ack.cmd} · ${c.ack.ok ? t("act_done") : t("act_failed", { msg: c.ack.error || "" })}`; st.className = "cmdstatus " + (c.ack.ok ? "ok" : "bad");
@@ -460,7 +464,7 @@
     const o = await api("/api/overview");
     const dot = $("#st-dot"), txt = $("#st-text");
     if (o.version) $("#brand-ver").textContent = o.version;
-    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); await renderSetup(); return null; }
+    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); renderOffline(null); await renderSetup(); return null; }
     $("#setup-card").style.display = "none";
     if (o.lang && o.lang !== i18n.gameLang) {
       i18n.gameLang = o.lang;
@@ -504,6 +508,7 @@
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
+    renderOffline(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
     if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
     return o;
@@ -1745,9 +1750,13 @@
     let d; try { d = await api("/api/games"); } catch (e) { box.innerHTML = `<p class="muted">${esc(String(e))}</p>`; return; }
     const games = d.games || [], backups = d.backups || [];
     const gameRow = (gm) => {
-      const cur = gm.key === d.current, rel = gm.reloads || [];
+      // current = the save the pages show; latest = the save the game last wrote. They differ only offline, when
+      // the user picked another save to think about; while the game runs it decides.
+      const cur = gm.key === d.current, latest = gm.key === d.latest, rel = gm.reloads || [];
+      const tag = cur && latest ? `<span class="tag ok">${t("saves_current")}</span>` : cur ? `<span class="tag">${t("saves_shown")}</span>` : latest ? `<span class="tag">${t("saves_latest")}</span>` : "";
+      const pick = !cur && d.selectable ? `<button class="btn sm" data-pick="${esc(gm.key)}" title="${esc(t("saves_view_title"))}">${ico("eye", "sm")}${t("saves_view")}</button>` : "";
       return `<div class="save ${cur ? "cur" : ""}">
-        <div class="save-h"><b>${esc(gm.label || gm.key)}</b>${cur ? ` <span class="tag ok">${t("saves_current")}</span>` : ""}${gm.label ? `<small class="mono">${esc(gm.key)}</small>` : ""}</div>
+        <div class="save-h"><b>${esc(gm.label || gm.key)}</b> ${tag}${gm.label ? `<small class="mono">${esc(gm.key)}</small>` : ""}${pick}</div>
         <div class="save-d">${t("saves_game_date")}: <b>${gameDay(gm.last_game_day)}</b> · ${t("saves_seen", { a: realDate(gm.first_seen), b: realDate(gm.last_seen) })}</div>
         <div class="save-d">${t("saves_counts", { s: int(gm.snapshots), l: int(gm.lines), v: int(gm.vehicles), c: gm.views })}</div>
         ${rel.length ? `<div class="save-d warn">${ico("alert", "sm")}${t("saves_reloads", { n: rel.length, from: gameDay(rel[rel.length - 1].from_day), to: gameDay(rel[rel.length - 1].to_day), at: realDate(rel[rel.length - 1].at) })}</div>` : ""}
@@ -1777,6 +1786,29 @@
       $("#cmd-status").className = "cmdstatus " + (j.ok ? "ok" : "bad");
       camViews.loaded = false; renderSaves();
     }));
+    $$("[data-pick]", box).forEach(b => b.addEventListener("click", () => selectGame(b.dataset.pick)));
+  }
+
+  // ------------------------------------------------------------ offline: which save the pages show
+  // The server holds the choice (shared by every browser) and drops it as soon as the game writes again.
+  async function selectGame(key) {
+    const r = await fetch("/api/select_game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
+    const j = await r.json();
+    if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return; }
+    // a different save = different map, views, lines: start the caches over
+    state.cache = {}; state.selLine = state.selTown = state.selVeh = state.selInd = state.selSt = null; camViews.loaded = false; geo.data = null; geo.seq = null; geo.game = null; linePaths.stamp = null; linePaths.lines = null; linePaths.poly = {}; linePaths.builtFor = ""; map.data = null; map.fitted = false;
+    await refresh();
+    renderSaves();
+  }
+  function renderOffline(o) {
+    const bar = $("#offline-bar"); if (!bar) return;
+    const off = o && o.live && o.live.offline;
+    bar.style.display = off ? "" : "none";
+    document.body.classList.toggle("offline", !!off);
+    if (!off) return;
+    const s = o.snapshot, label = o.game ? (o.game.label || o.game.key) : "";
+    $("#offline-text").innerHTML = t("offline_text", { save: `<b>${esc(label)}</b>`, date: `<b>${esc(date(s))}</b>`, ago: ago(s.real_time || s.received_at) });
+    const pick = $("#offline-pick"); pick.style.display = (o.live.selected || o.live.has_other) ? "" : "none";
   }
 
   // ------------------------------------------------------------ map

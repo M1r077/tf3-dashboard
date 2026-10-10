@@ -1365,6 +1365,10 @@ def _travel_clean(spec: dict) -> dict:
     for k in TRAVEL_BOOL:
         if k in spec:
             out[k] = bool(spec.get(k))
+    # a chain names its views in order (ids of saved camera views); without it, every view of the panel
+    views = spec.get("views")
+    if isinstance(views, list):
+        out["views"] = [int(v) for v in views if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)][:VIEWS_MAX]
     if out.get("kind") not in ("view", "chain", "line"):
         raise ValueError("bad travelling kind")
     return out

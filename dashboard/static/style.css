@@ -104,6 +104,9 @@ body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px
 .panels > .card.sticky.sized { overflow: auto; }
 .panels > .card.sticky.sized > .minilist, .panels > .card.sticky.sized > table { flex: none; overflow: visible; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
+/* a uPlot host in a user-sized card: the plot is sized by script, the legend above it must never push past the card */
+.panels > .card.sized > .uchart { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.panels > .card.sized > .uchart > .uplot { flex: none; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }
 .panels > .card.tablecard.sized > table, .panels > .card.sized:has(> table) > table { flex: none; overflow: visible; }
@@ -360,6 +363,10 @@ h2 .ico { color: var(--accent); }
 /* camera views panel (Map tab): one row per saved view, the slot number doubles as the Shift+N shortcut */
 .camviews .cv-save { width: 100%; justify-content: center; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .camviews .cv-list { display: flex; flex-direction: column; gap: 4px; }
+/* user-sized camera cards: the body takes the rest of the card and scrolls (the "save view" button stays put) */
+.panels > .card.camviews.sized > #cam-views, .panels > .card.camviews.sized > #trv-workshop, .panels > .card.camviews.sized > #travellings { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.panels > .card.camviews.sized > #cam-views > .cv-list, .panels > .card.camviews.sized > #travellings > .cv-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.panels > .card.camviews.sized > #trv-workshop > .cv-travel { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .cv { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; padding: 4px 6px; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; }
 .cv .cv-n { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; }
 .cv.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }

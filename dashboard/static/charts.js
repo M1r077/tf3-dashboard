@@ -15,10 +15,12 @@
     if (card) {
       const cs = getComputedStyle(card);
       let avail = card.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-      const canvases = Array.from(card.children).filter(ch => ch.tagName === "CANVAS");
-      Array.from(card.children).forEach(ch => { if (ch.tagName !== "CANVAS" && getComputedStyle(ch).position !== "absolute") avail -= ch.getBoundingClientRect().height + (parseFloat(getComputedStyle(ch).marginTop) || 0) + (parseFloat(getComputedStyle(ch).marginBottom) || 0); });
-      // several canvases in one card (detail panels): share the space proportionally to their data-h
-      const want = (c) => parseInt(c.dataset.h, 10) || 200;
+      // one slot per chart: a plain canvas, or a uPlot host (whose own canvas is hidden and sits just before it)
+      const canvases = Array.from(card.children).filter(ch => ch.classList.contains("uchart") || (ch.tagName === "CANVAS" && !(ch.nextElementSibling && ch.nextElementSibling.classList.contains("uchart"))));
+      // skip the canvases, the uPlot hosts that stand in for them, and the layout chrome (tools, resize handles)
+      Array.from(card.children).forEach(ch => { if (ch.tagName !== "CANVAS" && !ch.classList.contains("uchart") && !ch.classList.contains("panel-tools") && !ch.classList.contains("rz") && getComputedStyle(ch).position !== "absolute") avail -= ch.getBoundingClientRect().height + (parseFloat(getComputedStyle(ch).marginTop) || 0) + (parseFloat(getComputedStyle(ch).marginBottom) || 0); });
+      // several charts in one card: share the space proportionally to their data-h
+      const want = (c) => parseInt((c.tagName === "CANVAS" ? c : c.previousElementSibling).dataset.h, 10) || 200;
       if (canvases.length > 1) avail = avail * want(canvas) / canvases.reduce((a, c) => a + want(c), 0);
       if (avail >= 80) return Math.floor(avail);
     }
@@ -99,10 +101,18 @@
   function hostSize(canvas, host) {
     const card = canvas.closest(".card");
     const w = (host.parentElement ? host.parentElement.clientWidth : 300) - (card && card.classList.contains("tablecard") ? 0 : 28);
-    canvas.style.display = "";
     const h = targetHeight(canvas);
-    canvas.style.display = "none";
     return { w: Math.max(120, w), h: Math.max(80, h) };
+  }
+  /** In a user-sized card, uPlot's `height` covers the plot only: the legend and the x axis labels come on top.
+      setSize applies on the next frame, so measure the chrome from the current (stable) render and size once. */
+  function fitHost(canvas, host, u, w) {
+    if (!canvas.closest(".card.sized")) return false;
+    // chrome = everything the host shows besides the plot (legend row(s), axis labels); scrollHeight: the host clips
+    const chrome = host.scrollHeight - u.height;
+    if (!(chrome >= 0 && chrome < 200)) return false;
+    u.setSize({ width: w, height: Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2)) });
+    return true;
   }
   const chartKey = (canvas) => canvas.id || canvas.dataset.key || "c" + Math.random().toString(36).slice(2);
 
@@ -292,6 +302,7 @@
     }
     const u = new uPlot(uopts, [xs, ...data], host);
     uplots.set(host, u);
+    fitHost(canvas, host, u, w);
     if (keepX && timeAxis) {
       // follow the live edge: if the previous zoom touched the end, shift the window with the new data
       const lastOld = old ? old.data[0][old.data[0].length - 1] : null;
@@ -309,7 +320,7 @@
   function resizeAll(root = document) {
     Array.from(root.querySelectorAll(".uchart")).forEach(host => {
       const u = uplots.get(host); const canvas = host.previousElementSibling; if (!u || !canvas) return;
-      const { w, h } = hostSize(canvas, host); u.setSize({ width: w, height: h });
+      const { w, h } = hostSize(canvas, host); if (!fitHost(canvas, host, u, w)) u.setSize({ width: w, height: h });
     });
   }
 

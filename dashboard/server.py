@@ -743,7 +743,14 @@ def api_heightmap(q: dict) -> dict:
     if not side.is_file():
         return {"available": False}
     meta = json.loads(side.read_text(encoding="utf-8"))
-    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={meta.get('revs', '')}"})
+    # cache key = the picture file itself (mtime + size), so a regenerated PNG is fetched even when the terrain
+    # revision signature did not change
+    try:
+        st = (DB_PATH.parent / f"height_{gid}.png").stat()
+        v = f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return {"available": False}
+    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={v}"})
     return meta
 
 

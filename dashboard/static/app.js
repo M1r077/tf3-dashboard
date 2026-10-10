@@ -1788,7 +1788,7 @@
     hmap.loading = true;
     try {
       const m = await api("/api/heightmap");
-      if (!m || !m.available || m.revs === hmap.revs) return;
+      if (!m || !m.available || m.url === hmap.revs) return;  // url carries the picture's cache key
       // decoded by hand: a canvas would keep only the high byte of the 16-bit grey (2 m steps that band the shading).
       // The collector writes the simplest PNG there is (one IDAT, filter 0 on every row), inflated with the
       // browser's DecompressionStream.
@@ -1799,7 +1799,7 @@
       const raw = new Uint8Array(await new Response(z).arrayBuffer());
       const n = w * h, out = new Float32Array(n), stride = 1 + w * 2;
       for (let y = 0; y < h; y++) { const ro = y * stride + 1, oo = y * w; for (let x = 0; x < w; x++) { const q = ro + x * 2; out[oo + x] = (raw[q] << 8) | raw[q + 1]; } }
-      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.revs;
+      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.url;
       geo.bmSeq = null; geo.layer = null; geo.key = "";
       if (state.tab === "map") drawMap($("#map"));
     } catch (e) { /* no heightmap yet */ } finally { hmap.loading = false; }

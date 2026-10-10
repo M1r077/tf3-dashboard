@@ -124,6 +124,8 @@ Three independent parts:
      The mod exports the configuration of every stop (stop_list: load_mode, min_wait, max_wait, max_add_wait,
      waypoints, force_unload, no_load, max_load, terminals = the station's terminals with type / class / length /
      speed_mod / compatible / overlength, alternatives = alternative terminals) + custom_filters / reservation_priority.
+     Each stop also carries `waiting` = items waiting there for this line, per cargo type, with the number of unhappy
+     ones (api.engine.util.cargo.getCargoQualityDataAtStop; the figure of the game's line window), shown in the stops table.
      Full catalogue of what the API allows (done / doable / risky / impossible): docs/API_CATALOGUE.md.
 
 2. **Collector `collector\collector.py`** (Python, stdlib only): watches `live.lua`, parses it (`luatable.py`, own Lua

@@ -383,10 +383,10 @@ def api_lines(q: dict) -> dict:
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, no_load, max_load, terminals, alternatives
+                           force_unload, no_load, max_load, terminals, alternatives, waiting
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
-        for k in ("no_load", "max_load", "terminals", "alternatives"):
+        for k in ("no_load", "max_load", "terminals", "alternatives", "waiting"):
             try:
                 st[k] = json.loads(st[k]) if st.get(k) else []
             except (TypeError, ValueError):

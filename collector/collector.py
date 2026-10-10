@@ -149,6 +149,7 @@ class Store:
         ("line_stop", "max_load", "TEXT"),
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
+        ("line_stop", "waiting", "TEXT"),
         ("snapshot", "camera", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
@@ -597,18 +598,20 @@ class Store:
                     max_load = as_list(g(s, "max_load")) if isinstance(s, dict) else []
                     terminals = [x for x in as_list(g(s, "terminals")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     alternatives = [x for x in as_list(g(s, "alternatives")) if isinstance(x, dict)] if isinstance(s, dict) else []
+                    waiting = [x for x in as_list(g(s, "waiting")) if isinstance(x, dict) and x.get("cargo_type") is not None] if isinstance(s, dict) else []
                     self.con.execute(
                         """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name,
                            load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, no_load, max_load,
-                           terminals, alternatives)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           terminals, alternatives, waiting)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"),
                          g(s, "load_mode"), g(s, "min_wait"), g(s, "max_wait"), g(s, "max_add_wait"), g(s, "waypoints"),
                          _bool(g(s, "force_unload")),
                          json.dumps([x for x in no_load if isinstance(x, (int, float))]) if no_load else None,
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
                          json.dumps(terminals) if terminals else None,
-                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None))
+                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None,
+                         json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None))
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))

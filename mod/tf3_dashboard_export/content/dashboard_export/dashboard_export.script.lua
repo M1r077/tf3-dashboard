@@ -778,6 +778,16 @@ local function lineItem(l, ctx)
 					end)
 					for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
 				end)
+				pcall(function()
+					-- items waiting at this stop for this line (the figure in the game's line window), per cargo the line carries
+					local w = {}
+					for _, c in ipairs(rec.capacity or {}) do
+						local q = api.engine.util.cargo.getCargoQualityDataAtStop(l, i - 1, c.cargo_type)
+						local total = num(q.countTotal)
+						if total and total > 0 then w[#w + 1] = { cargo_type = c.cargo_type, total = total, bad = num(q.countBad) or 0 } end
+					end
+					st.waiting = w
+				end)
 				rec.stop_list[i] = st
 			end
 		end)

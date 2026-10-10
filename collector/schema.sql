@@ -239,6 +239,7 @@ CREATE TABLE IF NOT EXISTS line_stop (
     max_load      TEXT,                           -- JSON list of {cargo_type, max} for cargo limited below 100 %
     terminals     TEXT,                           -- JSON list of the station group terminals {n, station, terminal, pax, cargo, class, class_name, class_color, length, speed_mod, compatible, overlength}
     alternatives  TEXT,                           -- JSON list of {station, terminal} the stop may use besides the main one (station/terminal above)
+    waiting       TEXT,                           -- JSON list of {cargo_type, total, bad}: items waiting at this stop for this line (NULL = nothing waiting)
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 

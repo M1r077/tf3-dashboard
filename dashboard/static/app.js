@@ -940,17 +940,24 @@
         const tip = `${t("term_summary", { main: x.n })} · ${isMain ? t("term_main") : isAlt ? t("term_alt") : t("term_unused")}${bad ? " · " + t("term_incompatible") : ""}${short ? " · " + t("term_too_short") : ""}`;
         return `<span class="tg-n ${isMain ? "main" : isAlt ? "alt" : "off"} ${(isMain || isAlt) && (bad || short) ? "warn" : ""}" title="${esc(tip)}">${x.n}${isMain ? ico("star", "sm") : ""}</span>`; }).join("")}</span>`;
     };
+    // waiting at the stop for this line (the figure of the game's line window): icon + count, red when some are unhappy
+    const ctById = new Map(cts.map(c => [c.cargo_id, c]));
+    const waiting = (st) => {
+      const w = st.waiting || []; if (!w.length) return '<span class="muted">–</span>';
+      return w.map(x => { const c = ctById.get(x.cargo_type); return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(c ? c.name : x.cargo_type)}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: c && c.name, cargo_key: c && c.key })}${x.total}</span>`; }).join("");
+    };
     const viewRow = (st) => `<tr data-stop="${st.stop_index}">
         <td class="num muted">${st.stop_index}</td>
         <td class="wrap">${st.station_group ? `<a class="goto" data-st="${st.station_group}" title="${esc(t("goto_station"))}">${esc(st.name || "?")}</a>` : esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
         <td class="nowrap">${cargoCell(st)}${st.force_unload ? ` <span class="chip bad" title="${esc(t("force_unload"))}">${ico("line_unload", "sm")}</span>` : ""}</td>
         <td class="nowrap">${termBadges(st)}</td>
+        <td class="nowrap">${waiting(st)}</td>
         <td class="center">${st.load_mode == null ? "–" : ico(LOAD_MODE_ICON[st.load_mode] || "load_available", "sm", t("load_mode_" + st.load_mode))}</td>
         <td class="num nowrap">${waits(st)}</td>
         <td class="act">${st.station_group ? entBtns(st.station_group) : ""}<button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
     const editRow = (st) => {
       const w = (k, v, min) => `<input type="number" class="stop-in" data-k="${k}" min="${min}" max="600" step="5" value="${v == null ? "" : Math.round(v)}" style="width:62px">`;
-      return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="7"><div class="stopedit">
+      return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="8"><div class="stopedit">
         <div><small>${st.stop_index}.</small> <b>${esc(st.name || "?")}</b>
           <div class="stopcargo">${cargoCell(st, Infinity)}</div>
           <label class="muted" style="font-size:12px"><input type="checkbox" class="stop-in" data-k="force_unload" ${st.force_unload ? "checked" : ""}> ${t("force_unload")}</label></div>
@@ -960,7 +967,7 @@
         <div class="stopbtns"><button class="btn stop-apply" data-stop="${st.stop_index}">${ico("check", "sm")}${t("apply")}</button><button class="btn stop-apply-all" data-stop="${st.stop_index}" title="${esc(t("apply_all_stops"))}">${ico("line_stations", "sm")}${t("apply_all_stops")}</button><button class="btn stop-cancel">${t("cancel")}</button></div>
       </div></td></tr>`;
     };
-    root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
+    root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th>${t("th_waiting")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
       <tbody>${stops.map(st => (editing === st.stop_index ? editRow(st) : viewRow(st))).join("")}</tbody></table>`;
     bindActions(root);  // camera button and station link of each stop
     $$(".lm-btn", root).forEach(b => b.addEventListener("click", e => {

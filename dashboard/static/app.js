@@ -333,6 +333,49 @@
   }
   const lineLink = (id, name) => id ? `<a class="goto" data-line="${id}" title="${esc(t("goto_line"))}">${esc(name || "#" + id)}</a>` : "–";
 
+  // ---- detail cards. Every <h2 data-sec="key"> opens a section the player can fold and move up or down (tools on
+  // hover of the header); order and folded sections are kept per card in localStorage. The card is rewritten on every
+  // refresh, so its scroll position is saved before and put back after (the charts come last and change the height).
+  const SEC_KEY = "tf3.sections";
+  let secStore = {}; try { secStore = JSON.parse(localStorage.getItem(SEC_KEY) || "{}") || {}; } catch (e) { secStore = {}; }
+  const secSave = () => { try { localStorage.setItem(SEC_KEY, JSON.stringify(secStore)); } catch (e) { /* ignore */ } };
+  function sectionize(el) {
+    const heads = $$(":scope > h2[data-sec]", el); if (!heads.length) return;
+    const st = secStore[el.id] || (secStore[el.id] = {}), folded = new Set(st.folded || []);
+    // The DOM stays flat (the card's child selectors and the chart sizing walk its direct children): every node from a
+    // section header to the next one is tagged with the section key.
+    heads.forEach(h => { for (let n = h; n && !(n !== h && n.nodeType === 1 && n.tagName === "H2" && n.dataset.sec); n = n.nextSibling) if (n.nodeType === 1) n.dataset.in = h.dataset.sec; });
+    const group = (k) => $$(`:scope > [data-in="${k}"]`, el);
+    const keys = () => $$(":scope > h2[data-sec]", el).map(h => h.dataset.sec);
+    const natural = keys(), order = (st.order || []).filter(k => natural.includes(k)).concat(natural.filter(k => !(st.order || []).includes(k)));
+    if (order.some((k, i) => k !== natural[i])) order.forEach(k => group(k).forEach(n => el.appendChild(n)));  // sections follow the card's head
+    heads.forEach(h => {
+      const k = h.dataset.sec, f = folded.has(k);
+      if (f) group(k).forEach(n => { if (n !== h) n.classList.add("sec-hidden"); });
+      h.classList.toggle("folded", f);
+      h.insertAdjacentHTML("beforeend", `<span class="sec-tools"><button class="sbtn" data-sact="up" title="${esc(t("sec_up"))}">${ico("head_up", "sm")}</button><button class="sbtn" data-sact="down" title="${esc(t("sec_down"))}">${ico("head_down", "sm")}</button><button class="sbtn" data-sact="fold" title="${esc(t(f ? "sec_unfold" : "sec_fold"))}">${ico(f ? "sec_expand" : "sec_collapse", "sm")}</button></span>`);
+    });
+    const arrows = () => { const ks = keys(); ks.forEach((k, i) => { const h = $(`:scope > h2[data-sec="${k}"]`, el); $('[data-sact="up"]', h).disabled = i === 0; $('[data-sact="down"]', h).disabled = i === ks.length - 1; }); };
+    arrows();
+    $$(":scope > h2[data-sec] .sbtn", el).forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation(); const h = b.closest("h2"), k = h.dataset.sec;
+      if (b.dataset.sact === "fold") {
+        const on = !h.classList.contains("folded"); h.classList.toggle("folded", on);
+        group(k).forEach(n => { if (n !== h) n.classList.toggle("sec-hidden", on); });
+        const f = new Set(st.folded || []); on ? f.add(k) : f.delete(k); st.folded = [...f];
+        b.title = t(on ? "sec_unfold" : "sec_fold"); const i = $(".ico", b); i.style.setProperty("--ico", `url(${ICON_URL(on ? "sec_expand" : "sec_collapse")})`);
+        Charts.resizeAll(el);  // in a user-sized card the plots take the room a folded section frees (and give it back)
+      } else {
+        const ks = keys(), i = ks.indexOf(k), j = b.dataset.sact === "up" ? i - 1 : i + 1; if (j < 0 || j >= ks.length) return;
+        const [a, z] = j < i ? [k, ks[j]] : [ks[j], k];  // a moves before z
+        const ref = $(`:scope > h2[data-sec="${z}"]`, el); group(a).forEach(n => el.insertBefore(n, ref));
+        st.order = keys(); arrows();
+      }
+      secSave();
+    }));
+  }
+  function keepScroll(el, top) { if (!top) return; el.scrollTop = top; requestAnimationFrame(() => { el.scrollTop = top; }); }
+
   // ------------------------------------------------------------ tabs
   const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
   function showTab(name, push = true) {
@@ -640,7 +683,7 @@
     const hist = d.history || [], labels = hist.map(h => dateLabel(h));
     const last = hist[hist.length - 1] || {};
     const cur = (state.cache.vehicles || []).find(x => x.vehicle_id === id) || {};
-    const el = $("#veh-detail");
+    const el = $("#veh-detail"), top = el.scrollTop;
     el.innerHTML = `<h2>${vehIcon(v, "lg")}${esc(v.name)} <small>#${v.vehicle_id} · ${v.icon_type ? t("icon_type." + v.icon_type) : CA(v.carrier)}${v.model ? " · " + esc(v.model) : ""}</small></h2>
       <div class="consist-row">${consist(v, "lg")}</div>
       ${vehActions({ vehicle_id: v.vehicle_id, user_stopped: cur.user_stopped })}
@@ -652,15 +695,16 @@
         <tr><td>${t("condition")}</td><td>${last.maintenance != null ? condIcon(last.maintenance) + bar(last.maintenance, 1, maintCls(last.maintenance)) : "–"}</td></tr>
         <tr><td>${t("th_speed")}</td><td>${kmh(last.speed_ms)}</td></tr>
       </table>
-      <h2 style="margin-top:12px">${ico("speed")}${t("speed_load")}</h2><canvas id="chart-veh-1" data-h="170"></canvas>
-      <h2>${ico("wrench")}${t("condition")}</h2><canvas id="chart-veh-2" data-h="120"></canvas>
+      <h2 data-sec="speed" style="margin-top:12px">${ico("speed")}${t("speed_load")}</h2><canvas id="chart-veh-1" data-h="170"></canvas>
+      <h2 data-sec="cond">${ico("wrench")}${t("condition")}</h2><canvas id="chart-veh-2" data-h="120"></canvas>
       <p class="muted" style="font-size:12px">${t("state_split", { n: hist.length })} ${["EN_ROUTE", "AT_TERMINAL", "IN_DEPOT", "GOING_TO_DEPOT"].map(s => { const n = hist.filter(h => h.state === s).length; return n ? `<span style="color:${STATE_COLOR[s]}">${ST(s)} ${Math.round(100 * n / hist.length)} %</span>` : ""; }).filter(Boolean).join(" · ")}</p>`;
-    bindActions(el);
+    bindActions(el); sectionize(el);
     Charts.lineChart($("#chart-veh-1"), [
       { name: t("th_speed"), values: hist.map(h => h.speed_ms != null ? h.speed_ms * 3.6 : null), color: "#58a6ff", unit: "km/h", area: true },
       { name: t("th_load"), values: hist.map(h => h.load), color: "#e8b04b", axis: "right", step: true },
     ], labels, { zeroBase: true, rightAxis: true, unit: "km/h", rightUnit: "", ...tsOpts(hist, "veh") });
     Charts.lineChart($("#chart-veh-2"), [{ name: t("condition"), values: hist.map(h => h.maintenance != null ? h.maintenance * 100 : null), color: "#4f8a8a", unit: "%", area: true }], labels, { percent: true, ...tsOpts(hist, "veh") });
+    keepScroll(el, top);
   }
 
   // ------------------------------------------------------------ lines
@@ -754,7 +798,7 @@
   async function renderLineDetail(id) {
     const l = (state.cache.lines || []).find(x => x.line_id === id); if (!l) return;
     const h = await api("/api/line_history", { id, limit: settings.history, range: settings.range });
-    const el = $("#line-detail");
+    const el = $("#line-detail"), top = el.scrollTop;
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
     const keepStops = state.editStop && state.editStop.line === id && $("#line-stops-wrap tr.editing", el) ? $("#line-stops-wrap", el) : null;
     el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
@@ -767,13 +811,13 @@
         ${carriesPax(l) ? `<tr><td>${t("det_on_line")}</td><td>${int(l.persons_on_line)}</td></tr><tr><td>${t("th_pax_unhappy")}</td><td>${l.pax_total ? barQuality(l.pax_bad || 0, l.pax_total) : "–"}${l.pax_avg_quality != null && l.pax_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.pax_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
         ${carriesCargo(l) ? `<tr><td>${t("th_cargo_late")}</td><td>${l.cargo_total ? barQuality(l.cargo_bad || 0, l.cargo_total) : "–"}${l.cargo_avg_quality != null && l.cargo_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.cargo_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
       </table>
-      <h2 style="margin-top:12px">${ico("line_stations")}${t("stops_title")} <small>${(l.stop_list || []).length}</small></h2>
+      <h2 data-sec="stops" style="margin-top:12px">${ico("line_stations")}${t("stops_title")} <small>${(l.stop_list || []).length}</small></h2>
       <div id="line-stops-wrap"></div>
-      <h2 style="margin-top:12px">${ico("vehicles")}${t("line_vehicles")} <small>${(h.vehicles || []).length}</small></h2>
+      <h2 data-sec="vehicles" style="margin-top:12px">${ico("vehicles")}${t("line_vehicles")} <small>${(h.vehicles || []).length}</small></h2>
       <div class="actions">${lineBulkBtns(l, (h.vehicles || []).length)}</div>
       <div id="line-veh-wrap">${(h.vehicles || []).length ? "" : `<p class="muted">${t("no_line_vehicles")}</p>`}</div>
-      <h2 style="margin-top:12px">${ico("vehicles")}${t(carriesPax(l) ? "veh_and_pax" : "kpi_vehicles")}</h2><canvas id="chart-line-1" data-h="170"></canvas>
-      <h2>${ico("unhappy")}${t("service_quality")}</h2><canvas id="chart-line-2" data-h="150"></canvas>`;
+      <h2 data-sec="trend" style="margin-top:12px">${ico("vehicles")}${t(carriesPax(l) ? "veh_and_pax" : "kpi_vehicles")}</h2><canvas id="chart-line-1" data-h="170"></canvas>
+      <h2 data-sec="quality">${ico("unhappy")}${t("service_quality")}</h2><canvas id="chart-line-2" data-h="150"></canvas>`;
     if ((h.vehicles || []).length) {
       const vcols = [
         { key: "name", label: t("th_vehicle"), render: v => `${modelImg(v, "sm")}${esc(v.name)}` },
@@ -805,7 +849,7 @@
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     musicTracks();  // prefetch, so "Any" can pick a track synchronously inside the click
     $("#line-travel").addEventListener("click", async () => { trvDraft({ kind: "line", line: l.line_id }); await lineTravelling(l, trv.draft); renderLineDetail(id); });
-    bindActions(el);
+    bindActions(el); sectionize(el); keepScroll(el, top);
   }
   // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour):
   // one path built by the mod from the stops (route sent here) + the vehicles' positions at that moment; the
@@ -1083,7 +1127,8 @@
     const tw = (state.cache.towns || []).find(x => x.town_id === id); if (!tw) return;
     const h = await api("/api/town_history", { id, limit: settings.history, range: settings.range });
     const hap = [[t("hap_inside"), tw.hap_inside_unhappy, tw.hap_inside_total], [t("hap_res_out"), tw.hap_from_res_unhappy, tw.hap_from_res_total], [t("hap_res_in"), tw.hap_to_res_unhappy, tw.hap_to_res_total], [t("hap_visitors"), (tw.hap_to_nonres_unhappy || 0) + (tw.hap_from_nonres_unhappy || 0), (tw.hap_to_nonres_total || 0) + (tw.hap_from_nonres_total || 0)], [t("hap_car"), tw.hap_car_unhappy, tw.hap_car_total], [t("hap_walk"), tw.hap_walk_unhappy, tw.hap_walk_total]];
-    $("#town-detail").innerHTML = `<h2>${ico("town", "lg")}${esc(tw.name)}${tw.has_hq ? ` <span class="hqstar" title="${esc(t("town_hq"))}">${ico("star", "sm")}</span>` : ""} <small>#${tw.town_id} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : ""}</small></h2>
+    const el = $("#town-detail"), top = el.scrollTop;
+    el.innerHTML = `<h2>${ico("town", "lg")}${esc(tw.name)}${tw.has_hq ? ` <span class="hqstar" title="${esc(t("town_hq"))}">${ico("star", "sm")}</span>` : ""} <small>#${tw.town_id} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv">
         <tr><td>${t("residential")} · ${t("commercial").toLowerCase()} · ${t("industrial").toLowerCase()}</td><td>${[["used_res", "cap_res"], ["used_com", "cap_com"], ["used_ind", "cap_ind"]].map(([u, c]) => `<span class="mono">${int(tw[u])}/${int(tw[c])}</span>`).join(" · ")}</td></tr>
@@ -1094,19 +1139,20 @@
       </table>
       <table class="kv">${hap.map(([k, b, tot]) => `<tr><td>${k}</td><td>${barQuality(b || 0, tot || 0)}</td></tr>`).join("")}</table>
       <p class="muted" style="font-size:12px">${t("reach", { a: tw.reach_com_private ?? "–", b: tw.reach_com_public ?? "–", c: tw.reach_ind_private ?? "–", d: tw.reach_ind_public ?? "–" })}</p>
-      <h2>${ico("town_supplies")}${t("cargo_needs")}</h2>
+      <h2 data-sec="cargo">${ico("town_supplies")}${t("cargo_needs")}</h2>
       <table class="kv">${tw.cargo.length ? tw.cargo.map(c => {
         // Game window figure ("supplied / needed", mod schema 3+) when available, otherwise the warehouse stock.
         const game = c.needed != null && c.needed > 0, a = game ? c.supplied : c.stock, b = game ? c.needed : c.capacity, p = pct(a, b);
         return `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td title="${game ? t("tip_town_supplied") : t("tip_town_stock")}">${bar(a, b, p < 30 ? "bad" : p < 70 ? "warn" : "ok", `${int(a)} / ${int(b)}`)}${game ? ` <span class="muted" style="font-size:11px">${t("stock_short", { a: int(c.stock), b: int(c.capacity) })}</span>` : ""}</td></tr>`;
       }).join("") : `<tr><td class="muted">${t("none_m")}</td><td></td></tr>`}</table>
-      ${tw.top_lines.length ? `<h2>${ico("line")}${t("top_lines")}</h2><table class="kv">${tw.top_lines.map(l => `<tr><td>${esc(l.name || "#" + l.line_id)}</td><td>${barQuality((l.resident_unhappy || 0) + (l.nonresident_unhappy || 0), (l.resident_total || 0) + (l.nonresident_total || 0))}</td></tr>`).join("")}</table>` : ""}
-      <h2 style="margin-top:12px">${ico("town_people")}${t("capacities")}</h2><canvas id="chart-town-1" data-h="160"></canvas>
-      <h2>${ico("town_happiness")}${t("satisfaction_pt")}</h2><canvas id="chart-town-2" data-h="150"></canvas>`;
-    bindActions($("#town-detail"));
+      ${tw.top_lines.length ? `<h2 data-sec="lines">${ico("line")}${t("top_lines")}</h2><table class="kv">${tw.top_lines.map(l => `<tr><td>${esc(l.name || "#" + l.line_id)}</td><td>${barQuality((l.resident_unhappy || 0) + (l.nonresident_unhappy || 0), (l.resident_total || 0) + (l.nonresident_total || 0))}</td></tr>`).join("")}</table>` : ""}
+      <h2 data-sec="cap" style="margin-top:12px">${ico("town_people")}${t("capacities")}</h2><canvas id="chart-town-1" data-h="160"></canvas>
+      <h2 data-sec="sat">${ico("town_happiness")}${t("satisfaction_pt")}</h2><canvas id="chart-town-2" data-h="150"></canvas>`;
+    bindActions(el); sectionize(el);
     const hist = h.history || [], labels = hist.map(x => dateLabel(x));
     Charts.lineChart($("#chart-town-1"), [{ name: t("residential"), values: hist.map(x => x.cap_res), color: "#4f8a8a" }, { name: t("commercial"), values: hist.map(x => x.cap_com), color: "#e8b04b" }, { name: t("industrial"), values: hist.map(x => x.cap_ind), color: "#bc8cff" }], labels, { stacked: true, ...tsOpts(hist, "town") });
     Charts.lineChart($("#chart-town-2"), [{ name: t("unhappy_town"), values: hist.map(x => x.hap_inside_total ? pct(x.hap_inside_unhappy, x.hap_inside_total) : null), color: "#d62560", unit: "%" }, { name: t("pt_share"), values: hist.map(x => x.line_usage != null ? x.line_usage * 100 : null), color: "#3fb950", unit: "%" }], labels, { percent: true, ...tsOpts(hist, "town") });
+    keepScroll(el, top);
   }
 
   // ------------------------------------------------------------ industries
@@ -1177,16 +1223,17 @@
     const outs = [...byKey.values()].filter(e => e.c.direction === "out"), ins = [...byKey.values()].filter(e => e.c.direction === "in");
     const status = [ind.producing ? `<span class="chip ok">${t("producing")}</span>` : `<span class="chip bad">${t("halted")}</span>`, ind.closure_time > 0 ? `<span class="chip bad">${t("closing")}</span>` : "", boostChip(ind, true), ind.manual ? `<span class="chip warn">${t("manual")}</span>` : ""].join("");
     const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
-    $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
+    const el = $("#ind-detail"), top = el.scrollTop;
+    el.innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}${ind.thrown_away ? ` <span class="chip warn">${t("det_thrown")} ${int(ind.thrown_away)}</span>` : ""}${ind.closure_time > 0 ? ` <span class="chip bad">${t("det_closure")} ${int(ind.closure_time)}</span>` : ""}</p>
       <table class="kv">${(ind.cargo || []).map(c => { const out = c.direction === "out", a = out ? c.produced_year : c.consumed_year, m = out ? c.max_prod_year : c.max_cons_year, sh = out ? c.shipped_year : c.delivered_year;
         return `<tr><td>${cargoChip(c)} <small class="muted">${out ? t("th_outputs") : t("th_inputs")}</small></td><td>${m != null || a != null ? `${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)} <small class="muted" title="${esc(out ? t("shipped") : t("delivered"))}">${ico(out ? "cargo_supplied" : "cargo_received", "sm")}${int(sh)}</small>` : ""}${c.capacity != null ? ` <span class="pile" title="${esc(t("det_piles"))}">${ico("stock_full", "sm")}<span class="mono">${int(c.stock)}/${int(c.capacity)}</span></span>` : ""}</td></tr>`; }).join("")}</table>
       ${boostRows(ind.boosters)}
-      ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
-      ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
-      <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
-    bindActions($("#ind-detail"));
+      ${outs.length ? `<h2 data-sec="out">${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
+      ${ins.length ? `<h2 data-sec="in">${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
+      <h2 data-sec="lvl">${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
+    bindActions(el); sectionize(el);
     const tx = tsOpts(hist, "ind");
     // one colour per cargo: solid = produced/consumed, dashed = shipped/delivered, faint = yearly maximum
     const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo); return [
@@ -1200,6 +1247,7 @@
       { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#3fb950", unit: "%" },
       { name: t("th_level"), values: hist.map(x => x.level), color: "#bc8cff", axis: "right", step: true },
     ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
+    keepScroll(el, top);
   }
 
   // ------------------------------------------------------------ stations & depots
@@ -1236,21 +1284,23 @@
     const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
     const hist = h.history || [], labels = hist.map(x => dateLabel(x)), lines = h.lines || [];
     const cap = (st.terminal_capacity || 0) + (st.pool_capacity || 0);
-    $("#st-detail").innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
+    const el = $("#st-detail"), top = el.scrollTop;
+    el.innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
         <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
         <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
         <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>
-      <h2>${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
+      <h2 data-sec="lines">${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
-      <h2 style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
-    bindActions($("#st-detail"));  // also binds the .goto[data-line] rows
+      <h2 data-sec="hist" style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
+    bindActions(el); sectionize(el);  // bindActions also binds the .goto[data-line] rows
     Charts.lineChart($("#chart-st-1"), [
       { name: t("th_waiting"), values: hist.map(x => x.used), color: "#4f8a8a", area: true },
       { name: t("th_capacity"), values: hist.map(x => (x.terminal_capacity || 0) + (x.pool_capacity || 0) || null), color: "#8b98a8", dash: [4, 4] },
       { name: t("th_overflow"), values: hist.map(x => x.overflow), color: "#d62560", step: true },
     ], labels, { zeroBase: true, ...tsOpts(hist, "st") });
+    keepScroll(el, top);
   }
 
   // ------------------------------------------------------------ finance (secondary)

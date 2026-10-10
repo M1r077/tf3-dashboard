@@ -241,6 +241,11 @@ ICONS: dict[str, tuple[str, str]] = {
     "booster": (GUI, "gui/entity_window/icons/production_booster@2x.tga"),
     "stop": (GUI, "gui/entity_window/icons/stop@2x.tga"),
     "arrow_up": (GUI, "gui/entity_window/icons/symbol_arrow_up@2x.tga"),
+    # detail-card sections: fold/unfold and move up/down, the entity windows' own controls
+    "sec_collapse": (GUI, "gui/entity_window/icons/collapse@2x.tga"),
+    "sec_expand": (GUI, "gui/entity_window/icons/expand@2x.tga"),
+    "head_up": (GUI, "gui/entity_window/icons/arrow_head_up@2x.tga"),
+    "head_down": (GUI, "gui/entity_window/icons/arrow_head_down@2x.tga"),
     "refresh": (GUI, "gui/entity_window/icons/symbol_arrows_refresh@2x.tga"),
     "load_speed": (GUI, "gui/line_vehicle_mgmt/icons/stat_load_speed@2x.tga"),
     "weight": (GUI, "gui/line_vehicle_mgmt/icons/symbol_weight@2x.tga"),

@@ -134,6 +134,7 @@ window.I18N = {
     set_layout: "Panels", layout_edit: "Arrange panels", layout_reset_all: "Reset all tabs", layout_reset_tab: "Reset this tab", layout_done: "Done",
     layout_hint: "Drag a panel by its title bar and drop it anywhere: it snaps to the grid and to its neighbours, the others make room. Drag any edge to resize. Esc to finish.",
     layout_hidden: "Hidden panels:", layout_drag: "Drag to move", layout_hide: "Hide this panel", layout_pin: "Show on Operations too", layout_unpin: "Back to its own tab", layout_auto_height: "Automatic height",
+    sec_fold: "Fold this section", sec_unfold: "Unfold this section", sec_up: "Move up", sec_down: "Move down",
     panel: { "veh-table": "Vehicle list", "lines-table": "Line list", "towns-table": "Town list", "ind-table": "Industry list", "st-table": "Stations", "dep-table": "Depots", map: "Map" },
     // enums
     state: { EN_ROUTE: "en route", AT_TERMINAL: "at terminal", IN_DEPOT: "in depot", GOING_TO_DEPOT: "to depot" },
@@ -268,6 +269,7 @@ window.I18N = {
     set_layout: "Panneaux", layout_edit: "Organiser les panneaux", layout_reset_all: "Réinitialiser tous les onglets", layout_reset_tab: "Réinitialiser cet onglet", layout_done: "Terminé",
     layout_hint: "Glissez un panneau par sa barre de titre et posez-le où vous voulez : il s’aligne sur la grille et sur ses voisins, les autres font de la place. Tirez un bord pour le redimensionner. Échap pour terminer.",
     layout_hidden: "Panneaux masqués :", layout_drag: "Glisser pour déplacer", layout_hide: "Masquer ce panneau", layout_pin: "Afficher aussi dans Exploitation", layout_unpin: "Retour dans son onglet", layout_auto_height: "Hauteur automatique",
+    sec_fold: "Replier cette section", sec_unfold: "Déplier cette section", sec_up: "Monter", sec_down: "Descendre",
     panel: { "veh-table": "Liste des véhicules", "lines-table": "Liste des lignes", "towns-table": "Liste des villes", "ind-table": "Liste des industries", "st-table": "Gares", "dep-table": "Dépôts", map: "Carte" },
     state: { EN_ROUTE: "en route", AT_TERMINAL: "au terminal", IN_DEPOT: "au dépôt", GOING_TO_DEPOT: "vers dépôt" },
     carrier: { ROAD: "Route", RAIL: "Rail", TRAM: "Tram", AIR: "Air", WATER: "Eau", OTHER: "Autre" },
@@ -401,6 +403,7 @@ window.I18N = {
     set_layout: "Panels", layout_edit: "Panels anordnen", layout_reset_all: "Alle Tabs zurücksetzen", layout_reset_tab: "Diesen Tab zurücksetzen", layout_done: "Fertig",
     layout_hint: "Panel an der Titelleiste ziehen und beliebig ablegen: es rastet am Raster und an den Nachbarn ein, die anderen machen Platz. Beliebigen Rand ziehen, um die Grösse zu ändern. Esc zum Beenden.",
     layout_hidden: "Ausgeblendete Panels:", layout_drag: "Ziehen zum Verschieben", layout_hide: "Dieses Panel ausblenden", layout_pin: "Auch unter Betrieb zeigen", layout_unpin: "Zurück in den eigenen Tab", layout_auto_height: "Automatische Höhe",
+    sec_fold: "Abschnitt einklappen", sec_unfold: "Abschnitt ausklappen", sec_up: "Nach oben", sec_down: "Nach unten",
     panel: { "veh-table": "Fahrzeugliste", "lines-table": "Linienliste", "towns-table": "Städteliste", "ind-table": "Industrieliste", "st-table": "Bahnhöfe", "dep-table": "Depots", map: "Karte" },
     state: { EN_ROUTE: "unterwegs", AT_TERMINAL: "am Terminal", IN_DEPOT: "im Depot", GOING_TO_DEPOT: "zum Depot" },
     carrier: { ROAD: "Strasse", RAIL: "Schiene", TRAM: "Tram", AIR: "Luft", WATER: "Wasser", OTHER: "Andere" },
@@ -550,6 +553,7 @@ window.I18N = {
     set_layout: "Painéis", layout_edit: "Organizar painéis", layout_reset_all: "Redefinir todas as abas", layout_reset_tab: "Redefinir esta aba", layout_done: "Concluído",
     layout_hint: "Arraste um painel pela barra de título e solte onde quiser: ele se alinha à grade e aos vizinhos, os outros abrem espaço. Arraste qualquer borda para redimensionar. Esc para terminar.",
     layout_hidden: "Painéis ocultos:", layout_drag: "Arraste para mover", layout_hide: "Ocultar este painel", layout_pin: "Mostrar também em Operações", layout_unpin: "Voltar à sua aba", layout_auto_height: "Altura automática",
+    sec_fold: "Recolher esta seção", sec_unfold: "Expandir esta seção", sec_up: "Mover para cima", sec_down: "Mover para baixo",
     panel: { "veh-table": "Lista de veículos", "lines-table": "Lista de linhas", "towns-table": "Lista de cidades", "ind-table": "Lista de indústrias", "st-table": "Estações", "dep-table": "Depósitos", map: "Mapa" },
     // enums
     state: { EN_ROUTE: "em trânsito", AT_TERMINAL: "no terminal", IN_DEPOT: "no depósito", GOING_TO_DEPOT: "indo ao depósito" },
@@ -571,6 +575,7 @@ window.I18N = {
    (载具, 线路, 车站, 车库...); everything else stays in English until a native speaker completes it (see README,
    "Translating"). Built on top of "en" so no key is ever missing. */
 window.I18N.zh = Object.assign({}, window.I18N.en, {
+  sec_fold: "折叠此部分", sec_unfold: "展开此部分", sec_up: "上移", sec_down: "下移",
   map_theme_satellite: "卫星",
   range_title: "图表的时间范围：真实分钟，或模拟时间的月与年。X 轴为游戏时钟（一个财年 = 1460 秒模拟时间，与日历速度无关；日期可暂停而资金仍在流动）。每个存档只有一条时间线：读取较早的存档会移除其后记录的数据。",
   saves_reloads: "已从较早的存档重新读取 {n} 次，最近一次 {from} → {to}（{at}）。该点之后记录的数据已移除：每个存档一条时间线，与游戏一致。",

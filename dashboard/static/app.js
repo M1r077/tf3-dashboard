@@ -1913,6 +1913,7 @@
   // existing tracks (Dijkstra on the exported geography, server side): the ruler then shows both lengths and draws
   // the two routes, which is what a ruler is for when planning a line between two points that are already served.
   const ruler = { on: false, a: null, b: null, hover: null, net: null, netKey: null };
+  const RULER_SPEED = { road: 50, rail: 80 };  // km/h, placeholders until the vehicle catalogue provides the fastest available vehicle
   function rulerSet(on) {
     ruler.on = on; ruler.a = ruler.b = ruler.hover = ruler.net = ruler.netKey = null;
     $("#map-ruler-btn").classList.toggle("active", on);
@@ -1964,26 +1965,40 @@
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
       if (ruler.b) dot(b);
       const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
-      const lines = [fmtDist(dist)];
+      // each line: a colour swatch (what it is on the map), the figure in white, the rest dimmed
+      const lines = [{ sw: "#e8b04b", v: fmtDist(dist), s: "" }];
       if (ha != null && hb != null) {
         // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
-        const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
-        lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * Math.max(0, dz)) }));
+        const dz = hb - ha;
+        lines.push({ sw: null, v: (dz >= 0 ? "+" : "") + Math.round(dz) + " m", s: t("ruler_dz", { n: "" }).trim(), c: dz > 0 ? "#f08080" : "#9ad39a" });
+        lines.push({ sw: null, v: fmtDist(dist + 8 * Math.max(0, dz)), s: t("ruler_paid", { d: "" }).trim() });
       }
       if (net && net.available) {
-        lines.push(t("ruler_road", { d: net.road != null ? fmtDist(net.road) : t("ruler_none") }));
-        lines.push(t("ruler_rail", { d: net.rail != null ? fmtDist(net.rail) : t("ruler_none") }));
+        // travel time at a flat cruising speed, ignoring stops and acceleration. Placeholder speeds (early game: steam
+        // locomotives ~80 km/h, trucks and buses ~50 km/h) until the vehicle catalogue is in the database, where the
+        // fastest vehicle available at the current date will replace them.
+        const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
+        lines.push(net.road != null ? { sw: "#f0a35e", v: fmtDist(net.road), s: trip(net.road, RULER_SPEED.road) } : { sw: "#f0a35e", v: "", s: t("ruler_road", { d: t("ruler_none") }) });
+        lines.push(net.rail != null ? { sw: "#7fb8ff", v: fmtDist(net.rail), s: trip(net.rail, RULER_SPEED.rail) } : { sw: "#7fb8ff", v: "", s: t("ruler_rail", { d: t("ruler_none") }) });
       }
       // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
       // over the relief)
       const mx = (ax + bx) / 2, my = (ay + by) / 2, len = Math.hypot(bx - ax, by - ay) || 1, nx = -(by - ay) / len, ny = (bx - ax) / len;
       ctx.font = "600 13px " + font; ctx.textBaseline = "middle";
-      const tw = Math.max(...lines.map(s => ctx.measureText(s).width)), lh = 17, pw = tw + 16, ph = lines.length * lh + 8;
+      const vw = Math.max(...lines.map(l => ctx.measureText(l.v).width));
+      ctx.font = "500 12px " + font;
+      const sw = Math.max(...lines.map(l => ctx.measureText(l.s).width));
+      const lh = 18, swx = 14, pw = swx + vw + (sw ? 8 + sw : 0) + 18, ph = lines.length * lh + 8;
       const px = mx + nx * 16 - (nx >= 0 ? 0 : pw), py = my + ny * 16 - ph / 2;
-      ctx.fillStyle = "rgba(11,16,21,.88)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
+      ctx.fillStyle = "rgba(11,16,21,.9)"; ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.roundRect ? ctx.roundRect(px, py, pw, ph, 6) : ctx.rect(px, py, pw, ph); ctx.fill(); ctx.stroke();
       ctx.textAlign = "left";
-      lines.forEach((s, i) => { ctx.fillStyle = i ? "#c9d1d9" : "#ffffff"; ctx.fillText(s, px + 8, py + 4 + lh * (i + 0.5)); });
+      lines.forEach((l, i) => {
+        const y = py + 4 + lh * (i + 0.5);
+        if (l.sw) { ctx.fillStyle = l.sw; ctx.fillRect(px + 8, y - 1.5, 9, 3); }
+        ctx.font = "600 13px " + font; ctx.fillStyle = l.c || "#ffffff"; ctx.fillText(l.v, px + 8 + swx, y);
+        ctx.font = "500 12px " + font; ctx.fillStyle = "#9aa7b4"; ctx.fillText(l.s, px + 8 + swx + vw + 8, y);
+      });
       ctx.textBaseline = "alphabetic";
     } else {
       ctx.font = "12px " + font; ctx.textAlign = "left"; const s = t(a ? "ruler_hint_b" : "ruler_hint_a"); ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(s, 16, 20); ctx.fillStyle = ink; ctx.fillText(s, 16, 20);

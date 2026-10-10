@@ -155,6 +155,8 @@ class Store:
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
         ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
         ("vehicle", "top_speed", "INTEGER"),   # km/h, the slowest part of the consist (model metadata)
+        ("industry_cargo", "stock", "INTEGER"),    # the pile now (mod 14)
+        ("industry_cargo", "capacity", "INTEGER"),
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
     )
@@ -683,14 +685,27 @@ class Store:
                 (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
                  b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away")),
             )
+            # piles (mod 14): per (direction, cargo type) the amount lying there and the pile size; summed when an
+            # industry has several stocks of the same cargo. Storage stocks count as "out" (a warehouse ships them).
+            piles: dict = {}
+            for p in as_list(i.get("stock")):
+                if isinstance(p, dict) and p.get("cargo_type") is not None:
+                    key = ("in" if p.get("kind") == "in" else "out", p["cargo_type"])
+                    cur = piles.setdefault(key, [0, 0])
+                    cur[0] += int(p.get("stock") or 0); cur[1] += int(p.get("capacity") or 0)
             for c in as_list(i.get("inputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                     (sid, iid, c["cargo_type"], "in", None, None, None, c.get("consumed_year"), c.get("max_consumption_year"), c.get("delivered_year")))
+                    pile = piles.pop(("in", c["cargo_type"]), (None, None))
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                     (sid, iid, c["cargo_type"], "in", None, None, None, c.get("consumed_year"), c.get("max_consumption_year"), c.get("delivered_year"), pile[0], pile[1]))
             for c in as_list(i.get("outputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                     (sid, iid, c["cargo_type"], "out", c.get("produced_year"), c.get("max_production_year"), c.get("shipped_year"), None, None, None))
+                    pile = piles.pop(("out", c["cargo_type"]), (None, None))
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                     (sid, iid, c["cargo_type"], "out", c.get("produced_year"), c.get("max_production_year"), c.get("shipped_year"), None, None, None, pile[0], pile[1]))
+            for (direction, ct), pile in piles.items():  # piles without a rule (warehouses, storage stocks)
+                self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                 (sid, iid, ct, direction, None, None, None, None, None, None, pile[0], pile[1]))
 
     def _depots(self, sid: int, gid: int, now: str, ds: Any):
         for d in as_list(ds):

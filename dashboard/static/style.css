@@ -232,6 +232,7 @@ table.kv td .onboard { margin-right: 8px; }
 table.data td.gauge { text-align: left; white-space: nowrap; }
 table.data td.gauge .qstack > span .ico, table.data td.gauge > .ico { width: calc(var(--isz) * 0.75); height: calc(var(--isz) * 0.75); margin: 0 6px 0 0; flex: none; }
 table.kv td .onboard, table.kv td .ico.cond { margin-right: 8px; }
+table.kv td .pile { margin-left: 8px; white-space: nowrap; }  /* industry pile next to the yearly bar */
 .onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
 .onboard .ob .ico { margin: 0; }
 .onboard .ob small { font-family: var(--mono); font-size: 11px; color: var(--text); }

@@ -366,6 +366,8 @@ CREATE TABLE IF NOT EXISTS industry_cargo (
     consumed_year   INTEGER,
     max_cons_year   INTEGER,
     delivered_year  INTEGER,
+    stock           INTEGER,                      -- what lies in the pile now (mod 14; the industry window's figure)
+    capacity        INTEGER,                      -- size of the pile
     PRIMARY KEY (snapshot_id, industry_id, cargo_id, direction)
 );
 

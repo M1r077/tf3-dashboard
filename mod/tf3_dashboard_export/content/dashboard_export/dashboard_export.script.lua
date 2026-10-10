@@ -973,7 +973,24 @@ local function industryItem(i, ctx)
 				local p = api.engine.util.industry.getIndustryProductivityInfo(i)
 				rec.producing = p.producing and true or false; rec.boost_rule = p.boostFromRule and true or false; rec.boost_persons = p.boostFromPersonCapacity and true or false
 			end)
-			pcall(function() local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST); if s then rec.thrown_away = num(s.thrownAwayCargo) end end)
+			pcall(function()
+				local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST)
+				if not s then return end
+				rec.thrown_away = num(s.thrownAwayCargo)
+				-- what lies in the piles now: per stock (input / output / storage) and cargo type, amount and capacity.
+				-- getStockCount is the figure of the industry window; stocks are 0-based ids in StockList.stocks order.
+				local sys = api.engine.system.simEntityAtStockSystem
+				rec.stock = {}
+				for idx, st in ipairs(arr(s.stocks)) do
+					local sid = idx - 1
+					local ok, n = pcall(sys.getStockCount, sl, sid)
+					if ok then
+						local ct = num(st.cargoType)
+						local kind = ({ OutputStock = "out", InputStock = "in", StorageStock = "store" })[enumName("StockListType", { "InputStock", "OutputStock", "StorageStock" }, st.type) or ""] or "store"
+						rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
+					end
+				end
+			end)
 			pcall(function()
 				local io = arr(api.engine.util.stock.getInputsOutputsFromRules(sl))
 				rec.inputs, rec.outputs = {}, {}

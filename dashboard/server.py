@@ -612,7 +612,7 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.station_group, s.x, s.y, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
@@ -701,7 +701,7 @@ def api_map_cargo(q: dict) -> dict:
     """Cargo layers of the map, per owner (town or industry), from the latest slow snapshot:
       out   : what the owner produces     [{cargo, key, rate}]            rate = produced / max production per year
       in    : what the owner needs        [{cargo, key, rate}]            rate = delivered (or supplied) / need per year
-      stock : what is lying there now     [{cargo, key, amount, capacity}] towns only until the mod exports industry piles
+      stock : what is lying there now     [{cargo, key, amount, capacity}] towns, and industry piles with mod 14
     One query per table, ~200 rows, a few ms."""
     gid = _gid()
     keys = {r["cargo_id"]: r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
@@ -710,16 +710,22 @@ def api_map_cargo(q: dict) -> dict:
         return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
     sid = one("SELECT MAX(snapshot_id) sid FROM industry_cargo")
     if sid and sid["sid"]:
-        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year
+        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year, ic.stock, ic.capacity
                          FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
                          WHERE ic.snapshot_id=?""", (gid, sid["sid"])):
             o = owner("industries", r["industry_id"])
+            has_rule = any(r[k] is not None for k in ("produced_year", "max_prod_year", "consumed_year", "max_cons_year", "delivered_year"))
             if r["direction"] == "out":
                 mx = r["max_prod_year"] or 0
-                o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
+                if has_rule:
+                    o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
             else:
                 mx = r["max_cons_year"] or 0
-                o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+                if has_rule:
+                    o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+            if r["capacity"] is not None:  # the pile (mod 14); output piles first so what is for sale reads first
+                item = {"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"], "direction": r["direction"]}
+                (o["stock"].insert(0, item) if r["direction"] == "out" else o["stock"].append(item))
     sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
     if sid and sid["sid"]:
         for r in rows("""SELECT ts.town_id, ts.cargo_id, SUM(ts.v1) AS supplied, SUM(ts.v2) AS needed FROM town_supply ts

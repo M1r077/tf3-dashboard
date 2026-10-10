@@ -186,3 +186,18 @@ for k in range(N):
 print(store.rollup(detail_hours=2.0, slow_days=14, say=print))
 print(store.status())
 print("db:", DB)
+
+# camera views + travellings next to the fake database (the server reads db/<name>.json beside the db file): three
+# views (one attached to a vehicle) and three saved travellings, one per kind, so the map's three cards have content
+import json
+json.dump({"player:42": [
+    {"id": 1, "name": "Gare de Rolle", "x": 10100, "y": 10350, "dist": 320, "angle": 0.8, "pitch": -0.9},
+    {"id": 2, "name": "Lausanne depuis le lac", "x": 12000, "y": 10850, "dist": 900, "angle": 3.4, "pitch": -0.6},
+    {"id": 3, "name": "Train 1", "x": 10500, "y": 10400, "dist": 120, "angle": 1.2, "pitch": -0.7, "follow": 1001, "follow_name": "Train 1"},
+]}, open(HERE / "camera_views.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+json.dump({"player:42": [
+    {"id": 1, "name": "Tour de Rolle", "kind": "view", "view": 1, "move": "orbit", "dir": 1, "amp": 1, "dur": 20, "loop": True, "music": "auto", "vol": 0.6},
+    {"id": 2, "name": "Toutes les vues", "kind": "chain", "views": [1, 2, 3], "dur": 40, "amp": 1, "loop": False, "music": "", "vol": 0.6},
+    {"id": 3, "name": "Ligne Nyon-Lausanne", "kind": "line", "line": 400, "dur": 40, "amp": 1, "loop": False, "music": "", "vol": 0.6},
+]}, open(HERE / "travellings.json", "w", encoding="utf-8"), indent=1, ensure_ascii=False)
+print("views + travellings:", HERE)

@@ -171,7 +171,12 @@ Three independent parts:
      **whole consist** in the vehicle sheet (unknown model, e.g. from a mod -> generic pictogram). Stdlib only (own TGA
      decoder + PNG writer, no Pillow); run automatically by `_server.cmd` at first start when
      `static\icons\_manifest.json` is missing; the game is found through the Steam libraries (`libraryfolders.vdf`) or
-     `game_dir` in `config.json`. The icons are not redistributed. Re-run after a game update (delete `static\icons`).
+     `game_dir` in `config.json`. The icons are not redistributed; `_server.cmd` extracts again when `extract_icons.py`
+     is newer than the manifest (a new version using more of the game's icons). **Rule**: an icon means here what it
+     means in the game, never something else (the camera manager's play / stop / save / pencil / bin are reused for
+     the travellings for that reason). The few functions the game has no icon for (the camera movements: orbit,
+     dolly, flyover, sweep, spiral, reverse) are drawn by `dashboard\own_icons.py` (Pillow, white strokes, 48 px) into
+     `static\icons\own\`, which is committed.
    - **Game control**: pause / x1 / x2 / x4 bar in the header (shortcuts Space, 1, 2, 3), camera buttons on
      vehicles / lines / towns / industries / stations / depots / alerts, vehicle sheet: follow, stop / start, reverse,
      depart, send to depot; click on the map = camera on the object (Shift+click on a vehicle = follow). Greyed out when
@@ -269,15 +274,21 @@ Three independent parts:
      by `extract_icons.find_game()` holds 24 OGG tracks; they are listed as `game:<entry>` and read out of the zip on
      request (one `zipfile.read` per play, nothing extracted or copied). "Any" prefers the player's own files and falls
      back to the game's when `music/` is empty.
-   - **Travellings panel** (own card beside the views, `#travellings`): a travelling is a *recipe*, not a baked path:
-     `{kind: view|chain|line, view?, line?, move, dir, amp, dur, loop, music, vol, tail}`, rebuilt from the current
-     state when played (today's vehicles on the line, a view that follows its vehicle at its position now). The panel
-     holds one **draft** (set by the view row's travelling button, the line sheet's button or "Chain all views"; its
-     settings are the browser preferences `tf3.travel`) and the **saved list** (`db/travellings.json`, per savegame
-     key, max 20, `GET/POST /api/travellings` with the same actions as the views: add / update / rename / delete /
-     move). The gear on a saved travelling edits it in place (every click is a `update`), "Play" rebuilds and plays
-     it; a subject that no longer exists reports "no longer exists". The map's dotted eye-track preview follows the
-     draft when it is a movement around a view.
+   - **Travellings: three cards** in the column beside the map, in the order of use (`data-under` in the HTML stacks
+     them in one column at first layout). A travelling is a *recipe*, not a baked path:
+     `{kind: view|chain|line, view?, line?, views?, move, dir, amp, dur, loop, music, vol, tail}`, rebuilt from the
+     current state when played (today's vehicles on the line, a view that follows its vehicle at its position now).
+     **Camera views** = the subjects: recall one, or its travelling button plays around it with the draft's settings.
+     **Workshop** (`#trv-workshop`) = ONE draft (subject + settings; the settings are the browser preferences
+     `tf3.travel`) and the **player**: Play / Stop / progress / what is playing live here and nowhere else (the line
+     sheet's button only hands the line over and plays). Save keeps the draft in the list. The pencil of a saved
+     travelling **loads a copy into the workshop** (name in the head = rename; Play plays the copy; Apply writes it
+     back, Cancel drops it) instead of editing in place. **Travellings** (`#travellings`) = the saved list
+     (`db/travellings.json`, per savegame key, max 20, `GET/POST /api/travellings`: add / update / rename / delete /
+     move): play, pencil, order, delete. A subject that no longer exists reports "no longer exists". The map's dotted
+     eye-track preview follows the draft when it is a movement around a view.
+     Music: "None", "Game" (a random track of the soundtrack), "Any" (a random own file; shown only when `music/` has
+     files), or one own file.
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
      the Advanced Camera Tool); not exposed in the UI until tested in a free game.
    - **Finance journal** (mod 13 / companion 0.6.0, `tf3dash_journal.lua`): the Finances tab shows the game's own

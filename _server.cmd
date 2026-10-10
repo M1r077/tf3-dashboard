@@ -15,9 +15,15 @@ shift
 goto :parse
 
 :icons
-REM first start: extract the game's icons (cargo, vehicles, UI) from the local game installation
-if not exist "dashboard\static\icons\_manifest.json" (
-    echo first start: extracting the game's icons, a few seconds...
+REM first start, or a new version that uses more of the game's icons: extract them (cargo, vehicles, UI) from the
+REM local game installation. The icon list lives in extract_icons.py: newer than the manifest = extract again.
+set EXTRACT=
+if not exist "dashboard\static\icons\_manifest.json" set EXTRACT=1
+if not defined EXTRACT (
+    for /f %%i in ('%PY% -c "import os;print(int(os.path.getmtime(r'dashboard/extract_icons.py')>os.path.getmtime(r'dashboard/static/icons/_manifest.json')))"') do if "%%i"=="1" set EXTRACT=1
+)
+if defined EXTRACT (
+    echo extracting the game's icons, a few seconds...
     %PY% dashboard\extract_icons.py
     echo.
 )

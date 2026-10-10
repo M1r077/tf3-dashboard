@@ -49,7 +49,8 @@ which is why the companion lives here.
 2. **Companion** — download `TF3-Dashboard-<version>.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere **except a cloud-synced folder**
    (OneDrive Desktop/Documents, Dropbox...): the history is a SQLite database and sync clients lock or duplicate it.
-   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod rev 6+ needs companion 0.2.0+.
+   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod and companion are released together: mod revision 13
+   goes with companion 0.6.x (older pairs keep working, the newest features simply stay blank).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
    press `F11`. Close the window to stop everything.
@@ -104,7 +105,7 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
 - **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on
   the object (a vehicle: follow it). With mod revision 11 the map draws the savegame's **geography**: shaded relief,
   sea, lakes and rivers, every road and track (bridges, tunnels), four map styles (gear button), and lines are drawn
-  **along the network** (the real path of each vehicle, a predicted route until one has driven it). A **ruler** button measures as the crow flies, with the height difference and the distance the game actually pays (straight line + 8 x the climb, never the length of track). **Camera views**
+  **along the network** (the real path of each vehicle, a predicted route until one has driven it). A **ruler** button measures as the crow flies, with the height difference and the distance the game actually pays (straight line + 8 x the climb, never the length of track), plus the distance by road and by rail over the existing network (dashed where nothing is built). **Cargo layers** (production / demand / stocks) draw the cargo icons next to each industry and town, dimmed by how far they are from their maximum; hovering shows the figures, and a vehicle shows what it carries. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9; a view can be
   attached to a vehicle (revision 11: recalled = follow it again with the same framing). Views are kept
   per savegame in `db\camera_views.json`. **Travelling** (mod revision 10): smooth camera movements around a view
@@ -115,7 +116,10 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   soundtrack is offered too, read straight from the game's `music.zip`.
 - **Towns**, **Industries** and **Stations & depots** — tables with a detail card on click: capacities and
   satisfaction, production / shipped per cargo, waiting items and overflow, all over time (14 days of history).
-- **Finances** — balance, yearly result, transported, network size and company value over time.
+- **Finances** — balance, yearly result, transported, network size and company value over time, and the **game's own
+  finance journal** (mod revision 13): the same table as the game's Finances window, by financial year, with every
+  line (running costs and maintenance by carrier, upkeep of roads, tracks, buildings, income, construction and
+  vehicle purchases), kept for the whole savegame. Cards can be dragged and resized; the layout is saved per browser.
 - **Settings ▸ Savegames and backups** — one backup = database + camera views for the current savegame; restore
   the views, or the whole database at the next start.
 - Languages: English, French, German, Brazilian Portuguese, partial Chinese — follows the game language automatically.

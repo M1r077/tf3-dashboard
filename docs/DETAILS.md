@@ -380,7 +380,26 @@ Three independent parts:
      per year with max and shipped/delivered; filter "unserved / closing"
    - **Stations & depots**: waiting, occupancy, overflow, lines; parked vehicles, approaching, maintenance pool
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
-     stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter
+     stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter. Every marker
+     follows the icon-size setting (S/M/L/XL); only the part of a size carried by data (town circle, stock amount)
+     grows on its own.
+   - **Ruler** (companion 0.5.2 / 0.6.0): two clicks on the map. `/api/distance?ax&ay&bx&by` answers the straight
+     distance, the height difference and the distance the game pays (straight + 8 x the climb), then the distance by
+     road and by rail over the network of the `geo` table: each end is projected on the nearest segment of the kind
+     (perpendicular projection, no limit), a multi-source Dijkstra runs between the two approach sets (graphs cached
+     per geo sequence, `_route_cache["graphs"]`). The drawn route is a solid line; the approaches are dashed. When the
+     two ends sit on different components the API answers `gap: true` and the dashboard draws a straight dashed line
+     A->B ("not linked: build straight") rather than a detour over an unrelated piece of network. Segment lengths are
+     chords (curves are under-estimated by a few %); the travel times use placeholder speeds (50 km/h road, 80 rail)
+     until the vehicle catalogue is exported. 4-6 ms per call on a 4 800 segment map.
+   - **Cargo layers** (companion 0.6.0): toggles production / demand / stocks. `/api/map_cargo` returns, per industry
+     and town, `out` (produced / max per year), `in` (delivered / max consumption), `stock` (amount / capacity) from
+     `industry_cargo`, `town_supply` and `town_cargo` of the last snapshot (14 KB, ~45 ms). Rows of cargo icons:
+     production above the marker, demand below, stocks to the right; fixed icon size, alpha proportional to the rate,
+     stock bubbles grow with the square root of the amount. Hidden below `scale 0.06`. Hovering an industry, a town or a
+     vehicle lists the figures (icon + percentage or amount / capacity; a vehicle: what is on board). `/api/map` only
+     returns industries present in the last `industry_state` (the `industry` table keeps closed ones forever).
+     Deep links: `?tab=map&maplayers=prod,need,stock&mapzoom=<town_id>`.
    - **Finances** (last tab): balance/debt, year result, cumulated transport, company sheet, running costs per carrier
 
 ## Text encoding (verified with a Chinese savegame, 9 Oct 2026)
@@ -404,6 +423,8 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
 - facts per snapshot: `finance`, `company`, `alert`, `vehicle_state`, `line_state`, `line_capacity`, `station_state`,
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
+- per game, not per snapshot: `geo` (map geography), `line_path` (legs driven), `finance_journal` / `finance_journal_col`
+  (the game's finance table, replaced at each monthly write of the mod, never purged)
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`, `v_line_latest`, `v_vehicle_latest`, `v_alert_latest`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);

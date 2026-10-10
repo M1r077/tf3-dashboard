@@ -124,6 +124,9 @@ Three independent parts:
      The mod exports the configuration of every stop (stop_list: load_mode, min_wait, max_wait, max_add_wait,
      waypoints, force_unload, no_load, max_load, terminals = the station's terminals with type / class / length /
      speed_mod / compatible / overlength, alternatives = alternative terminals) + custom_filters / reservation_priority.
+     Depots export `pos` (streetConnectorSystem.getConstructionEntityForDepot -> CONSTRUCTION.transf), stored in depot.x/y.
+     Each stop also carries `waiting` = items waiting there for this line, per cargo type, with the number of unhappy
+     ones (api.engine.util.cargo.getCargoQualityDataAtStop; the figure of the game's line window), shown in the stops table.
      Full catalogue of what the API allows (done / doable / risky / impossible): docs/API_CATALOGUE.md.
 
 2. **Collector `collector\collector.py`** (Python, stdlib only): watches `live.lua`, parses it (`luatable.py`, own Lua
@@ -403,6 +406,24 @@ Three independent parts:
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter. Every marker
      follows the icon-size setting (S/M/L/XL); only the part of a size carried by data (town circle, stock amount)
      grows on its own.
+   - **Full-resolution terrain** (mod 14 / companion 0.6.1): the geography grid (256 x 256, heights every 2 cells =
+     88 m) gave a soft relief; the game stores the ground tile by tile (`TERRAIN_TILE_HEIGHTMAP`: 65 x 65 integers at
+     4 m per 256 m tile, metres = raw x `baseResolution.z` (0.05) + `offsetZ`; tile indices centred, -n/2 .. n/2-1).
+     Reading a tile costs nothing (the array is in memory), so after the geography the mod walks the 44 x 44 tiles two
+     per frame (~0.2 ms, 22 s for the map) and writes bands of 4 tile rows as `tf3dash_height_<k>.lua`, one string per
+     tile: the first raw value then the difference to the previous vertex, zigzag variable-length base-64 digits (5 bits
+     per digit, bit 32 = more digits; ~1 character per vertex on smooth ground, 9 MB for 11 files). Rewritten when
+     `getTerrainEntityRevisions` changes (the game's own terrain change counter: the player raised or dug ground),
+     checked once a minute. The collector (`heightmap.py`, standard library) decodes the bands and writes
+     `db\height_<game>.png`, a 16-bit grayscale PNG (2 817 x 2 817, ~10 MB; neighbouring tiles share their edge
+     vertices) with a sidecar `.json` (bounds, water level, scale). `/api/heightmap` returns the sidecar and the URL
+     `/height/<game>.png?v=<revs>` (cached a day). The dashboard decodes the PNG itself (a canvas would keep only the
+     high byte of 16-bit grey), shades it once per style - slope from the 4 m neighbours, west-north-west light,
+     altitude ramp above the water level, water below the level refined by the shore masks of the grid (mod 14 samples them at the same 4 m: sub 11 per 44 m cell, the mask a string of base-64 digits since 121 bits exceed a double) - and caches
+     the bitmap; the grid relief remains the fallback for older mods. New style **satellite**, the look of the game's
+     own map preview: olive meadows, lighter and drier higher up, grey rock where the slope exceeds ~30 %, blue-grey
+     water (the game renders its preview in C++, `MapPreviewComp`, which a mod cannot export; Better Minimap shows
+     that component in a window, we rebuild the look from the same heights).
    - **Ruler** (companion 0.5.2 / 0.6.0): two clicks on the map. `/api/distance?ax&ay&bx&by` answers the straight
      distance, the height difference and the distance the game pays (straight + 8 x the climb), then the distance by
      road and by rail over the network of the `geo` table: each end is projected on the nearest segment of the kind
@@ -412,6 +433,10 @@ Three independent parts:
      A->B ("not linked: build straight") rather than a detour over an unrelated piece of network. Segment lengths are
      chords (curves are under-estimated by a few %); the travel times use placeholder speeds (50 km/h road, 80 rail)
      until the vehicle catalogue is exported. 4-6 ms per call on a 4 800 segment map.
+     Travel times (mod 14): timed with the fastest vehicle the player owns per carrier (ehicle.top_speed, km/h,
+     the slowest part of the consist from the model metadata; trams count as road) - what a new line would really
+     run at, not a catalogue best case. Without any vehicle of that carrier the panel falls back to 50 / 80 km/h and
+     says so.
    - **Cargo layers** (companion 0.6.0): toggles production / demand / stocks. `/api/map_cargo` returns, per industry
      and town, `out` (produced / max per year), `in` (delivered / max consumption), `stock` (amount / capacity) from
      `industry_cargo`, `town_supply` and `town_cargo` of the last snapshot (14 KB, ~45 ms). Rows of cargo icons:

@@ -272,8 +272,21 @@
     window.addEventListener("mousemove", move); window.addEventListener("mouseup", up);
   }
 
-  function enterEdit() { editing = true; document.body.classList.add("layout-edit"); $$(".panels[data-layout]").forEach(cn => { apply(cn); decorate(cn); }); const b = $("#layout-btn"); if (b) b.classList.add("open"); }
-  function exitEdit() { editing = false; document.body.classList.remove("layout-edit"); $$(".panels[data-layout]").forEach(undecorate); const b = $("#layout-btn"); if (b) b.classList.remove("open"); $$(".panels[data-layout]").forEach(emit); }
+  // A view that rewrites a card with innerHTML (detail cards on a refresh) wipes the tools and handles: put them back.
+  const redecorate = new MutationObserver(muts => {
+    if (!editing) return;
+    const cards = new Set(muts.map(m => m.target).filter(el => el.classList && el.classList.contains("card") && el.dataset.panel && !$(":scope > .panel-tools", el)));
+    cards.forEach(c => decorate(c.parentElement));
+  });
+  function enterEdit() {
+    editing = true; document.body.classList.add("layout-edit");
+    $$(".panels[data-layout]").forEach(cn => { apply(cn); decorate(cn); redecorate.observe(cn, { childList: true, subtree: true }); });
+    const b = $("#layout-btn"); if (b) b.classList.add("open");
+  }
+  function exitEdit() {
+    editing = false; document.body.classList.remove("layout-edit"); redecorate.disconnect();
+    $$(".panels[data-layout]").forEach(undecorate); const b = $("#layout-btn"); if (b) b.classList.remove("open"); $$(".panels[data-layout]").forEach(emit);
+  }
   function toggleEdit() { editing ? exitEdit() : enterEdit(); }
   function reset(tab) { delete store[tab]; save(); $$(`.panels[data-layout="${tab}"]`).forEach(cn => { apply(cn); emit(cn); }); }
   function resetAll() { store = {}; save(); $$(".panels[data-layout]").forEach(cn => { apply(cn); emit(cn); }); }

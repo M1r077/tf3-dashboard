@@ -23,6 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import console  # noqa: E402
+import heightmap  # noqa: E402
 import luatable  # noqa: E402
 import tf3paths  # noqa: E402
 
@@ -148,11 +149,18 @@ class Store:
         ("line_stop", "max_load", "TEXT"),
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
+        ("line_stop", "waiting", "TEXT"),
+        ("station", "is_pax", "INTEGER"),
+        ("depot", "x", "REAL"),
+        ("depot", "y", "REAL"),
         ("snapshot", "camera", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
         ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
+        ("vehicle", "top_speed", "INTEGER"),   # km/h, the slowest part of the consist (model metadata)
+        ("industry_cargo", "stock", "INTEGER"),    # the pile now
+        ("industry_cargo", "capacity", "INTEGER"),
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
     )
@@ -536,17 +544,17 @@ class Store:
             vid = v["id"]
             caps = v.get("capacities")
             self.con.execute(
-                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, last_seen, icon_type, model, model_key, parts, capacities)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """INSERT INTO vehicle(game_id, vehicle_id, name, carrier, capacity, last_seen, icon_type, model, model_key, parts, capacities, top_speed)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, vehicle_id) DO UPDATE SET name=COALESCE(excluded.name, vehicle.name),
                    carrier=COALESCE(excluded.carrier, vehicle.carrier), capacity=COALESCE(excluded.capacity, vehicle.capacity),
                    last_seen=excluded.last_seen,
                    icon_type=COALESCE(excluded.icon_type, vehicle.icon_type), model=COALESCE(excluded.model, vehicle.model),
                    model_key=COALESCE(excluded.model_key, vehicle.model_key), parts=COALESCE(excluded.parts, vehicle.parts),
-                   capacities=COALESCE(excluded.capacities, vehicle.capacities)""",
+                   capacities=COALESCE(excluded.capacities, vehicle.capacities), top_speed=COALESCE(excluded.top_speed, vehicle.top_speed)""",
                 (gid, vid, v.get("name"), clean_enum(v.get("carrier")), v.get("capacity"), now,
                  clean_enum(v.get("icon_type")), v.get("model"), v.get("model_key"), v.get("parts"),
-                 json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None),
+                 json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None, v.get("top_speed")),
             )
             x, y, _z = xyz(v.get("pos"))
             cargo = v.get("cargo")
@@ -593,18 +601,20 @@ class Store:
                     max_load = as_list(g(s, "max_load")) if isinstance(s, dict) else []
                     terminals = [x for x in as_list(g(s, "terminals")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     alternatives = [x for x in as_list(g(s, "alternatives")) if isinstance(x, dict)] if isinstance(s, dict) else []
+                    waiting = [x for x in as_list(g(s, "waiting")) if isinstance(x, dict) and x.get("cargo_type") is not None] if isinstance(s, dict) else []
                     self.con.execute(
                         """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name,
                            load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, no_load, max_load,
-                           terminals, alternatives)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           terminals, alternatives, waiting)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"),
                          g(s, "load_mode"), g(s, "min_wait"), g(s, "max_wait"), g(s, "max_add_wait"), g(s, "waypoints"),
                          _bool(g(s, "force_unload")),
                          json.dumps([x for x in no_load if isinstance(x, (int, float))]) if no_load else None,
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
                          json.dumps(terminals) if terminals else None,
-                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None))
+                         json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None,
+                         json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None))
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))
@@ -615,11 +625,11 @@ class Store:
                 continue
             x, y, _z = xyz(s.get("pos"))
             self.con.execute(
-                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, x, y)
-                   VALUES (?,?,?,?,?,?,?,?)
+                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, is_pax, x, y)
+                   VALUES (?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
-                   is_cargo=excluded.is_cargo, x=excluded.x, y=excluded.y""",
-                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), x, y),
+                   is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y""",
+                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO station_state VALUES (?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))
@@ -681,23 +691,38 @@ class Store:
                 (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
                  b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away")),
             )
+            # piles: per (direction, cargo type) the amount lying there and the pile size; summed when an
+            # industry has several stocks of the same cargo. Storage stocks count as "out" (a warehouse ships them).
+            piles: dict = {}
+            for p in as_list(i.get("stock")):
+                if isinstance(p, dict) and p.get("cargo_type") is not None:
+                    key = ("in" if p.get("kind") == "in" else "out", p["cargo_type"])
+                    cur = piles.setdefault(key, [0, 0])
+                    cur[0] += int(p.get("stock") or 0); cur[1] += int(p.get("capacity") or 0)
             for c in as_list(i.get("inputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                     (sid, iid, c["cargo_type"], "in", None, None, None, c.get("consumed_year"), c.get("max_consumption_year"), c.get("delivered_year")))
+                    pile = piles.pop(("in", c["cargo_type"]), (None, None))
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                     (sid, iid, c["cargo_type"], "in", None, None, None, c.get("consumed_year"), c.get("max_consumption_year"), c.get("delivered_year"), pile[0], pile[1]))
             for c in as_list(i.get("outputs")):
                 if isinstance(c, dict) and c.get("cargo_type") is not None:
-                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?)",
-                                     (sid, iid, c["cargo_type"], "out", c.get("produced_year"), c.get("max_production_year"), c.get("shipped_year"), None, None, None))
+                    pile = piles.pop(("out", c["cargo_type"]), (None, None))
+                    self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                     (sid, iid, c["cargo_type"], "out", c.get("produced_year"), c.get("max_production_year"), c.get("shipped_year"), None, None, None, pile[0], pile[1]))
+            for (direction, ct), pile in piles.items():  # piles without a rule (warehouses, storage stocks)
+                self.con.execute("INSERT OR REPLACE INTO industry_cargo VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                                 (sid, iid, ct, direction, None, None, None, None, None, None, pile[0], pile[1]))
 
     def _depots(self, sid: int, gid: int, now: str, ds: Any):
         for d in as_list(ds):
             if not isinstance(d, dict) or d.get("id") is None:
                 continue
+            x, y, _z = xyz(d.get("pos"))
             self.con.execute(
-                """INSERT INTO depot(game_id, depot_id, name, carrier) VALUES (?,?,?,?)
-                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier""",
-                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier"))),
+                """INSERT INTO depot(game_id, depot_id, name, carrier, x, y) VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier,
+                   x=COALESCE(excluded.x, depot.x), y=COALESCE(excluded.y, depot.y)""",
+                (gid, d["id"], d.get("name"), clean_enum(d.get("carrier")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO depot_state VALUES (?,?,?,?,?,?,?)",
                              (sid, d["id"], d.get("vehicles"), d.get("incoming"), d.get("maintenance_pool"), d.get("pool_max"), d.get("pool_avg")))
@@ -861,7 +886,7 @@ def read_live(path: Path, retries: int = 5, delay: float = 0.2) -> dict | None:
 # assembles a schema-3-shaped snapshot (everything in one dict) so that Store.ingest did not have to change.
 SLOW_SECTIONS = ("company", "cargo_types", "lines", "stations", "towns", "industries", "depots", "vehicles")
 # static vehicle fields moved to slow_vehicles.lua in schema 4
-VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_key", "parts", "running_cost", "value")
+VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_key", "parts", "running_cost", "value", "top_speed")
 
 
 class SlowFiles:
@@ -934,6 +959,16 @@ class SlowFiles:
         """tf3dash_journal.lua: the game's accounting journal since the start of the game."""
         return self._changed_file("journal", "journal")
 
+    def height_bands(self) -> list[dict]:
+        """tf3dash_height_<k>.lua: the bands of the full-resolution heightmap that changed since last read."""
+        out = []
+        for p in sorted(self.dir.glob(f"{self.prefix}height_*.lua")):
+            name = p.stem[len(self.prefix):]
+            d = self._changed_file(name, "tiles")
+            if d is not None:
+                out.append(d)
+        return out
+
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
         ss = snap.get("slow_seq")
@@ -985,6 +1020,7 @@ def main(argv: list[str] | None = None) -> int:
     tf3paths.apply_pending_restore(args.db)
 
     store = Store(args.db)
+    height_asm = heightmap.HeightAssembler()
     if args.status:
         print(store.status())
         return 0
@@ -1176,6 +1212,15 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"journal ingest failed: {e!r}", "error")
+                        # full-resolution heightmap: band files -> db/height_<game>.png once complete
+                        try:
+                            for band in slow_files.height_bands():
+                                if height_asm.add(band):
+                                    gid = store.game_id(snap, iso())
+                                    meta = height_asm.write_png(args.db.parent / f"height_{gid}.png")
+                                    say(f"heightmap: {meta['width']}x{meta['height']} px at {meta['step']:.0f} m, {meta['bytes'] / 1e6:.1f} MB", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            say(f"heightmap failed: {e!r}", "error")
                     if sid is not None:
                         imported += 1
                         t = snap.get("time") or {}

@@ -100,6 +100,9 @@ body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px
 /* a card with a user-set height: its scrollable body fills the rest */
 .panels > .card.sized { overflow: hidden; }
 .panels > .card.sized > .alerts, .panels > .card.sized > .minilist, .panels > .card.sized > table, .panels > .card.sized > pre { flex: 1 1 auto; min-height: 0; max-height: none; overflow: auto; }
+/* a detail pane scrolls as a whole: its lists keep their natural height instead of shrinking into a tiny scroller */
+.panels > .card.sticky.sized { overflow: auto; }
+.panels > .card.sticky.sized > .minilist, .panels > .card.sticky.sized > table { flex: none; overflow: visible; }
 .panels > .card.sized > canvas { flex: 1 1 auto; min-height: 0; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }
@@ -232,6 +235,7 @@ table.kv td .onboard { margin-right: 8px; }
 table.data td.gauge { text-align: left; white-space: nowrap; }
 table.data td.gauge .qstack > span .ico, table.data td.gauge > .ico { width: calc(var(--isz) * 0.75); height: calc(var(--isz) * 0.75); margin: 0 6px 0 0; flex: none; }
 table.kv td .onboard, table.kv td .ico.cond { margin-right: 8px; }
+table.kv td .pile { margin-left: 8px; white-space: nowrap; }  /* industry pile next to the yearly bar */
 .onboard .ob { display: inline-flex; align-items: center; gap: 2px; }
 .onboard .ob .ico { margin: 0; }
 .onboard .ob small { font-family: var(--mono); font-size: 11px; color: var(--text); }

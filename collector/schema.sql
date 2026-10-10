@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
     capacities  TEXT,                             -- JSON {"<cargo id>": capacity} = what the vehicle can carry
+    top_speed   INTEGER,                          -- km/h, the slowest part of the consist (model metadata)
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)
 );
@@ -238,6 +239,7 @@ CREATE TABLE IF NOT EXISTS line_stop (
     max_load      TEXT,                           -- JSON list of {cargo_type, max} for cargo limited below 100 %
     terminals     TEXT,                           -- JSON list of the station group terminals {n, station, terminal, pax, cargo, class, class_name, class_color, length, speed_mod, compatible, overlength}
     alternatives  TEXT,                           -- JSON list of {station, terminal} the stop may use besides the main one (station/terminal above)
+    waiting       TEXT,                           -- JSON list of {cargo_type, total, bad}: items waiting at this stop for this line (NULL = nothing waiting)
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 
@@ -248,7 +250,8 @@ CREATE TABLE IF NOT EXISTS station (
     name          TEXT,
     town_id       INTEGER,
     station_group INTEGER,
-    is_cargo      INTEGER,
+    is_cargo      INTEGER,                        -- a terminal loads/unloads cargo
+    is_pax        INTEGER,                        -- a terminal loads/unloads passengers (NULL = old mod: not cargo => pax)
     x REAL, y REAL,
     PRIMARY KEY (game_id, station_id)
 );
@@ -365,6 +368,8 @@ CREATE TABLE IF NOT EXISTS industry_cargo (
     consumed_year   INTEGER,
     max_cons_year   INTEGER,
     delivered_year  INTEGER,
+    stock           INTEGER,                      -- what lies in the pile now (the industry window's figure)
+    capacity        INTEGER,                      -- size of the pile
     PRIMARY KEY (snapshot_id, industry_id, cargo_id, direction)
 );
 
@@ -374,6 +379,8 @@ CREATE TABLE IF NOT EXISTS depot (
     depot_id   INTEGER NOT NULL,
     name       TEXT,
     carrier    TEXT,
+    x          REAL,                               -- world position (depot construction), NULL from old mods
+    y          REAL,
     PRIMARY KEY (game_id, depot_id)
 );
 

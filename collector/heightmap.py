@@ -85,9 +85,11 @@ class HeightAssembler:
                     continue
                 col, row = t % nx, row0 + t // nx
                 vals = decode_tile(s, side * side)
-                x0, y0 = col * (side - 1), row * (side - 1)
+                # tile rows and vertex rows run south to north (tile ty0 = -n/2 is the southern edge, +Y north);
+                # the PNG runs north (row 0) to south like the geography grid, so both are flipped here
+                x0, y0 = col * (side - 1), (ny - 1 - row) * (side - 1)
                 for r in range(side):
-                    line = rows[y0 + r]
+                    line = rows[y0 + (side - 1 - r)]
                     base = r * side
                     for c in range(side):
                         v = vals[base + c]

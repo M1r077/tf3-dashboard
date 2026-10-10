@@ -87,7 +87,7 @@ window.I18N = {
     th_depot: "Depot", th_parked: "Parked", th_incoming: "Incoming", th_maint_pool: "Maintenance pool", pool_fmt: "{avg} avg · {max} max / {n}",
     // finance
     balance: "Balance", balance_range: "{n} samples · {a} → {b}", earnings_title: "Current year result", earnings_ytd: "Result since 1 January", transport_cum: "Cumulative transport",
-    // finance journal (mod rev 13): the game's own labels (base.mo), same words as the Finances window
+    // finance journal: the game's own labels (base.mo), same words as the Finances window
     journal_title: "Journal", journal_hint: "The game's accounting journal, one column per period of simulation time. Click a carrier to unfold it.",
     journal_summary: "Summary", journal_income: "Income", journal_loans: "Loan transactions", journal_new_loans: "New loans", journal_interest: "Loan interest", journal_repay: "Principal repayment",
     journal_bank: "Bank account", journal_debt: "Debt", journal_investments: "Investments", journal_buy_vehicles: "Buy vehicles", journal_build_roads: "Roads", journal_build_tracks: "Tracks", journal_build_buildings: "Buildings",

@@ -4,7 +4,7 @@
 --                                                   company, cargo types; every 10-120 s, one file per frame)
 -- via app.saveUserdata, for an external dashboard / collector (second monitor).
 --
--- Why two kinds of files (rev 6): app.saveUserdata serialises and writes the whole table in the calling frame.
+-- Why two kinds of files: app.saveUserdata serialises and writes the whole table in the calling frame.
 -- Up to rev 5 everything went into live.lua, i.e. ~300 KB rewritten every second on a mid-size map, of which 90 %
 -- (lines with their terminals, industries, towns...) only changes every slow cycle. That cost 20 ms per second on a
 -- fast machine and a visible stutter every second on slower ones. Now live.lua is ~30 KB and the big sections are
@@ -18,9 +18,9 @@
 local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
--- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
--- 7: files moved to towns_industries/tf3dash_* (rev 9, game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
--- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (rev 8, companion >= 0.3.1)
+-- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (companion >= 0.3.0 for the views panel)
+-- 7: files moved to towns_industries/tf3dash_* (game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
+-- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (companion >= 0.3.1)
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other). Up to rev 8 the
@@ -40,7 +40,7 @@ local PARAM_VALUES = {
 	interval_fast = { 1, 2, 5, 10 },
 	interval_slow = { 10, 30, 60, 120 },
 	export_vehicles = { true, false },
-	accept_commands = { false, true }, -- off by default (rev 2): the player opts in to remote control
+	accept_commands = { false, true }, -- off by default: the player opts in to remote control
 	debug_log = { false, true },
 }
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
@@ -230,7 +230,7 @@ local function collectFinance(player)
 	return f
 end
 
--- ---------------------------------------------------------------- finance journal (rev 13)
+-- ---------------------------------------------------------------- finance journal
 -- The game keeps the complete accounting journal in the save game. Instead of rebuilding the past from live
 -- snapshots, the mod asks the engine for the table behind the Finances window
 -- (api.engine.util.finance.computeFinanceTable). The engine chooses the columns itself (fine for the recent past,
@@ -420,7 +420,7 @@ local function modelKey(modelId)
 	return k or nil
 end
 
--- Vehicles are exported in two parts (rev 6). Fast (every snapshot, live.lua): what moves â€” state, line, stop,
+-- Vehicles are exported in two parts. Fast (every snapshot, live.lua): what moves â€” state, line, stop,
 -- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
 -- what the game only changes when the player edits the vehicle â€” name, consist, model, capacity, icon, costs. The
 -- collector merges both on vehicle id. Before rev 6 all of it was fetched and written every second.
@@ -464,7 +464,7 @@ local function collectVehicles()
 	return out
 end
 
--- ---------------------------------------------------------------- line paths (rev 11)
+-- ---------------------------------------------------------------- line paths
 -- Where a line really runs: the game keeps, for every vehicle, the series of network edges it is following to its
 -- next stop (MOVE_PATH.path.edges = {{EdgeId{entity, index}, dir}}). Collected with the slow vehicles section (one
 -- vehicle per step, a table of ids, no geometry); the edges' entities are the BASE_EDGE segments exported in the
@@ -881,7 +881,7 @@ local TOWN_PARTS = {
 	-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
 	-- "supplied / needed"; v3 = an internal group id, stored but not displayed. land_use is always 0 (whole town):
 	-- the call costs ~55 ms per town in game (it walks every building), so the per-land-use variants (which only
-	-- partition the same figures) are not exported any more (rev 5), and the towns are refreshed in rotation:
+	-- partition the same figures) are not exported any more, and the towns are refreshed in rotation:
 	-- SUPPLY_TOWNS_PER_CYCLE towns per slow cycle (the stalest first), the others keep their last value. The figures
 	-- move slowly (rolling supply, needs grow with the town), the dashboard shows them with the snapshot time anyway.
 	function(t, rec, ctx)
@@ -1166,7 +1166,7 @@ local function collectCamera()
 	return cam
 end
 
--- ---------------------------------------------------------------- camera travelling (rev 10)
+-- ---------------------------------------------------------------- camera travelling
 -- camera_path: the dashboard sends a list of waypoints once ({x, y, dist, angle, pitch} + the duration of each
 -- leg); the mod interpolates on every frame (guiUpdate runs per rendered frame) and calls setCameraData, so the
 -- movement is as smooth as the frame rate. Nothing touches the simulation. Catmull-Rom on the ground point and the
@@ -1210,7 +1210,7 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
--- Ground clearance (rev 11): the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
+-- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
 -- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
 -- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
 -- if the eye would be lower than the highest of them + CAM_CLEARANCE, the distance is raised (same heading and
@@ -1250,7 +1250,7 @@ local function smooth(t) return t * t * (3 - 2 * t) end
 local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
 local function headingOf(dx, dy) return atan2(-dx, dy) end
 
--- Line tour (rev 10): ONE camera path built when the command arrives, from the points of interest of the line =
+-- Line tour: ONE camera path built when the command arrives, from the points of interest of the line =
 -- its stops (route sent by the dashboard, in order) + the positions of its vehicles AT THAT MOMENT, inserted at
 -- their place along the route. Then it is played exactly like camera_path (Catmull-Rom, constant ground speed).
 -- Altitude: high enough to read the line (derived from the size of the route, never a ground-level shot);
@@ -1377,7 +1377,7 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		-- zoom profile, kept shallow (rev 11.1): vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
+		-- zoom profile, kept shallow: vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
 		-- mid-stretch = 1.15 x alt. The former 0.45 .. 1.5 range made the camera dive and climb by a factor of three
 		-- every few seconds, together with the pitch swinging 0.75 .. 1.05: that is what turned stomachs.
 		local dist = q.kind == "vehicle" and alt * 0.7 or q.kind == "stop" and alt * 0.8 or q.swing and alt * 1.05 or alt * 1.15
@@ -1459,7 +1459,7 @@ local function camTourStart(args)
 	return true
 end
 
--- ---------------------------------------------------------------- geography (rev 11)
+-- ---------------------------------------------------------------- geography
 -- Static picture of the map for the dashboard's map tab: the terrain bounds, the water (contours of the water
 -- meshes: sea, lakes, rivers) and the network (every street and track edge as a segment with its type). Written to
 -- tf3dash_geo.lua once after the first slow cycle, then again only when the number of edges changed (the player
@@ -1955,7 +1955,7 @@ local COMMANDS = {
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
 		return true
 	end,
-	-- a view attached to a vehicle (rev 11): follow it, then apply the saved framing (distance, heading, pitch) on
+	-- a view attached to a vehicle: follow it, then apply the saved framing (distance, heading, pitch) on
 	-- top of the follow camera, which owns the position. The framing is re-applied for a few frames because the
 	-- follow camera slides to the vehicle first (see followFrame in guiUpdate).
 	follow_view = function(args)
@@ -1972,7 +1972,7 @@ local COMMANDS = {
 	camera_stop = function() camPathStop("camera_stop"); return true end,
 	-- line tour: one path over the stops of a line + its vehicles' positions at this moment (see camTourBuild)
 	camera_tour = function(args) camPathStop("new tour"); return camTourStart(args or {}) end,
-	-- experiment (rev 10): play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
+	-- experiment: play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
 	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts
 	-- it outside a mission / from userdata is what this command is here to find out. Answer carries the API result.
 	camera_cutscene = function(args)
@@ -2371,7 +2371,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 end
 
--- ---------------------------------------------------------------- status window (rev 10)
+-- ---------------------------------------------------------------- status window
 -- The status window (status_ui.script.lua, a plugin of the game's mod button area) reads from this script with
 --   api.gui.fireGuiScriptEvent(UI_ID, "read")  -> guiHandleEvent returns { status, current = { key = 1-based index } }
 -- Read-only: settings are changed in the game's mod menu, like for any other mod. (A rev 9 prototype wrote them to

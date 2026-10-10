@@ -1909,17 +1909,29 @@
   // crow flies IS the planning figure. Click A, click B: the segment, its length, the height difference from the
   // terrain grid when the geography is known, and the "paid" distance when B is higher. A third click starts over,
   // the button or Escape leaves. Companion only, nothing sent to the game.
-  const ruler = { on: false, a: null, b: null, hover: null };
+  // Once B is fixed the companion also asks /api/distance for the shortest way over the existing roads and over the
+  // existing tracks (Dijkstra on the exported geography, server side): the ruler then shows both lengths and draws
+  // the two routes, which is what a ruler is for when planning a line between two points that are already served.
+  const ruler = { on: false, a: null, b: null, hover: null, net: null, netKey: null };
   function rulerSet(on) {
-    ruler.on = on; ruler.a = ruler.b = ruler.hover = null;
+    ruler.on = on; ruler.a = ruler.b = ruler.hover = ruler.net = ruler.netKey = null;
     $("#map-ruler-btn").classList.toggle("active", on);
     const c = $("#map"); c.style.cursor = on ? "crosshair" : "grab"; $("#map-tip").style.display = "none"; drawMap(c);
   }
   const worldAt = (canvas, e) => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left - map.ox) / map.scale, y: -(e.clientY - r.top - map.oy) / map.scale }; };
   function rulerClick(canvas, e) {
     const p = worldAt(canvas, e);
-    if (!ruler.a || ruler.b) { ruler.a = p; ruler.b = null; } else ruler.b = p;
+    if (!ruler.a || ruler.b) { ruler.a = p; ruler.b = null; ruler.net = null; } else { ruler.b = p; rulerNetwork(canvas); }
     drawMap(canvas);
+  }
+  async function rulerNetwork(canvas) {
+    const a = ruler.a, b = ruler.b; if (!a || !b || !geo.data) return;
+    const key = [a.x, a.y, b.x, b.y].map(v => Math.round(v)).join(",");
+    ruler.netKey = key;
+    try {
+      const r = await api(`/api/distance?ax=${a.x.toFixed(1)}&ay=${a.y.toFixed(1)}&bx=${b.x.toFixed(1)}&by=${b.y.toFixed(1)}`);
+      if (ruler.netKey === key && ruler.b) { ruler.net = r; drawMap(canvas); }
+    } catch (e) { /* no geography yet: the ruler stays as the crow flies */ }
   }
   // terrain height at a world point, from the coarse height grid of the geography (bilinear); null without geography
   function heightAt(x, y) {
@@ -1936,6 +1948,15 @@
     const a = ruler.a, b = ruler.b || ruler.hover;
     ctx.save(); ctx.strokeStyle = "#e8b04b"; ctx.fillStyle = "#e8b04b"; ctx.lineWidth = 2;
     const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
+    // the network routes first, under the straight segment: road in the street colour, rail in the track colour
+    const net = ruler.b && ruler.net;
+    const route = (pts, color) => {
+      if (!pts || pts.length < 2) return;
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin = "round"; ctx.globalAlpha = .9; ctx.beginPath();
+      pts.forEach((p, i) => { const [x, y] = P(p[0], p[1]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke(); ctx.restore();
+    };
+    if (net) { route(net.road_points, "#f0a35e"); route(net.rail_points, "#7fb8ff"); }
     if (a) dot(a);
     if (a && b) {
       const [ax, ay] = P(a.x, a.y), [bx, by] = P(b.x, b.y);
@@ -1948,6 +1969,10 @@
         // the game only rewards climbing: paid = |AB| + 8 x max(dz, 0); downhill or flat pays the plain distance
         const dz = hb - ha; lines.push(t("ruler_dz", { n: (dz >= 0 ? "+" : "") + Math.round(dz) }));
         lines.push(t("ruler_paid", { d: fmtDist(dist + 8 * Math.max(0, dz)) }));
+      }
+      if (net && net.available) {
+        lines.push(t("ruler_road", { d: net.road != null ? fmtDist(net.road) : t("ruler_none") }));
+        lines.push(t("ruler_rail", { d: net.rail != null ? fmtDist(net.rail) : t("ruler_none") }));
       }
       // label in a dark pill beside the midpoint, pushed off the segment (plain text in the accent colour was unreadable
       // over the relief)

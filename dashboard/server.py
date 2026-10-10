@@ -768,6 +768,60 @@ def _dijkstra(gr: dict, a, b) -> list | None:
     return out
 
 
+def _geo_graphs(gid: int, geo_seq, geo: dict) -> dict:
+    """The road and rail graphs of the current geography, built once per (game, geo_seq) and shared by the predicted
+    routes and the ruler (building both takes ~30 ms on 5 000 edges)."""
+    key = (gid, geo_seq)
+    if _route_cache.get("graph_key") != key:
+        edges = geo.get("edges") or []
+        _route_cache["graphs"] = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+        _route_cache["graph_key"] = key
+    return _route_cache["graphs"]
+
+
+def api_distance(q: dict) -> dict:
+    """Ruler helper: shortest distance over the existing network between two map points, by road and by rail.
+    ?ax=&ay=&bx=&by= (world metres). Each end snaps to the nearest graph node within 400 m; a mode comes back null
+    when an end is too far from that network or when the two ends are not connected. Lengths are sums of straight
+    segments (curves are slightly under-measured). Read only, nothing is sent to the game."""
+    gid = _gid()
+    try:
+        pt = [float(q.get(k, ["nan"])[0]) for k in ("ax", "ay", "bx", "by")]
+    except ValueError:
+        return {"error": "ax, ay, bx, by required"}
+    if any(math.isnan(v) for v in pt):
+        return {"error": "ax, ay, bx, by required"}
+    grow = one("SELECT geo_seq, data FROM geo WHERE game_id=?", (gid,))
+    if not grow:
+        return {"available": False}
+    graphs = _geo_graphs(gid, grow["geo_seq"], json.loads(grow["data"]))
+    out: dict = {"available": True, "air": math.hypot(pt[2] - pt[0], pt[3] - pt[1])}
+    t0 = time.time()
+    for mode in ("road", "rail"):
+        gr = graphs[mode]
+        a, b = _nearest_node(gr, pt[0], pt[1]), _nearest_node(gr, pt[2], pt[3])
+        p = _dijkstra(gr, a, b)
+        if p:
+            # network length between the two snapped nodes, plus the walk from each clicked point to its node
+            pa, pb = gr["pos"][a], gr["pos"][b]
+            out[mode] = sum(math.hypot(e[2] - e[0], e[3] - e[1]) for e in p) + math.hypot(pa[0] - pt[0], pa[1] - pt[1]) + math.hypot(pb[0] - pt[2], pb[1] - pt[3])
+            out[mode + "_points"] = _path_points(p, pa)
+        else:
+            out[mode] = None
+    out["ms"] = int((time.time() - t0) * 1000)
+    return out
+
+
+def _path_points(path: list, start) -> list:
+    """Polyline [[x, y], ...] of a Dijkstra edge list, each segment oriented to continue from the previous end."""
+    pts = [[start[0], start[1]]]
+    for e in path:
+        lx, ly = pts[-1]
+        da, db = (e[0] - lx) ** 2 + (e[1] - ly) ** 2, (e[2] - lx) ** 2 + (e[3] - ly) ** 2
+        pts.append([e[2], e[3]] if da <= db else [e[0], e[1]])
+    return pts
+
+
 def _water_route(geo: dict, ax: float, ay: float, bx: float, by: float) -> list | None:
     """A* over the water cells of the land/water grid (8-neighbour); returns a polyline [[x, y], ...] or None."""
     grid, rowsrl, bounds = geo.get("grid"), geo.get("water_rows"), geo.get("bounds")
@@ -879,8 +933,7 @@ def predicted_routes(gid: int) -> dict:
     if _route_cache["key"] == key:
         return _route_cache["lines"]
     geo = json.loads(grow["data"])
-    edges = geo.get("edges") or []
-    graphs = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+    graphs = _geo_graphs(gid, grow["geo_seq"], geo)
     by_line: dict = {}
     for s in stops:
         by_line.setdefault(s["line_id"], {"modes": s["transport_modes"], "stops": []})
@@ -1421,7 +1474,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 

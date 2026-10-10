@@ -154,12 +154,12 @@ class Store:
         ("depot", "x", "REAL"),
         ("depot", "y", "REAL"),
         ("snapshot", "camera", "TEXT"),
-        ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
-        ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
+        ("vehicle_state", "cargo", "TEXT"),  # {"<cargo id>": count} of what is on board
+        ("vehicle", "capacities", "TEXT"),   # {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
         ("game", "last_game_day", "INTEGER"),  # year*10000+month*100+day of the last snapshot (kept for the UI)
         ("vehicle", "top_speed", "INTEGER"),   # km/h, the slowest part of the consist (model metadata)
-        ("industry_cargo", "stock", "INTEGER"),    # the pile now (mod 14)
+        ("industry_cargo", "stock", "INTEGER"),    # the pile now
         ("industry_cargo", "capacity", "INTEGER"),
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
@@ -333,7 +333,7 @@ class Store:
 
     # ------------------------------------------------------------ ingest
     def ingest_geo(self, snap: dict, geo: dict) -> bool:
-        """Store the map geography written by the mod (rev 11, tf3dash_geo.lua) for the game `snap` belongs to.
+        """Store the map geography written by the mod (tf3dash_geo.lua) for the game `snap` belongs to.
         One row per game, replaced on every new file; skipped when geo_seq did not change. Returns True when stored."""
         gid = self.game_id(snap, iso())
         water = [as_list(w) for w in as_list(geo.get("water"))]
@@ -363,7 +363,7 @@ class Store:
         return True
 
     def ingest_line_paths(self, snap: dict, lp: dict) -> int:
-        """Replace the line paths of the game `snap` belongs to with the mod's file (rev 11). Returns the leg count."""
+        """Replace the line paths of the game `snap` belongs to with the mod's file. Returns the leg count."""
         gid = self.game_id(snap, iso())
         now = iso()
         rows = []
@@ -380,7 +380,7 @@ class Store:
         return len(rows)
 
     def ingest_journal(self, snap: dict, jf: dict) -> int:
-        """Replace the game's accounting journal views (mod rev 13, tf3dash_journal.lua) for the game `snap` belongs
+        """Replace the game's accounting journal views (tf3dash_journal.lua) for the game `snap` belongs
         to. Returns the number of columns stored over both views."""
         j = jf.get("journal")
         if not isinstance(j, dict):
@@ -437,7 +437,7 @@ class Store:
         if dup:
             return None
         ack = snap.get("cmd_ack")
-        cam = snap.get("camera")  # mod rev 7+: {x, y, dist, angle, pitch, follow?}; absent with rev 6
+        cam = snap.get("camera")  # {x, y, dist, angle, pitch, follow?}; absent with rev 6
         cur = self.con.execute(
             """INSERT INTO snapshot(game_id, seq, real_time, received_at, game_time_ms, year, month, day,
                time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera)
@@ -691,7 +691,7 @@ class Store:
                 (sid, iid, i.get("level"), i.get("closure_time"), b(i.get("manual")), b(i.get("producing")),
                  b(i.get("boost_rule")), b(i.get("boost_persons")), i.get("production_rating"), i.get("thrown_away")),
             )
-            # piles (mod 14): per (direction, cargo type) the amount lying there and the pile size; summed when an
+            # piles: per (direction, cargo type) the amount lying there and the pile size; summed when an
             # industry has several stocks of the same cargo. Storage stocks count as "out" (a warehouse ships them).
             piles: dict = {}
             for p in as_list(i.get("stock")):
@@ -879,7 +879,7 @@ def read_live(path: Path, retries: int = 5, delay: float = 0.2) -> dict | None:
     return None
 
 
-# Mod schema 4 (rev 6+): live.lua only holds the fast part (time, finance, alerts, moving vehicle fields). The slow
+# Mod schema 4: live.lua only holds the fast part (time, finance, alerts, moving vehicle fields). The slow
 # sections are in slow_<section>.lua next to it, each tagged with the slow_seq of the cycle it belongs to. The mod
 # writes them one per frame and only then lets live.lua point at the new slow_seq, so when live.lua says slow_seq N
 # every slow_*.lua is either already N or about to be re-read. SlowFiles re-reads a file when its mtime changes and
@@ -892,7 +892,7 @@ VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_ke
 class SlowFiles:
     def __init__(self, live: Path):
         self.dir = live.parent
-        self.prefix = tf3paths.prefix_for(self.dir)  # tf3dash_ (rev 9+, towns_industries) or none (legacy folder)
+        self.prefix = tf3paths.prefix_for(self.dir)  # tf3dash_ (towns_industries) or none (legacy folder)
         self.mtime: dict[str, float] = {}
         # section -> {slow_seq: items}; the two most recent cycles are kept because the mod may already be
         # writing cycle N+1 while live.lua still refers to N
@@ -948,19 +948,19 @@ class SlowFiles:
         return None
 
     def geo(self) -> dict | None:
-        """tf3dash_geo.lua (mod rev 11): the map's bounds, water and network."""
+        """tf3dash_geo.lua: the map's bounds, water and network."""
         return self._changed_file("geo", "edges")
 
     def line_paths(self) -> dict | None:
-        """tf3dash_line_paths.lua (mod rev 11): the network edges each line leg runs on."""
+        """tf3dash_line_paths.lua: the network edges each line leg runs on."""
         return self._changed_file("line_paths", "items")
 
     def journal(self) -> dict | None:
-        """tf3dash_journal.lua (mod rev 13): the game's accounting journal since the start of the game."""
+        """tf3dash_journal.lua: the game's accounting journal since the start of the game."""
         return self._changed_file("journal", "journal")
 
     def height_bands(self) -> list[dict]:
-        """tf3dash_height_<k>.lua (mod rev 14): the bands of the full-resolution heightmap that changed since last read."""
+        """tf3dash_height_<k>.lua: the bands of the full-resolution heightmap that changed since last read."""
         out = []
         for p in sorted(self.dir.glob(f"{self.prefix}height_*.lua")):
             name = p.stem[len(self.prefix):]
@@ -1155,7 +1155,7 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     schema = snap.get("schema") or 1
                     if schema >= 4:
-                        # mod rev 6+: slow sections in slow_*.lua; wait until the set matching live.lua is complete
+                        # slow sections in slow_*.lua; wait until the set matching live.lua is complete
                         if slow_files is None:
                             slow_files = SlowFiles(args.live)
                         slow_files.refresh()
@@ -1187,7 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
                             fh.write(f"\n===== {iso()} seq={snap.get('seq')} slow_seq={snap.get('slow_seq')}\n{tb}")
                         sid = None
                     if sid is not None and slow_files is not None:
-                        # map geography (mod rev 11): one file, re-read only when the mod rewrote it
+                        # map geography: one file, re-read only when the mod rewrote it
                         try:
                             geo = slow_files.geo()
                             if geo is not None and store.ingest_geo(snap, geo):
@@ -1212,7 +1212,7 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"journal ingest failed: {e!r}", "error")
-                        # full-resolution heightmap (mod rev 14): band files -> db/height_<game>.png once complete
+                        # full-resolution heightmap: band files -> db/height_<game>.png once complete
                         try:
                             for band in slow_files.height_bands():
                                 if height_asm.add(band):

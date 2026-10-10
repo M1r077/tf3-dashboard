@@ -51,8 +51,8 @@ ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "set_camera": ("x", "y", "dist"),  # mod rev 7+
-    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # mod rev 10+: travelling
-    "horn": (),  # mod rev 8+: args.vehicle or args.line
+    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # travelling
+    "horn": (),  # args.vehicle or args.line
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
     "vehicle_depart": ("vehicle",), "vehicle_to_depot": ("vehicle",),
@@ -303,7 +303,7 @@ def _journal_bounds(label: str, ref_year: int | None) -> tuple[int, int] | None:
 
 
 def api_journal(q: dict) -> dict:
-    """The game's accounting journal (mod rev 13). ?view=window (the Finances window's own columns) or history
+    """The game's accounting journal. ?view=window (the Finances window's own columns) or history
     (every column since the start of the game). {cols: [{col, label, start, end}], lines: {"transport/1/5/2/6": [...],
     "total": [...], ...}} where start/end are game months since year 0 (year*12 + month-1, fractional days).
     A whole 70-year history is ~45 columns x ~30 lines: one small payload."""
@@ -704,7 +704,7 @@ def api_map_cargo(q: dict) -> dict:
     """Cargo layers of the map, per owner (town or industry), from the latest slow snapshot:
       out   : what the owner produces     [{cargo, key, rate}]            rate = produced / max production per year
       in    : what the owner needs        [{cargo, key, rate}]            rate = delivered (or supplied) / need per year
-      stock : what is lying there now     [{cargo, key, amount, capacity}] towns, and industry piles with mod 14
+      stock : what is lying there now     [{cargo, key, amount, capacity}] towns and industry piles
     One query per table, ~200 rows, a few ms."""
     gid = _gid()
     keys = {r["cargo_id"]: r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
@@ -726,7 +726,7 @@ def api_map_cargo(q: dict) -> dict:
                 mx = r["max_cons_year"] or 0
                 if has_rule:
                     o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
-            if r["capacity"] is not None:  # the pile (mod 14); output piles first so what is for sale reads first
+            if r["capacity"] is not None:  # the pile; output piles first so what is for sale reads first
                 item = {"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"], "direction": r["direction"]}
                 (o["stock"].insert(0, item) if r["direction"] == "out" else o["stock"].append(item))
     sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
@@ -745,7 +745,7 @@ def api_map_cargo(q: dict) -> dict:
 
 
 def api_heightmap(q: dict) -> dict:
-    """Full-resolution terrain (mod rev 14): the sidecar of db/height_<game>.png written by the collector, plus the
+    """Full-resolution terrain: the sidecar of db/height_<game>.png written by the collector, plus the
     URL of the picture. `available: false` until the mod has exported the map once."""
     gid = _gid()
     side = DB_PATH.parent / f"height_{gid}.json"
@@ -764,7 +764,7 @@ def api_heightmap(q: dict) -> dict:
 
 
 def api_geo(q: dict) -> dict:
-    """Map geography (mod rev 11): bounds, water contours, street/track network for the current game. The browser
+    """Map geography: bounds, water contours, street/track network for the current game. The browser
     passes the geo_seq it already has; when nothing changed only {geo_seq} comes back (the full payload is a few
     hundred KB, the map tab asks on every refresh)."""
     gid = _gid()
@@ -1105,7 +1105,7 @@ def predicted_routes(gid: int) -> dict:
 
 def api_line_paths(q: dict) -> dict:
     """Where each line runs: {line_id: {"mode", "legs": [{stop, edges: [edge entity ids]} | {stop, points}]}}.
-    Legs driven by a vehicle (mod rev 11, MOVE_PATH) are real; the others are predicted on the geography
+    Legs driven by a vehicle (MOVE_PATH) are real; the others are predicted on the geography
     (see predicted_routes) and flagged "predicted". `stamp` lets the browser skip an unchanged answer."""
     gid = _gid()
     try:
@@ -1329,7 +1329,7 @@ def _views_save(d: dict, name: str = "camera_views") -> None:
     tmp.replace(p)
 
 
-# db/travellings.json = { "<game key>": [ {id, name, kind, ...spec}, ... ] } - saved camera travellings (rev 11).
+# db/travellings.json = { "<game key>": [ {id, name, kind, ...spec}, ... ] } - saved camera travellings.
 # A travelling is a recipe, not a baked path: {kind: "view", view: <view id>, move, dir, amp} | {kind: "chain"} |
 # {kind: "line", line: <line id>} plus the shared settings {dur, loop, music, vol, tail, alt?}; it is rebuilt from the
 # current state when played (a line tour over today's vehicles, a view that follows its vehicle...).
@@ -1415,7 +1415,7 @@ def _view_num(v, name: str) -> float:
 
 
 def _view_follow(cam: dict, body: dict) -> dict:
-    """A view attached to a vehicle (rev 11): when the camera was following one and the caller asked to keep it
+    """A view attached to a vehicle: when the camera was following one and the caller asked to keep it
     (body.attach true), store the entity and its name; recalled with follow_view instead of set_camera."""
     if not body.get("attach"):
         return {}

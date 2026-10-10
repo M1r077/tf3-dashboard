@@ -146,7 +146,7 @@
       label: () => [pax ? t("station_pax") : "", cargo ? t("station_cargo") : ""].filter(Boolean).join(" · ") };
   }
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
-  // What is on board, by cargo type (vehicle_state.cargo, mod rev 8+): the icons the game draws above the wagons,
+  // What is on board, by cargo type (vehicle_state.cargo): the icons the game draws above the wagons,
   // with the count. Nothing when the mod does not export it (older revision) or the vehicle is empty.
   const onBoard = (v, cls = "sm") => Array.isArray(v.cargo) && v.cargo.length
     ? ` <span class="onboard">${v.cargo.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}: ${c.n}">${cargoIcon(c, cls)}<small>${c.n}</small></span>`).join("")}</span>` : "";
@@ -287,7 +287,7 @@
     }
     if (off) { st.textContent = ""; }
   }
-  // Explains greyed-out command buttons: the mod ships with "Permit game control" = Off (rev 2+).
+  // Explains greyed-out command buttons: the mod ships with "Permit game control" = Off.
   const cmdOff = () => !cmd.enabled || cmd.accepted === 0;
   const cmdHint = () => cmdOff() ? `<div class="cmdhint">${ico("alert", "sm")}<span>${t(cmd.enabled ? "commands_off_hint" : "commands_na")}</span></div>` : "";
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));
@@ -735,7 +735,7 @@
       // load: one short gauge per cargo type (icon + used/capacity), stacked for multi-cargo lines; sorted by the overall ratio
       { key: "load", label: t("th_load"), gauge: true, render: l => l.capacities.some(c => c.capacity) ? `<span class="qstack">${l.capacities.filter(c => c.capacity).map(c => `<span title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}${bar(c.used || 0, c.capacity, fillCls(pct(c.used || 0, c.capacity)), `${c.used || 0}/${c.capacity}`)}</span>`).join("")}</span>` : "–", sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
-      // the game's "transported" figure of the line window (last 12 months, mod rev 8+): pax or cargo units per year
+      // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
       // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
       { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
@@ -802,7 +802,7 @@
     const mo = $("#line-music-off"); if (mo) mo.addEventListener("click", () => { musicStop(); renderLineDetail(id); });
     bindActions(el);
   }
-  // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour, rev 10):
+  // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour):
   // one path built by the mod from the stops (route sent here) + the vehicles' positions at that moment; the
   // dashboard derives altitude and speed from the size of the line and the travelling preferences.
   async function lineTravelling(l, prefs) {
@@ -816,7 +816,7 @@
     // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
     if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
     if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
-    // along the network when the legs are known (rev 11): the ground track = the legs' polylines chained in stop
+    // along the network when the legs are known: the ground track = the legs' polylines chained in stop
     // order, thinned to ~every 60 m (the mod bends through the points), with the stops marked; the mod then flies
     // the rails / roads instead of the straight stop-to-stop route
     const stopsAlong = findRoute();
@@ -1225,7 +1225,7 @@
   }
 
   // ------------------------------------------------------------ finance (secondary)
-  // ---- the game's accounting journal (mod rev 13). Keys are the engine's "type/maintenance/construction" numbers,
+  // ---- the game's accounting journal. Keys are the engine's "type/maintenance/construction" numbers,
   // checked line by line against the Finances window (see docs). Carriers: 0 road 1 rail 2 tram 3 other 4 air 5 water.
   const JOURNAL_CARRIERS = [[0, "ROAD"], [1, "RAIL"], [2, "TRAM"], [5, "WATER"], [4, "AIR"], [3, "OTHER"]];
   const JOURNAL_LINES = [  // in the game's order within a carrier
@@ -1331,7 +1331,7 @@
 
   // ------------------------------------------------------------ camera views (Map tab panel)
   // Saved on the server next to the database (db/camera_views.json), per savegame. The current camera comes with
-  // the overview (snapshot.camera, mod rev 7+); recalling a view sends set_camera to the game.
+  // the overview (snapshot.camera); recalling a view sends set_camera to the game.
   const camViews = { list: [], loaded: false, cur: null, game: null };  // game = key of the savegame the list belongs to
   const fmtCam = (c) => c ? `x ${Math.round(c.x)} · y ${Math.round(c.y)} · ${Math.round(c.dist)} m · ${Math.round(c.angle * 180 / Math.PI)}° / ${Math.round(c.pitch * 180 / Math.PI)}°` : "";
   // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
@@ -1728,7 +1728,7 @@
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "depot", "alert", "camera", "star"].forEach(mapIcon);
   }
-  // ---- geography (mod rev 11): terrain bounds, water contours, street/track network. Static per savegame: fetched
+  // ---- geography: terrain bounds, water contours, street/track network. Static per savegame: fetched
   // with the geo_seq we already have, the server answers "unchanged" unless the mod rewrote its file (network edit).
   const geo = { data: null, seq: null, game: null, layer: null, key: "" };
   async function loadGeo() {
@@ -1742,7 +1742,7 @@
       if (!geo.firstFit && !map.userView) map.fitted = false; geo.firstFit = true;
     } catch (e) { /* older server: no endpoint */ }
   }
-  // line paths (mod rev 11): per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
+  // line paths: per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
   // rebuilt when either the paths or the geography changed.
   const linePaths = { stamp: null, lines: null, poly: {}, builtFor: "" };
   async function loadLinePaths() {
@@ -1805,7 +1805,7 @@
   // terrain bitmap at `sub` x the grid resolution (the shore cells carry a sub x sub land/water mask: 11 m on an
   // 11 km map), built once per geography. Land: hillshade on the theme tone, plus on the light themes a height ramp
   // (green - ochre - grey - snow) so the mountains read as mountains. Water: theme blue.
-  // ---- full-resolution terrain (mod rev 14): db/height_<game>.png, a 16-bit grayscale picture at 4 m written by the
+  // ---- full-resolution terrain: db/height_<game>.png, a 16-bit grayscale picture at 4 m written by the
   // collector; metres = raw * res_z + offset_z. Decoded once into a Uint16Array, shaded once per theme into a bitmap
   // (2 817 x 2 817 on an 11 km map: ~60 ms), then drawn like the grid bitmap. Water = below the game's water level,
   // refined by the shore masks of the grid where they exist (the sea is below the level, lakes and rivers are meshes
@@ -2115,7 +2115,7 @@
   // existing tracks (Dijkstra on the exported geography, server side): the ruler then shows both lengths and draws
   // the two routes, which is what a ruler is for when planning a line between two points that are already served.
   const ruler = { on: false, a: null, b: null, hover: null, net: null, netKey: null };
-  // km/h used when the player owns no vehicle of that carrier yet (mod 14 exports the top speed of each vehicle;
+  // km/h used when the player owns no vehicle of that carrier yet (the mod exports the top speed of each vehicle;
   // the server returns the fastest owned one per carrier as road_kmh / rail_kmh)
   const RULER_SPEED = { road: 50, rail: 80 };
   function rulerSet(on) {
@@ -2218,7 +2218,7 @@
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
     const gl = geoLayer(w, h, dpr); if (gl) ctx.drawImage(gl, 0, 0, w, h);
     ctx.font = "12px " + font;
-    // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
+    // lines: along the network when the mod reported the legs, else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14 * k); ctx.font = "12px " + font; }

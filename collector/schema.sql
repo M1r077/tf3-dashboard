@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS game (
     lang           TEXT                           -- game UI language code (fr, en, de, zh_CN...)
 );
 
--- geography of the map (mod rev 11): terrain bounds, water contours and the street/track network, one row per
+-- geography of the map: terrain bounds, water contours and the street/track network, one row per
 -- game, replaced whenever the mod writes a new tf3dash_geo.lua (first slow cycle, then when the network changed).
 -- Stored as the JSON the dashboard draws from: {bounds, tiles, water_level, water: [[x,y,...]], edges: [[x0,y0,x1,y1,kind]]}
 CREATE TABLE IF NOT EXISTS geo (
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS geo (
     data           TEXT NOT NULL
 );
 
--- where each line really runs (mod rev 11): per line and leg (stop the vehicles head to), the ordered list of network
+-- where each line really runs: per line and leg (stop the vehicles head to), the ordered list of network
 -- edge entity ids seen in a vehicle's MOVE_PATH; the ids match geo.data.edges[][5]. Replaced whenever the mod rewrites
 -- tf3dash_line_paths.lua.
 CREATE TABLE IF NOT EXISTS line_path (
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS line_path (
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 
--- the game's own accounting journal (mod rev 13, tf3dash_journal.lua): the table behind the Finances window. The
+-- the game's own accounting journal (tf3dash_journal.lua): the table behind the Finances window. The
 -- engine chooses the columns (fine for the recent past, coarser further back); two views are stored, each a set of
 -- columns identified by the engine's own header ("9/87 - 11/87", "1988 - 1989", "16/3/90 - 31/3/90"):
 --   view 'window'  = exactly what the Finances window shows
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS vehicle (
     model       TEXT,                             -- localized model name of the leading part
     model_key   TEXT,                             -- language-neutral key of the leading part ("train/alco_hh600") -> icons/vehicles/
     parts       TEXT,                             -- all parts in consist order, comma separated, "-" prefix = reversed
-    capacities  TEXT,                             -- mod rev 8+: JSON {"<cargo id>": capacity} = what the vehicle can carry
+    capacities  TEXT,                             -- JSON {"<cargo id>": capacity} = what the vehicle can carry
     top_speed   INTEGER,                          -- km/h, the slowest part of the consist (model metadata)
     last_seen   TEXT NOT NULL,
     PRIMARY KEY (game_id, vehicle_id)
@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS vehicle_state (
     days_in_depot    INTEGER,
     days_at_terminal INTEGER,
     closest_town     INTEGER,
-    cargo            TEXT,                       -- mod rev 8+: JSON {"<cargo id>": count} of what is on board
+    cargo            TEXT,                       -- JSON {"<cargo id>": count} of what is on board
     PRIMARY KEY (snapshot_id, vehicle_id)
 );
 CREATE INDEX IF NOT EXISTS ix_vehicle_state_vehicle ON vehicle_state(vehicle_id, snapshot_id);
@@ -368,7 +368,7 @@ CREATE TABLE IF NOT EXISTS industry_cargo (
     consumed_year   INTEGER,
     max_cons_year   INTEGER,
     delivered_year  INTEGER,
-    stock           INTEGER,                      -- what lies in the pile now (mod 14; the industry window's figure)
+    stock           INTEGER,                      -- what lies in the pile now (the industry window's figure)
     capacity        INTEGER,                      -- size of the pile
     PRIMARY KEY (snapshot_id, industry_id, cargo_id, direction)
 );

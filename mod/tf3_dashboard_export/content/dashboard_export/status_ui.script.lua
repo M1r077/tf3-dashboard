@@ -1,4 +1,4 @@
--- Status button and window (rev 10): a small button in the game's mod button area (the same place other mods put
+-- Status button and window: a small button in the game's mod button area (the same place other mods put
 -- theirs), coloured by the state of the export, and a window with the state of the export and the current mod
 -- settings. Read-only: settings are changed in the game's mod menu when loading the game, like any other mod.
 --

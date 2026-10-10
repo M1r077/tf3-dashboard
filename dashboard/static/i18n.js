@@ -72,7 +72,7 @@ window.I18N = {
     cam_update_confirm: "Replace \"{name}\" with the current camera?", cam_delete_confirm: "Delete the view \"{name}\"?", cam_save_ok: "Save", cam_replace_ok: "Replace", cam_delete_title: "Delete the view", cam_rename_ok: "Rename", cam_update_title: "Replace the view", confirm_title: "Please confirm",
     cam_needs_rev7: "Camera views need revision 7 of the mod (the game does not export its camera yet). Update the mod in the Mod Hub, then reload the savegame.",
     // towns
-    th_town: "Town", th_capacity: "Capacity", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Unhappy travellers", th_public_transport: "Public transport", th_traffic: "Traffic", th_noise: "Noise", th_stations: "Stations", th_growth: "Growth",
+    th_town: "Town", th_capacity: "Capacity", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Unhappy travellers", th_public_transport: "Public transport", th_traffic: "Traffic", th_noise: "Noise", th_pollution: "Pollution", th_stations: "Stations", th_growth: "Growth",
     growth_active: "active", growth_frozen: "frozen", select_town: "Select a town.",
     select_station: "Select a station.", st_capacity_split: "Capacity", st_capacity_fmt: "{t} platforms + {p} storage", st_waiting_history: "Waiting and overflow",
     select_industry: "Select an industry.", ind_level_rating: "Level and yield", ind_max: "max", ind_produced: "produced", ind_consumed: "consumed",
@@ -205,7 +205,7 @@ window.I18N = {
     cam_max: "9 vues au maximum (Shift+1..9)", cam_current: "caméra actuelle", cam_following: "suit un véhicule", cam_name_prompt: "Nom de la vue", cam_default_name: "Vue {n}",
     cam_update_confirm: "Remplacer « {name} » par la caméra actuelle ?", cam_delete_confirm: "Supprimer la vue « {name} » ?", cam_save_ok: "Enregistrer", cam_replace_ok: "Remplacer", cam_delete_title: "Supprimer la vue", cam_rename_ok: "Renommer", cam_update_title: "Remplacer la vue", confirm_title: "Confirmation",
     cam_needs_rev7: "Les vues caméra demandent la révision 7 du mod (le jeu n'exporte pas encore sa caméra). Mettez le mod à jour dans le Mod Hub, puis rechargez la partie.",
-    th_town: "Ville", th_capacity: "Capacité", th_res: "Rés.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Voyageurs mécontents", th_public_transport: "Transports publics", th_traffic: "Trafic", th_noise: "Bruit", th_stations: "Gares", th_growth: "Croissance",
+    th_town: "Ville", th_capacity: "Capacité", th_res: "Rés.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Voyageurs mécontents", th_public_transport: "Transports publics", th_traffic: "Trafic", th_noise: "Bruit", th_pollution: "Pollution", th_stations: "Gares", th_growth: "Croissance",
     growth_active: "active", growth_frozen: "gelée", select_town: "Sélectionne une ville.",
     select_station: "Sélectionne une gare.", st_capacity_split: "Capacité", st_capacity_fmt: "{t} quais + {p} stockage", st_waiting_history: "En attente et débordement",
     select_industry: "Sélectionne une industrie.", ind_level_rating: "Niveau et rendement", ind_max: "max", ind_produced: "produit", ind_consumed: "consommé",
@@ -331,7 +331,7 @@ window.I18N = {
     cam_max: "höchstens 9 Ansichten (Shift+1..9)", cam_current: "aktuelle Kamera", cam_following: "folgt einem Fahrzeug", cam_name_prompt: "Name der Ansicht", cam_default_name: "Ansicht {n}",
     cam_update_confirm: "\"{name}\" durch die aktuelle Kamera ersetzen?", cam_delete_confirm: "Ansicht \"{name}\" löschen?", cam_save_ok: "Speichern", cam_replace_ok: "Ersetzen", cam_delete_title: "Ansicht löschen", cam_rename_ok: "Umbenennen", cam_update_title: "Ansicht ersetzen", confirm_title: "Bitte bestätigen",
     cam_needs_rev7: "Kameraansichten brauchen Revision 7 des Mods (das Spiel exportiert seine Kamera noch nicht). Mod im Mod Hub aktualisieren, dann den Spielstand neu laden.",
-    th_town: "Stadt", th_capacity: "Kapazität", th_res: "Wohn.", th_com: "Gew.", th_ind: "Ind.", th_unhappy_travellers: "Unzufriedene Reisende", th_public_transport: "ÖV", th_traffic: "Verkehr", th_noise: "Lärm", th_stations: "Stationen", th_growth: "Wachstum",
+    th_town: "Stadt", th_capacity: "Kapazität", th_res: "Wohn.", th_com: "Gew.", th_ind: "Ind.", th_unhappy_travellers: "Unzufriedene Reisende", th_public_transport: "ÖV", th_traffic: "Verkehr", th_noise: "Lärm", th_pollution: "Verschmutzung", th_stations: "Stationen", th_growth: "Wachstum",
     growth_active: "aktiv", growth_frozen: "eingefroren", select_town: "Stadt auswählen.",
     select_station: "Station auswählen.", st_capacity_split: "Kapazität", st_capacity_fmt: "{t} Bahnsteige + {p} Lager", st_waiting_history: "Wartend und Überlauf",
     select_industry: "Industrie auswählen.", ind_level_rating: "Stufe und Auslastung", ind_max: "max", ind_produced: "produziert", ind_consumed: "verbraucht",
@@ -469,7 +469,7 @@ window.I18N = {
     legend_vehicle: "veículo (cor = linha)", legend_stopped: "parado em trânsito", legend_pax_station: "estação de passageiros", legend_cargo_station: "estação de carga", legend_industry: "indústria",
     legend_counts: "{v} veículos · {s} estações · {i} indústrias", station_pax: "estação de passageiros", station_cargo: "estação de carga", industry: "indústria", capacity_n: "capacidade {n}", load_n: "carga {a}/{b}",
     // towns
-    th_town: "Cidade", th_capacity: "Capacidade", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Viajantes insatisfeitos", th_public_transport: "Transporte público", th_traffic: "Trânsito", th_noise: "Ruído", th_stations: "Estações", th_growth: "Crescimento",
+    th_town: "Cidade", th_capacity: "Capacidade", th_res: "Res.", th_com: "Com.", th_ind: "Ind.", th_unhappy_travellers: "Viajantes insatisfeitos", th_public_transport: "Transporte público", th_traffic: "Trânsito", th_noise: "Ruído", th_pollution: "Poluição", th_stations: "Estações", th_growth: "Crescimento",
     growth_active: "ativo", growth_frozen: "congelado", select_town: "Selecione uma cidade.",
     select_station: "Selecione uma estação.", st_capacity_split: "Capacidade", st_capacity_fmt: "{t} plataformas + {p} armazenamento", st_waiting_history: "Aguardando e excedente",
     select_industry: "Selecione uma indústria.", ind_level_rating: "Nível e rendimento", ind_max: "máx.", ind_produced: "produzido", ind_consumed: "consumido",
@@ -586,7 +586,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
     cam_music_auto: "随机", cam_music_auto_hint: "随机播放 music 文件夹中的一首（默认）",
   cam_views: "镜头视角", cam_save: "保存当前视角", cam_rename: "重命名", cam_delete: "删除", cam_current: "当前镜头", cam_default_name: "视角 {n}", confirm_title: "请确认",
   // towns
-  th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_stations: "车站", th_growth: "增长",
+  th_town: "城镇", th_capacity: "容量", th_res: "居民", th_com: "商业", th_ind: "工业", th_unhappy_travellers: "不满的旅客", th_public_transport: "公共交通", th_traffic: "交通", th_noise: "噪音", th_pollution: "污染", th_stations: "车站", th_growth: "增长",
   select_town: "选择一个城镇。", select_station: "选择一个车站。", select_industry: "选择一个产业。",
   capacities: "容量", residential: "居民区", commercial: "商业区", industrial: "工业区", pt_share: "公共交通占比", top_lines: "使用最多的线路", cargo_needs: "货物需求",
   // industries

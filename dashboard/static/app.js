@@ -1043,6 +1043,7 @@
       { key: "line_usage", label: t("th_public_transport"), icon: "line", num: true, render: x => x.line_usage == null ? "–" : bar(x.line_usage, 1, "ok") },
       { key: "traffic_speed", label: t("th_traffic"), icon: "veh_car", num: true, render: x => x.traffic_speed == null ? "–" : kmh(x.traffic_speed) },
       { key: "noise_db", label: t("th_noise"), icon: "noise", num: true, render: x => x.noise_db == null ? "–" : num(x.noise_db, 0) + " dB" },
+      { key: "pollution_db", label: t("th_pollution"), icon: "pollution", num: true, render: x => x.pollution_db == null ? "–" : num(x.pollution_db, 0) + " dB" },
       { key: "stations", label: t("th_stations"), icon: "station", num: true },
       { key: "development_active", label: t("th_growth"), icon: "town_growth", render: x => x.development_active ? `<span class="chip ok">${t("growth_active")}</span>` : `<span class="chip warn">${t("growth_frozen")}</span>` },
       { key: "act", label: "", render: x => entBtns(x.town_id) },

@@ -1760,8 +1760,11 @@
       const cur = gm.key === d.current, latest = gm.key === d.latest, rel = gm.reloads || [];
       const tag = cur && latest ? `<span class="tag ok">${t("saves_current")}</span>` : cur ? `<span class="tag">${t("saves_shown")}</span>` : latest ? `<span class="tag">${t("saves_latest")}</span>` : "";
       const pick = !cur && d.selectable ? `<button class="btn sm" data-pick="${esc(gm.key)}" title="${esc(t("saves_view_title"))}">${ico("eye", "sm")}${t("saves_view")}</button>` : "";
-      return `<div class="save ${cur ? "cur" : ""}">
-        <div class="save-h"><b>${esc(gm.label || gm.key)}</b> ${tag}${gm.label ? `<small class="mono">${esc(gm.key)}</small>` : ""}${pick}</div>
+      // forget: any save but the one the game is writing right now (the server refuses that one anyway)
+      const queued = (d.forget_pending || []).includes(gm.key);
+      const forget = queued ? `<span class="tag">${t("saves_forgetting")}</span>` : !(latest && !d.selectable) ? `<button class="btn sm danger" data-forget="${esc(gm.key)}" data-label="${esc(gm.label || gm.key)}" title="${esc(t("saves_forget_title"))}">${ico("ct_remove", "sm")}${t("saves_forget")}</button>` : "";
+      return `<div class="save ${cur ? "cur" : ""} ${queued ? "bad" : ""}">
+        <div class="save-h"><b>${esc(gm.label || gm.key)}</b> ${tag}${gm.label ? `<small class="mono">${esc(gm.key)}</small>` : ""}${pick}${forget}</div>
         <div class="save-d">${t("saves_game_date")}: <b>${gameDay(gm.last_game_day)}</b> · ${t("saves_seen", { a: realDate(gm.first_seen), b: realDate(gm.last_seen) })}</div>
         <div class="save-d">${t("saves_counts", { s: int(gm.snapshots), l: int(gm.lines), v: int(gm.vehicles), c: gm.views })}</div>
         ${rel.length ? `<div class="save-d warn">${ico("alert", "sm")}${t("saves_reloads", { n: rel.length, from: gameDay(rel[rel.length - 1].from_day), to: gameDay(rel[rel.length - 1].to_day), at: realDate(rel[rel.length - 1].at) })}</div>` : ""}
@@ -1774,6 +1777,7 @@
       </div>`;
     box.innerHTML = `${games.length ? games.map(gameRow).join("") : `<p class="muted">${t("no_data")}</p>`}
       <div class="save-a"><button class="btn primary" id="bk-now">${ico("save", "sm")}${t("saves_backup_now")}</button><span class="muted small">${esc(d.dir || "")}</span></div>
+      ${d.db_size ? `<div class="save-d">${t("saves_db_size", { s: kb(d.db_size.file + d.db_size.wal) })}${d.db_size.wal > d.db_size.file ? ` <span class="muted">(${t("saves_db_wal", { w: kb(d.db_size.wal) })})</span>` : ""}</div>` : ""}
       ${d.restore_pending ? `<div class="save-d warn">${ico("alert", "sm")}${t("saves_restore_pending")}</div>` : ""}
       ${backups.length ? `<h3>${t("saves_backups")}</h3>${backups.map(bkRow).join("")}` : `<p class="muted small">${t("saves_no_backup")}</p>`}
       <p class="setnote">${t("saves_note")}</p>`;
@@ -1792,6 +1796,13 @@
       camViews.loaded = false; renderSaves();
     }));
     $$("[data-pick]", box).forEach(b => b.addEventListener("click", () => selectGame(b.dataset.pick)));
+    $$("[data-forget]", box).forEach(b => b.addEventListener("click", async () => {
+      if (!await modal.confirm(t("saves_forget_confirm", { s: b.dataset.label }), { title: t("confirm_title"), ok: t("saves_forget"), danger: true })) return;
+      const r = await fetch("/api/forget_game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: b.dataset.forget }) }); const j = await r.json();
+      $("#cmd-status").textContent = j.ok ? t("saves_forget_queued") : t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus " + (j.ok ? "ok" : "bad");
+      state.cache = {}; camViews.loaded = false;
+      renderSaves(); setTimeout(() => { renderSaves(); refresh(); }, 3000);  // the collector deletes within a loop pass
+    }));
   }
 
   // ------------------------------------------------------------ offline: which save the pages show
@@ -1812,7 +1823,9 @@
     document.body.classList.toggle("offline", !!off);
     if (!off) return;
     const s = o.snapshot, label = o.game ? (o.game.label || o.game.key) : "";
-    $("#offline-text").innerHTML = t("offline_text", { save: `<b>${esc(label)}</b>`, date: `<b>${esc(date(s))}</b>`, ago: ago(s.real_time || s.received_at) });
+    const g = o.game || {};
+    const session = g.first_seen && g.last_seen ? ` <span class="muted">${t("offline_session", { a: realDate(g.first_seen), b: realDate(g.last_seen), n: int(g.snapshots || 0) })}</span>` : "";
+    $("#offline-text").innerHTML = t("offline_text", { save: `<b>${esc(label)}</b>`, date: `<b>${esc(date(s))}</b>`, ago: ago(s.real_time || s.received_at) }) + session;
     const pick = $("#offline-pick"); pick.style.display = (o.live.selected || o.live.has_other) ? "" : "none";
   }
 

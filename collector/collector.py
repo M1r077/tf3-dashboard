@@ -115,6 +115,7 @@ def _bool(v: Any) -> int | None:
 class Store:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.db_path = db_path
         self.con = sqlite3.connect(str(db_path))
         self.con.row_factory = sqlite3.Row
         self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
@@ -200,8 +201,6 @@ class Store:
                                 WHERE f.game_id=agg_vehicle_min.game_id AND f.bucket=agg_vehicle_min.bucket) WHERE game_time_ms IS NULL""")
             self.con.execute("PRAGMA user_version = 3")
             self.con.commit()
-            if n:
-                self.con.execute("VACUUM")
         if v < 4:
             # columns the dashboard never showed (audit of 0.6.1): stop carrying them
             self._drop_columns()
@@ -211,8 +210,7 @@ class Store:
             self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))  # recreate the trimmed view
             self.con.execute("PRAGMA user_version = 4")
             self.con.commit()
-            self.con.execute("VACUUM")
-        self.con.commit()
+        self.con.commit()  # space freed by a migration is reclaimed by compact() on its next pass
 
     # (table, column) pairs removed by the 0.6.1 audit; dropped from databases created before it
     DROPPED = (
@@ -895,9 +893,37 @@ class Store:
             stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
         stats["game"] = c.execute("DELETE FROM game WHERE game_id=?", (gid,)).rowcount
         c.commit()
-        c.execute("VACUUM")
         self._game_cache = {k: v for k, v in self._game_cache.items() if v != gid}
+        self._last_slow_seq.pop(gid, None)
         return stats
+
+    def apply_forget_requests(self, say=None) -> bool:
+        """The dashboard cannot write the database (read-only connection): it stages db/forget_pending.json =
+        {"keys": [...]} and the collector, owner of the file, does the deletion on its next loop pass."""
+        pending = self.db_path.parent / "forget_pending.json"
+        if not pending.exists():
+            return False
+        try:
+            req = json.loads(pending.read_text(encoding="utf-8"))
+            keys = [str(k) for k in (req.get("keys") or [])]
+        except (OSError, ValueError):
+            keys = []
+        try:
+            pending.unlink()
+        except OSError:
+            pass
+        done = False
+        for key in keys:
+            r = self.con.execute("SELECT game_id FROM game WHERE key=?", (key,)).fetchone()
+            if not r:
+                continue
+            st = self.forget_game(r["game_id"])
+            done = True
+            if say:
+                say(f"forgot save {key} on request of the dashboard: {st['snapshots']} snapshots", "ok")
+        if done:
+            self.compact(say=say, min_free_pages=0, min_free_ratio=0.0)
+        return done
 
     def status(self) -> str:
         c = self.con
@@ -1093,6 +1119,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.forget_game is not None:
         st = store.forget_game(args.forget_game)
+        store.compact(say=lambda m, *_: print(m), min_free_pages=0, min_free_ratio=0.0)
         print(f"game {args.forget_game} forgotten: {st}")
         return 0
 
@@ -1185,6 +1212,10 @@ def main(argv: list[str] | None = None) -> int:
                 except sqlite3.Error as e:
                     say(f"rollup failed: {e}", "error")
                 next_rollup = time.time() + 60
+            try:
+                store.apply_forget_requests(say=say)
+            except sqlite3.Error as e:
+                say(f"forget failed: {e}", "error")
             if time.time() >= next_compact:
                 try:
                     store.compact(say=say)

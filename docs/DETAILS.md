@@ -166,6 +166,10 @@ Three independent parts:
      browser) which `_gid()` / `_game_key()` honour; every "latest snapshot" lookup is scoped to that game. The choice
      is dropped as soon as a fresh snapshot arrives (the game decides what is shown). Tags: "current" (shown = last
      played), "shown" / "last played" when they differ.
+   - **forget a save** ("Forget" in the panel): the server only reads the database, so `POST /api/forget_game {key}`
+     stages `db\forget_pending.json = {keys: [...]}` (refused for the save being played), removes the save's camera
+     views and travellings, and the collector's loop (`Store.apply_forget_requests`) deletes the rows within a pass
+     and compacts. `/api/games` reports `forget_pending` and `db_size = {file, wal}` (bytes on disk).
    - **backups** (settings panel, "Savegames & backups"; `POST /api/backup`): `db\backups\tf3-dashboard-<label>-<stamp>.zip`
      = consistent copy of the database (SQLite backup API, taken while the collector writes) + `camera_views.json` +
      `manifest.json`. Restore (`POST /api/restore {file, what}`): `views` merges the camera views at once (only for saves

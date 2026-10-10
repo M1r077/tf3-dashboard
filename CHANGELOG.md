@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+The database stays small: beyond the 2-hour detail window the slow history (lines, towns, stations, industries, depots, ~20 KB per snapshot) is thinned to one point per 10 minutes instead of being kept in full for 14 days, per-vehicle minutes are kept for 7 days (the fleet and finance minutes stay), and the collector compacts the file once an hour (WAL truncated, VACUUM when a quarter of the file is free). A 0.5 GB database was reported; the same data now takes tens of megabytes. Operations keeps its charts when no detail is left (after a long pause) by reading the minute aggregates. Travellings: a saved chain keeps its own list of views (it was dropped on save and fell back to every view).
+
 ## Companion 0.6.3 - 10 October 2026 (mod 14 unchanged)
 
 Detail cards (vehicle, line, town, industry, station) keep their scroll position across the periodic refresh instead of jumping back to the top. Their sections can be arranged: hover a section title for move up / move down / fold buttons (charts on top, vehicle list below, a folded list out of the way); the arrangement is remembered per card, and in a user-sized card the charts take the room a folded section frees.

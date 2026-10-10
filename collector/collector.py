@@ -163,6 +163,7 @@ class Store:
         ("industry_cargo", "capacity", "INTEGER"),
         ("game", "reloads", "TEXT"),         # JSON [{at, from_day, to_day, game_time_ms, deleted}]: each reload of an older save
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
+        ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per 10 min
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -731,16 +732,21 @@ class Store:
     # ------------------------------------------------------------ retention / aggregation
     # detail (one row per snapshot) is kept for `detail_hours`; everything older is rolled up into the
     # agg_*_min tables (one row per real-time minute) and deleted. Slow sections (lines, towns, stations,
-    # industries, depots: one row per ~30 s) are small and simply purged after `slow_days`.
-    def rollup(self, detail_hours: float = 2.0, slow_days: float = 14.0, say=None) -> dict:
+    # industries, depots: one row per ~30 s, ~20 KB per snapshot on a medium network) are thinned beyond
+    # `detail_hours` to one snapshot per SLOW_THIN_S and purged after `slow_days`. Per-vehicle minutes
+    # (agg_vehicle_min, ~100 B x vehicles x minutes) are dropped after `vehicle_days`; the fleet and
+    # finance minutes are a few hundred bytes each and are kept.
+    SLOW_THIN_S = 600
+
+    def rollup(self, detail_hours: float = 2.0, slow_days: float = 14.0, vehicle_days: float = 7.0, say=None) -> dict:
         c = self.con
-        stats = {"agg_minutes": 0, "deleted_snapshots": 0, "purged_slow": 0}
+        stats = {"agg_minutes": 0, "deleted_snapshots": 0, "purged_slow": 0, "thinned_slow": 0, "vehicle_minutes": 0}
         now = time.time()
         for row in c.execute("SELECT game_id FROM game").fetchall():
             gid = row["game_id"]
             # 1) aggregate all closed minutes not yet aggregated (regardless of retention: cheap and keeps
             #    the aggregate series continuous so the UI can read detail + agg without a gap)
-            meta = c.execute("SELECT agg_until FROM agg_meta WHERE game_id=?", (gid,)).fetchone()
+            meta = c.execute("SELECT agg_until, thin_until FROM agg_meta WHERE game_id=?", (gid,)).fetchone()
             agg_until = meta["agg_until"] if meta else 0
             last_closed = int(now // 60) * 60 - 60  # the current minute is still open
             if agg_until == 0:
@@ -772,14 +778,67 @@ class Store:
                              (SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ?)""", (gid, cutoff))
                 c.execute("""DELETE FROM alert WHERE snapshot_id IN
                              (SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ?)""", (gid, cutoff))
-            # 3) purge slow sections older than slow_days entirely
+            # 3) thin slow sections older than detail_hours: keep the last snapshot of each SLOW_THIN_S bucket,
+            #    delete the others (CASCADE drops their line/town/station/industry/depot rows). Processed
+            #    incrementally from thin_until, closed buckets only, so each call touches a bounded range.
+            thin_cut_s = (now - detail_hours * 3600) // self.SLOW_THIN_S * self.SLOW_THIN_S
+            thin_from = meta["thin_until"] if meta and meta["thin_until"] else None
+            thin_cut = iso(thin_cut_s)
+            if thin_from is None or thin_from < thin_cut:
+                lo_clause, lo_args = ("AND real_time >= ?", (thin_from,)) if thin_from else ("", ())
+                off = _local_offset()
+                b = f"(CAST(strftime('%s', real_time) AS INTEGER) - {off}) / {self.SLOW_THIN_S}"
+                cur = c.execute(f"""DELETE FROM snapshot WHERE snapshot_id IN (
+                        SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ? {lo_clause}
+                          AND snapshot_id NOT IN (
+                            SELECT MAX(snapshot_id) FROM snapshot WHERE game_id=? AND real_time < ? {lo_clause} GROUP BY {b}))""",
+                    (gid, thin_cut, *lo_args, gid, thin_cut, *lo_args))
+                stats["thinned_slow"] += cur.rowcount or 0
+                c.execute("INSERT INTO agg_meta(game_id, agg_until, thin_until) VALUES (?,0,?) ON CONFLICT(game_id) DO UPDATE SET thin_until=excluded.thin_until",
+                          (gid, thin_cut))
+            # 4) purge slow sections older than slow_days entirely
             slow_cut = iso(now - slow_days * 86400)
             cur = c.execute("DELETE FROM snapshot WHERE game_id=? AND real_time < ?", (gid, slow_cut))
             stats["purged_slow"] += cur.rowcount or 0
+            # 5) per-vehicle minutes older than vehicle_days (the fleet minutes stay)
+            if vehicle_days > 0:
+                cur = c.execute("DELETE FROM agg_vehicle_min WHERE game_id=? AND bucket < ?", (gid, int(now - vehicle_days * 86400)))
+                stats["vehicle_minutes"] += cur.rowcount or 0
         c.commit()
-        if (stats["deleted_snapshots"] or stats["purged_slow"]) and say:
-            say(f"rollup: +{stats['agg_minutes']} min aggregated, {stats['deleted_snapshots']} detail snapshots folded, {stats['purged_slow']} old slow snapshots purged")
+        if (stats["deleted_snapshots"] or stats["purged_slow"] or stats["thinned_slow"] or stats["vehicle_minutes"]) and say:
+            say(f"rollup: +{stats['agg_minutes']} min aggregated, {stats['deleted_snapshots']} detail snapshots folded, "
+                f"{stats['thinned_slow']} slow snapshots thinned, {stats['purged_slow']} purged, {stats['vehicle_minutes']} vehicle minutes dropped")
         return stats
+
+    # ------------------------------------------------------------ housekeeping (space)
+    # Deleted rows only move pages to SQLite's freelist; the file never shrinks on its own and the WAL grows
+    # while readers (the server) hold snapshots open. Once in a while: checkpoint and truncate the WAL, and
+    # when the freelist is a large share of the file, VACUUM (rewrites the file: seconds for ~100 MB, done
+    # at most once per `every_s`, and only when it pays off).
+    def compact(self, say=None, min_free_ratio: float = 0.25, min_free_pages: int = 2500) -> dict:
+        c = self.con
+        out = {"wal": None, "vacuum": False, "free_pages": 0, "page_count": 0}
+        try:
+            r = c.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            out["wal"] = tuple(r) if r else None  # (busy, log, checkpointed)
+        except sqlite3.Error:
+            pass
+        out["page_count"] = c.execute("PRAGMA page_count").fetchone()[0]
+        out["free_pages"] = c.execute("PRAGMA freelist_count").fetchone()[0]
+        if out["free_pages"] >= min_free_pages and out["free_pages"] >= out["page_count"] * min_free_ratio:
+            t0 = time.time()
+            page = c.execute("PRAGMA page_size").fetchone()[0]
+            before = out["page_count"] * page
+            c.execute("VACUUM")
+            out["vacuum"] = True
+            try:
+                c.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # the rewrite went through the WAL: fold it in
+            except sqlite3.Error:
+                pass
+            after = c.execute("PRAGMA page_count").fetchone()[0] * page
+            if say:
+                say(f"database compacted: {before / 1e6:.0f} MB -> {after / 1e6:.0f} MB in {time.time() - t0:.1f} s", "ok")
+        return out
 
     def _aggregate_range(self, gid: int, lo: int, hi: int) -> int:
         """Build agg rows for buckets in [lo, hi) from detail rows. Returns number of fleet buckets written."""
@@ -1006,8 +1065,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--poll", type=float, default=0.5, help="seconds between file checks")
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--detail-hours", type=float, default=2.0, help="keep per-snapshot detail (vehicles, alerts, finance) for this many hours; older data is rolled up per minute (0 = never)")
-    ap.add_argument("--slow-days", type=float, default=14.0, help="purge lines/towns/stations/industries history older than this many days")
-    ap.add_argument("--rollup", action="store_true", help="run the retention roll-up once and exit")
+    ap.add_argument("--slow-days", type=float, default=14.0, help="purge lines/towns/stations/industries history older than this many days (thinned to one point per 10 min beyond --detail-hours)")
+    ap.add_argument("--vehicle-days", type=float, default=7.0, help="keep per-vehicle minute history for this many days (0 = forever)")
+    ap.add_argument("--rollup", action="store_true", help="run the retention roll-up and the compaction once and exit")
     ap.add_argument("--list-games", action="store_true", help="list the saves (games) recorded in the database and exit")
     ap.add_argument("--forget-game", type=int, metavar="GAME_ID", help="delete everything recorded for this game id (another save) and exit")
     args = ap.parse_args(argv)
@@ -1026,8 +1086,8 @@ def main(argv: list[str] | None = None) -> int:
         print(store.status())
         return 0
     if args.rollup:
-        st = store.rollup(args.detail_hours or 1e9, args.slow_days, say=print)
-        print(st); print(store.status())
+        st = store.rollup(args.detail_hours or 1e9, args.slow_days, args.vehicle_days, say=print)
+        print(st); print(store.compact(say=lambda m, *_: print(m), min_free_pages=0, min_free_ratio=0.0)); print(store.status())
         return 0
     if args.list_games:
         for r in store.games():
@@ -1081,6 +1141,7 @@ def main(argv: list[str] | None = None) -> int:
     last_mtime = -1.0
     imported = 0
     next_rollup = 0.0
+    next_compact = time.time() + 120  # first pass two minutes after start, then hourly
     next_detect = 0.0
     next_wait_msg = time.time() + 30
     slow_files: SlowFiles | None = None
@@ -1123,10 +1184,16 @@ def main(argv: list[str] | None = None) -> int:
                     continue
             if args.detail_hours > 0 and time.time() >= next_rollup:
                 try:
-                    store.rollup(args.detail_hours, args.slow_days, say=say)
+                    store.rollup(args.detail_hours, args.slow_days, args.vehicle_days, say=say)
                 except sqlite3.Error as e:
                     say(f"rollup failed: {e}", "error")
                 next_rollup = time.time() + 60
+            if time.time() >= next_compact:
+                try:
+                    store.compact(say=say)
+                except sqlite3.Error as e:
+                    say(f"compaction failed: {e}", "error")
+                next_compact = time.time() + 3600
             if minute["n"] and time.time() - minute["since"] >= 60:
                 flush_minute()
             try:

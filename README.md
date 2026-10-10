@@ -158,8 +158,9 @@ also shows the export folder, when the companion was last seen, and the current 
   enabling the mod**, open the mod settings in the savegame and raise the fast interval (5 or 10 s), the slow interval
   (60 or 120 s); on very large networks disable the vehicle export. The defaults (2 s / 30 s) target a reasonably
   recent PC.
-- The database keeps per-snapshot detail for 2 hours and per-minute aggregates for 14 days (configurable, see
-  `collector.py --help`). Only the most recent savegame is kept.
+- The database keeps per-snapshot detail for 2 hours, then one point per minute (fleet and finance forever, each
+  vehicle for 7 days) and one point per 10 minutes for lines, towns, stations and industries (14 days). It
+  compacts itself once an hour, so it stays in the tens of megabytes. Configurable, see `collector.py --help`.
 - The server listens on `127.0.0.1` only. Commands are refused from any other address.
 - The game icons are extracted from **your** game installation at first start (`dashboard/extract_icons.py`); they
   are not redistributed.

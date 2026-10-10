@@ -420,7 +420,8 @@ CREATE INDEX IF NOT EXISTS ix_alert_snapshot ON alert(snapshot_id, kind);
 -- detail + aggregate seamlessly.
 CREATE TABLE IF NOT EXISTS agg_meta (
     game_id     INTEGER NOT NULL PRIMARY KEY REFERENCES game(game_id),
-    agg_until   INTEGER NOT NULL DEFAULT 0      -- unix minute (inclusive) up to which aggregates are complete
+    agg_until   INTEGER NOT NULL DEFAULT 0,     -- unix minute (inclusive) up to which aggregates are complete
+    thin_until  TEXT                            -- ISO real_time below which slow snapshots are thinned to one per bucket
 );
 
 CREATE TABLE IF NOT EXISTS agg_fleet_min (

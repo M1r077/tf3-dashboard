@@ -1650,7 +1650,7 @@
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings();
     map.data = await api("/api/map");
-    await loadGeo(); await loadLinePaths();
+    await loadGeo(); await loadLinePaths(); await loadMapCargo();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1673,13 +1673,15 @@
     });
     canvas.addEventListener("mousedown", () => { map.lastDragMoved = false; });
     canvas.addEventListener("mousemove", () => { if (map.drag && map.drag.moved) map.lastDragMoved = true; });
-    $$("#tab-map input").forEach(i => i.addEventListener("change", () => drawMap(canvas)));
+    $$("#tab-map input").forEach(i => i.addEventListener("change", async () => { if (["map-prod", "map-need", "map-stock"].includes(i.id) && !mapCargo.data) await loadMapCargo(); drawMap(canvas); }));
     $("#map-line-filter").addEventListener("change", e => { map.lineFilter = e.target.value ? +e.target.value : null; drawMap(canvas); });
     $("#map-fit").addEventListener("click", () => { map.fitted = false; map.userView = false; try { localStorage.removeItem(viewKey()); } catch (e) { /* ignore */ } map.restoreKey = viewKey(); drawMap(canvas); });
     $("#map-style-btn").addEventListener("click", (e) => { e.preventDefault(); const b = $("#map-style"); const open = b.hidden; b.hidden = !open; $("#map-style-btn").classList.toggle("active", open); if (open) renderMapStyle(); });
     $("#map-ruler-btn").addEventListener("click", (e) => { e.preventDefault(); rulerSet(!ruler.on); });
     document.addEventListener("keydown", (e) => { if (e.code === "Escape" && ruler.on && state.tab === "map") rulerSet(false); });
     if (new URLSearchParams(location.search).get("mapstyle")) { $("#map-style").hidden = false; $("#map-style-btn").classList.add("active"); renderMapStyle(); }
+    // ?maplayers=prod,need,stock turns cargo layers on; ?mapzoom=<town_id> centres on a town at a readable scale (links, screenshots)
+    const ml = new URLSearchParams(location.search).get("maplayers"); if (ml) ml.split(",").forEach(k => { const el = $("#map-" + k); if (el) el.checked = true; });
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
     ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
   }
@@ -1873,6 +1875,55 @@
     } catch (e) { return false; }
   }
   const P = (x, y) => [map.ox + x * map.scale, map.oy - y * map.scale]; // game y up
+  // ---- cargo layers. Three toggles, one visual grammar for towns and industries: small cargo icons in rows anchored
+  // to their owner. Above = what it produces (industries), below = what it needs (towns and industries), right = what
+  // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size, dimmed
+  // when the rate is low (produced vs max production, delivered vs need); stock icons grow with the amount (square
+  // root, 10 to 26 px). Each row sits on a dark pill so it reads over the relief. Only from a zoom where the rows do
+  // not collide (the `big` threshold of the map).
+  const mapCargo = { data: null, at: 0 };
+  const townRadius = (tw) => Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10)));
+  const cargoAny = () => $("#map-prod").checked || $("#map-need").checked || $("#map-stock").checked;
+  async function loadMapCargo() {
+    if (!cargoAny()) return;
+    try { mapCargo.data = await api("/api/map_cargo"); mapCargo.at = Date.now(); } catch (e) { /* keep what we have */ }
+  }
+  const cargoImg = (key) => mapIcon("cargo/" + (CARGO_ICON_FILES.has(key) ? key : "_mixed"));
+  function drawCargoLayers(ctx, d) {
+    const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.08) return;
+    const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
+    const row = (items, cx, cy, side, sizer, alpha) => {
+      if (!items || !items.length) return;
+      const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
+      let x0, y0;  // top-left of the row
+      if (side === "above") { x0 = cx - w / 2; y0 = cy - 14 - hmax; }
+      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 14; }
+      else { x0 = cx + 14; y0 = cy - hmax / 2; }
+      ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
+      let x = x0;
+      items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
+      ctx.globalAlpha = 1;
+    };
+    const fixed = () => 16;
+    const grow = (it) => 12 + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);
+    const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
+    const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
+    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(201,209,217,.45)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 12); else if (side === "below") ctx.lineTo(cx, cy + 12); else ctx.lineTo(cx + 12, cy); ctx.stroke(); };
+    const draw = (kind, list, idKey, offset) => list.forEach(o => {
+      const c = cd[kind][String(o[idKey])]; if (!c) return;
+      let [x, y] = P(o.x, o.y);
+      if (x < -200 || y < -200 || x > ctx.canvas.clientWidth + 200 || y > ctx.canvas.clientHeight + 200) return;
+      // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
+      const dy = offset ? offset(o) : 0;
+      if (prod && c.out.length) { stroke(x, y, "above"); row(c.out, x, y, "above", fixed, rateAlpha); }
+      if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
+      // empty stocks are only worth showing when the demand row is off (it already says what is missing)
+      const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
+      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+    });
+    if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
+    if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
+  }
   function drawIcon(ctx, name, x, y, size, color) {
     const im = mapIcon(name); if (!im.complete || !im.naturalWidth) return false;
     // tint: draw the white-on-alpha icon, then multiply color through source-in on an offscreen canvas
@@ -1978,6 +2029,10 @@
     const el = $("#map-ruler"); if (!el) return;
     el.style.display = ruler.on ? "" : "none";
     if (!ruler.on) return;
+    // hung right under the ruler button (the toolbar lives outside the map card, so position from its screen rect)
+    const br = $("#map-ruler-btn").getBoundingClientRect(), cr = el.offsetParent.getBoundingClientRect();
+    el.style.left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth)) + "px";
+    el.style.top = Math.max(8, br.bottom - cr.top + 6) + "px";
     if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
     const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
     const dz = ha != null && hb != null ? hb - ha : null;
@@ -2000,6 +2055,7 @@
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
+    if (!map.zoomedOnce) { map.zoomedOnce = true; const z = +new URLSearchParams(location.search).get("mapzoom"); const tw = z && d.towns.find(x => x.town_id === z); if (tw) { map.scale = 0.25; map.ox = w / 2 - tw.x * map.scale; map.oy = h / 2 + tw.y * map.scale; } }
     const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
     const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015";
@@ -2010,11 +2066,12 @@
     ctx.font = "12px " + font;
     // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
-    if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10))); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
+    if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 12); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
     if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 14, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 4, y - 4, 8, 8); } });
     if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath(); ctx.fill(); });
+    drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
       if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgb(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;

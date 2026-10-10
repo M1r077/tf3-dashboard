@@ -687,6 +687,44 @@ def api_map(q: dict) -> dict:
     return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
 
 
+def api_map_cargo(q: dict) -> dict:
+    """Cargo layers of the map, per owner (town or industry), from the latest slow snapshot:
+      out   : what the owner produces     [{cargo, key, rate}]            rate = produced / max production per year
+      in    : what the owner needs        [{cargo, key, rate}]            rate = delivered (or supplied) / need per year
+      stock : what is lying there now     [{cargo, key, amount, capacity}] towns only until the mod exports industry piles
+    One query per table, ~200 rows, a few ms."""
+    gid = _gid()
+    keys = {r["cargo_id"]: r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
+    out: dict = {"towns": {}, "industries": {}}
+    def owner(kind, oid):
+        return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
+    sid = one("SELECT MAX(snapshot_id) sid FROM industry_cargo")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year
+                         FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
+                         WHERE ic.snapshot_id=?""", (gid, sid["sid"])):
+            o = owner("industries", r["industry_id"])
+            if r["direction"] == "out":
+                mx = r["max_prod_year"] or 0
+                o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
+            else:
+                mx = r["max_cons_year"] or 0
+                o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+    sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT ts.town_id, ts.cargo_id, SUM(ts.v1) AS supplied, SUM(ts.v2) AS needed FROM town_supply ts
+                         JOIN town t ON t.game_id=? AND t.town_id=ts.town_id AND t.x IS NOT NULL
+                         WHERE ts.snapshot_id=? GROUP BY ts.town_id, ts.cargo_id""", (gid, sid["sid"])):
+            need = r["needed"] or 0
+            owner("towns", r["town_id"])["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["supplied"] or 0) / need if need else None})
+    sid = one("SELECT MAX(snapshot_id) sid FROM town_cargo")
+    if sid and sid["sid"]:
+        for r in rows("""SELECT tc.town_id, tc.cargo_id, tc.stock, tc.capacity FROM town_cargo tc
+                         JOIN town t ON t.game_id=? AND t.town_id=tc.town_id AND t.x IS NOT NULL WHERE tc.snapshot_id=?""", (gid, sid["sid"])):
+            owner("towns", r["town_id"])["stock"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"]})
+    return out
+
+
 def api_geo(q: dict) -> dict:
     """Map geography (mod rev 11): bounds, water contours, street/track network for the current game. The browser
     passes the geo_seq it already has; when nothing changed only {geo_seq} comes back (the full payload is a few
@@ -1528,7 +1566,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 

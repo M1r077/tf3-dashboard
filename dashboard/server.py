@@ -1143,10 +1143,39 @@ def _range_secs(rng: str) -> float:
     if not last:
         return 0
     bound = last["game_time_ms"] - months * GAME_YEAR_MS // 12
-    first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (_gid(), bound))
+    if _timeline_clean():
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (_gid(), bound))
+        # a paused game (or one that just reloaded) has played little since: a window measured on the clock alone
+        # could hold a handful of identical points. Widen it until it holds at least 20 distinct clock values, so
+        # "1 month" always means the last month played, not the last month of a stopped pendulum.
+        n = one("SELECT COUNT(DISTINCT game_time_ms) AS n FROM snapshot WHERE game_id=? AND game_time_ms >= ?", (_gid(), bound))
+        if n and n["n"] < 20:
+            wider = one("""SELECT MIN(real_time) AS rt FROM (SELECT real_time FROM snapshot WHERE game_id=? AND game_time_ms IS NOT NULL
+                           GROUP BY game_time_ms ORDER BY game_time_ms DESC LIMIT 20)""", (_gid(),))
+            if wider and wider["rt"]:
+                first = wider
+    else:
+        # database not yet cleaned by a collector of this version (reloaded branches still inside): walk the current
+        # run only - the latest row whose clock is below the bound, or ahead of the last one, ends the search
+        edge = one("""SELECT MAX(snapshot_id) AS sid FROM snapshot WHERE game_id=? AND snapshot_id <= ?
+                      AND (game_time_ms < ? OR game_time_ms > ?)""", (_gid(), last["snapshot_id"], bound, last["game_time_ms"]))
+        first = one("SELECT MIN(real_time) AS rt FROM snapshot WHERE game_id=? AND snapshot_id > ?", (_gid(), (edge and edge["sid"]) or 0))
     if not first or not first["rt"]:
         return 0
     return max(1.0, time.time() - _epoch(first["rt"]))
+
+
+_timeline_state = {"v": None, "at": 0.0}
+
+
+def _timeline_clean() -> bool:
+    """True once the collector applied the one-timeline rule (PRAGMA user_version >= 3); checked every 30 s."""
+    now = time.time()
+    if now - _timeline_state["at"] > 30:
+        r = one("PRAGMA user_version")
+        _timeline_state["v"] = (r or {}).get("user_version", 0)
+        _timeline_state["at"] = now
+    return (_timeline_state["v"] or 0) >= 3
 
 
 def _since_iso(q: dict) -> str:

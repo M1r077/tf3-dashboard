@@ -899,9 +899,12 @@ class Store:
         c = self.con
         stats = {}
         stats["snapshots"] = c.execute("DELETE FROM snapshot WHERE game_id=?", (gid,)).rowcount
-        for tbl in ("line_stop", "line", "vehicle", "station", "town", "industry", "depot", "cargo_type",
-                    "agg_fleet_min", "agg_vehicle_min", "agg_finance_min", "agg_meta"):
-            stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
+        # every table with a game_id column (found in the live schema, so a new table cannot be forgotten here and
+        # trip the FOREIGN KEY on `game` - geo / finance_journal / line_path did exactly that in 0.6.3)
+        tables = [r["name"] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('game', 'snapshot')")]
+        for tbl in tables:
+            if any(col["name"] == "game_id" for col in c.execute(f"PRAGMA table_info({tbl})")):
+                stats[tbl] = c.execute(f"DELETE FROM {tbl} WHERE game_id=?", (gid,)).rowcount
         stats["game"] = c.execute("DELETE FROM game WHERE game_id=?", (gid,)).rowcount
         c.commit()
         self._game_cache = {k: v for k, v in self._game_cache.items() if v != gid}
@@ -928,7 +931,13 @@ class Store:
             r = self.con.execute("SELECT game_id FROM game WHERE key=?", (key,)).fetchone()
             if not r:
                 continue
-            st = self.forget_game(r["game_id"])
+            try:
+                st = self.forget_game(r["game_id"])
+            except sqlite3.Error as e:
+                self.con.rollback()
+                if say:
+                    say(f"could not forget save {key}: {e}", "error")
+                continue
             done = True
             if say:
                 say(f"forgot save {key} on request of the dashboard: {st['snapshots']} snapshots", "ok")

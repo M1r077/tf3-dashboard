@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Companion 0.6.3 - 10 October 2026 (mod 14 unchanged)
+
+Detail cards (vehicle, line, town, industry, station) keep their scroll position across the periodic refresh instead of jumping back to the top. Their sections can be arranged: hover a section title for move up / move down / fold buttons (charts on top, vehicle list below, a folded list out of the way); the arrangement is remembered per card, and in a user-sized card the charts take the room a folded section frees.
+
 ## Companion 0.6.2 - 10 October 2026 (mod 14 unchanged)
 
 Operations: a "Busiest stations" card (waiting items against platforms + pool, the Stations table's thresholds), and the busiest lines turn orange above 80 % and red above 90 % (a line that full is short of vehicles). Layout edit: a star on the Finances cards pins them to the Operations page (the card moves there and keeps updating; the star again sends it home), so one page can hold everything you watch.

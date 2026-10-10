@@ -108,8 +108,9 @@
       setSize applies on the next frame, so measure the chrome from the current (stable) render and size once. */
   function fitHost(canvas, host, u, w) {
     if (!canvas.closest(".card.sized")) return false;
-    // chrome = everything the host shows besides the plot (legend row(s), axis labels); scrollHeight: the host clips
-    const chrome = host.scrollHeight - u.height;
+    // chrome = everything the host shows besides the plot (legend row(s), axis labels). Measured from the children: a
+    // flex host may be stretched beyond its content (room freed by a folded section), so its own height says nothing.
+    const chrome = Array.from(host.children).reduce((a, ch) => a + ch.getBoundingClientRect().height, 0) - u.height;
     if (!(chrome >= 0 && chrome < 200)) return false;
     u.setSize({ width: w, height: Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2)) });
     return true;

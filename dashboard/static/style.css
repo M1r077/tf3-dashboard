@@ -622,6 +622,15 @@ table.stops .termgrid .tg-star:hover { color: #f0c84a; }
 
 /* ---- finance journal: the game's Finances table, one column per period. Headers centred, labels and figures left,
    carriers unfold on click (the game's own grouping), summary block below. */
+/* detail-card sections: fold / move tools on the header, shown on hover (and always while arranging panels) */
+h2[data-sec] .sec-tools { margin-left: auto; display: inline-flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+h2[data-sec]:hover .sec-tools, body.layout-edit h2[data-sec] .sec-tools { opacity: 1; }
+.sec-tools .sbtn { background: transparent; border: 1px solid transparent; border-radius: 5px; width: 22px; height: 22px; padding: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.sec-tools .sbtn:hover { border-color: var(--border); color: var(--text); }
+.sec-tools .sbtn:disabled { opacity: .3; cursor: default; }
+.sec-tools .sbtn .ico { margin: 0; color: inherit; }
+.card > .sec-hidden { display: none !important; }
+h2[data-sec].folded { opacity: .7; }
 .card h2 .h2-tools { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-size: 12px; }
 .journal-wrap { overflow-x: auto; }
 table.journal { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }

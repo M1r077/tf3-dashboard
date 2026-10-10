@@ -1241,10 +1241,10 @@
     bindActions(el); sectionize(el);
     const tx = tsOpts(hist, "ind");
     // one colour per cargo: solid = produced/consumed, dashed = shipped/delivered, faint = yearly maximum
-    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo); return [
-      { name: `${n} · ${aName}`, values: e.a, color: col },
-      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4] },
-      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4] },
+    const cargoSeries = (list, aName, sName) => list.flatMap((e, i) => { const col = CARGO_COLORS[i % CARGO_COLORS.length], n = cargoName(e.c.cargo), ic = cargoIcon(e.c, "sm"); return [
+      { name: `${n} · ${aName}`, values: e.a, color: col, icon: ic },
+      { name: `${n} · ${sName}`, values: e.s, color: col, dash: [5, 4], icon: ic },
+      { name: `${n} · ${t("ind_max")}`, values: e.m, color: col + "55", dash: [2, 4], icon: ic },
     ]; });
     if (outs.length) Charts.lineChart($("#chart-ind-out"), cargoSeries(outs, t("ind_produced"), t("shipped")), labels, { zeroBase: true, ...tx });
     if (ins.length) Charts.lineChart($("#chart-ind-in"), cargoSeries(ins, t("ind_consumed"), t("delivered")), labels, { zeroBase: true, ...tx });
@@ -1390,8 +1390,8 @@
     ], hl, { unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: pick("total"), color: "#e8b04b", area: true, unit: "$", step: true }], hl, { zeroBase: true, unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-transport"), [
-      { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
-      { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
+      { icon: cargoIcon({ cargo_key: "passengers", cargo: t("passengers") }, "sm"), name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
+      { icon: cargoIcon({ cargo_key: "_mixed", cargo: t("cargo") }, "sm"), name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },
     ], labels, { rightAxis: true, zeroBase: true, ...tx });
     // company figures (slow export): network size and company value over the same range
     const comp = fin.company || [], clabels = comp.map(x => dateLabel(x)), ctx = tsOpts(comp, "fin");

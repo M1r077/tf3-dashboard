@@ -1139,7 +1139,7 @@
   function boostChip(i) {
     const bl = i.boosters || []; if (!bl.length && !i.boost_rule && !i.boost_persons) return "";
     const act = bl.filter(b => b.active);
-    const total = act.reduce((m, b) => m * (b.kind === "workers" ? (b.factor || 1) : 1 + (b.factor || 0)), 1);
+    const total = act.reduce((m, b) => m * (b.kind === "workers" ? (b.potential || b.factor || 1) : 1 + (b.factor || 0)), 1);
     const on = act.length > 0 || (!bl.length && (i.boost_rule || i.boost_persons));
     return `<span class="chip ${on ? "info" : ""}" title="${esc(t("boost_hint", { a: act.length, n: bl.length }))}">${ico("booster", "sm")}${bl.length ? (on ? boostPct(total) : `${act.length}/${bl.length}`) : t("boost")}</span>`;
   }
@@ -1147,8 +1147,8 @@
     if (!bl || !bl.length) return "";
     return `<h2>${ico("booster")}${t("boosters")}</h2><table class="kv boosters">${bl.map(b => {
       const tick = b.active ? `<span class="chip ok">${ico("check", "sm")}${t("boost_active")}</span>` : `<span class="chip">${t("boost_inactive")}</span>`;
-      if (b.kind === "workers") return `<tr><td>${ico("town_workplaces", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num">${b.active ? boostPct(b.factor) : (b.potential != null ? `<span class="muted">${boostPct(b.potential)}</span>` : "")}</td><td>${tick}</td></tr>`;
-      return `<tr><td>${(b.needs || []).map(n => cargoChip(n)).join(" ")}</td><td>${(b.needs || []).map(n => bar(n.have || 0, n.need || 0, (n.have || 0) >= (n.need || 0) ? "ok" : "", `${int(n.have)}/${int(n.need)}`)).join("<br>")}</td><td class="num">${boostPct(b.factor)}</td><td>${tick}</td></tr>`;
+      if (b.kind === "workers") return `<tr><td>${ico("town_workplaces", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num ${b.active ? "pos" : "muted"}">${b.potential != null ? boostPct(b.potential) : (b.active ? boostPct(b.factor) : "")}</td><td>${tick}</td></tr>`;
+      return `<tr><td>${(b.needs || []).map(n => cargoChip(n)).join(" ")}</td><td>${(b.needs || []).map(n => bar(n.have || 0, n.need || 0, (n.have || 0) >= (n.need || 0) ? "ok" : "", `${int(n.have)}/${int(n.need)}`)).join("<br>")}</td><td class="num ${b.active ? "pos" : "muted"}">${boostPct(b.factor)}</td><td>${tick}</td></tr>`;
     }).join("")}</table>`;
   }
   async function renderIndustryDetail(id) {

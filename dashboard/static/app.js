@@ -45,6 +45,7 @@
     const root = document.documentElement.style;
     root.setProperty("--isz", settings.ico + "px"); root.setProperty("--fs", settings.fs + "px"); root.setProperty("--rowpad", settings.rowpad + "px");
     document.body.classList.toggle("hide-finance", !settings.finance);
+    if (typeof drawMap === "function" && $("#map") && state.tab === "map") drawMap($("#map"));  // canvas markers follow the icon size too
     $$("#settings .seg").forEach(seg => $$("button", seg).forEach(b => b.classList.toggle("active", String(settings[seg.dataset.set]) === b.dataset.v)));
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
@@ -1640,6 +1641,9 @@
 
   // ------------------------------------------------------------ map
   const map = { data: null, scale: 1, ox: 0, oy: 0, drag: null, init: false, fitted: false, lineFilter: null, icons: {} };
+  // every marker on the canvas scales with the icon-size setting (S 16 / M 22 / L 28 / XL 36): factor 1 = the default L.
+  // Markers whose size carries data (stock piles, town circles) keep their own growth: only their base follows.
+  const isz = () => (settings.ico || 28) / 28;
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
   async function renderMap(o) {
     camViews.cur = (o && o.camera) || null;
@@ -1895,19 +1899,20 @@
       if (!items || !items.length) return;
       const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
       let x0, y0;  // top-left of the row
-      if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 - hmax; }
-      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17; }
-      else { x0 = cx + 17; y0 = cy - hmax / 2; }
+      if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 * k - hmax; }
+      else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17 * k; }
+      else { x0 = cx + 17 * k; y0 = cy - hmax / 2; }
       ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
       let x = x0;
       items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
       ctx.globalAlpha = 1;
     };
-    const fixed = () => 16;
-    const grow = (it) => 12 + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);
+    const k = isz();
+    const fixed = () => 16 * k;
+    const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
     const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
-    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15); else if (side === "below") ctx.lineTo(cx, cy + 15); else ctx.lineTo(cx + 15, cy); ctx.stroke(); };
+    const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
       const c = cd[kind][String(o[idKey])]; if (!c) return;
       let [x, y] = P(o.x, o.y);
@@ -1918,7 +1923,7 @@
       if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
-      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
     });
     if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
     if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
@@ -1998,7 +2003,7 @@
     if (!ruler.on) { rulerPanel(null, null, null); return; }
     const a = ruler.a, b = ruler.b || ruler.hover;
     ctx.save(); ctx.strokeStyle = "#e8b04b"; ctx.fillStyle = "#e8b04b"; ctx.lineWidth = 2;
-    const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5, 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
+    const dot = (p) => { const [x, y] = P(p.x, p.y); ctx.beginPath(); ctx.arc(x, y, 5 * isz(), 0, 7); ctx.fill(); ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.stroke(); ctx.strokeStyle = "#e8b04b"; ctx.lineWidth = 2; };
     // the network routes first, under the straight segment: road in the street colour, rail in the track colour
     const net = ruler.b && ruler.net;
     // solid = the way over the existing network, dashed = the legs to build (A to the network, network to B; when
@@ -2066,22 +2071,22 @@
     // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
-    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14); ctx.font = "12px " + font; }
-    const big = map.scale > 0.08;
-    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5, y - 5, 10, 10); } });
-    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); ctx.fill(); });
+    if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14 * k); ctx.font = "12px " + font; }
+    const big = map.scale > 0.08, k = isz();
+    if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20 * k, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k); } });
+    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill(); });
     drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
       if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgb(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
-        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
-        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 17, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
-      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, moving ? 5.5 : 4.5, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
-      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 14, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 14, y + 4); }
+        ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12 * k, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
+        if (!drawIcon(ctx, ICON_BY_TYPE[v.icon_type] || ICON_BY_CARRIER[v.carrier] || "veh_car", x, y, 17 * k, col)) { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, 7); ctx.fill(); }
+      } else { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, (moving ? 5.5 : 4.5) * k, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = stopped ? "#f85149" : "#0b1015"; ctx.stroke(); }
+      if (showLabels || lf != null) { ctx.textAlign = "left"; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(v.name, x + 14 * k, y + 4); ctx.fillStyle = ink; ctx.fillText(v.name, x + 14 * k, y + 4); }
     });
-    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 18, "#f85149"); });
+    if ($("#map-alerts").checked) d.alerts.forEach(a => { const [x, y] = P(a.x, a.y); ctx.strokeStyle = "#f85149"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 15 * k, 0, 7); ctx.stroke(); drawIcon(ctx, "alert", x, y, 18 * k, "#f85149"); });
     // current camera as a view cone: eye position (behind the target, by dist * cos(pitch)) and two lines diverging
     // towards the target, then a little beyond; the opening (zoom) is the cone's half-angle. Drawn first so the pins
     // stay readable. Saved views = numbered pins with a star; the one the camera is on is highlighted.
@@ -2101,8 +2106,8 @@
     camViews.list.forEach((v0, i) => {
       const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
       const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
-      drawIcon(ctx, "star", x, y - 17, 20, "#e8b04b");
-      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, on ? 11 : 10, 0, 7); ctx.fill(); ctx.stroke();
+      drawIcon(ctx, "star", x, y - 17 * k, 20 * k, "#e8b04b");
+      ctx.fillStyle = on ? "#e8b04b" : "#e6edf3"; ctx.strokeStyle = "#0b1015"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, (on ? 11 : 10) * k, 0, 7); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#0b1015"; ctx.textAlign = "center"; ctx.font = "600 11px " + font; ctx.fillText(String(i + 1), x, y + 4); ctx.font = "12px " + font;
     });
     if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour

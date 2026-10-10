@@ -137,6 +137,14 @@
   // Fallback for DBs filled by an older mod: guess from the (English) display name.
   const cargoKey = (c) => { const k = c && typeof c === "object" ? c.cargo_key : null; if (k) return String(k).toLowerCase(); const name = c && typeof c === "object" ? c.cargo : c; return String(name || "").toLowerCase().replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/[\s-]+/g, "_").replace("canned_food", "tinned_food").replace("tinplate", "sheet_metal"); };
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
+  // Station kind from the terminal flags. Old mods only sent is_cargo (true for most passenger stations too, since
+  // universal terminals "support cargo"), so without is_pax a station is pax when it is not cargo.
+  function stKind(s) {
+    const pax = s.is_pax == null ? !s.is_cargo : !!s.is_pax, cargo = s.is_pax == null ? !!s.is_cargo : !!s.is_cargo;
+    return { pax, cargo,
+      icons: (sz) => (pax ? ico("passengers", sz) : "") + (cargo ? ico("cargo", sz) : ""),
+      label: () => [pax ? t("station_pax") : "", cargo ? t("station_cargo") : ""].filter(Boolean).join(" · ") };
+  }
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
   // What is on board, by cargo type (vehicle_state.cargo, mod rev 8+): the icons the game draws above the wagons,
   // with the count. Nothing when the mod does not export it (older revision) or the vehicle is empty.
@@ -1171,9 +1179,9 @@
     const stations = s.stations || []; state.cache.stations = stations;
     if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     renderTable($("#st-table"), [
-      { key: "name", label: t("th_station"), render: x => `${ico(x.is_cargo ? "cargo" : "passengers", "sm")}${esc(x.name)}` },
+      { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
-      { key: "is_cargo", label: t("th_type"), render: x => x.is_cargo ? `<span class="chip">${t("cargo")}</span>` : `<span class="chip info">${t("pax")}</span>` },
+      { key: "is_cargo", label: t("th_type"), render: x => { const k = stKind(x); return (k.pax ? `<span class="chip info">${t("pax")}</span>` : "") + (k.cargo ? `<span class="chip">${t("cargo")}</span>` : ""); } },
       { key: "used", label: t("th_waiting"), num: true },
       { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : "–"; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
@@ -1199,7 +1207,7 @@
     const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
     const hist = h.history || [], labels = hist.map(x => dateLabel(x)), lines = h.lines || [];
     const cap = (st.terminal_capacity || 0) + (st.pool_capacity || 0);
-    $("#st-detail").innerHTML = `<h2>${ico(st.is_cargo ? "cargo" : "passengers", "lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
+    $("#st-detail").innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
         <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
@@ -2216,7 +2224,8 @@
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14 * k); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
     if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20 * k, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k); } });
-    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill(); });
+    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); const kd = stKind(s); ctx.fillStyle = kd.pax ? "#58a6ff" : "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill();
+      if (kd.pax && kd.cargo) { ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 3.5 * k); ctx.lineTo(x + 3.5 * k, y); ctx.lineTo(x, y + 3.5 * k); ctx.lineTo(x - 3.5 * k, y); ctx.closePath(); ctx.fill(); } });
     drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
@@ -2266,7 +2275,7 @@
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
-    if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
+    if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {
       const c = mapCargo.data && mapCargo.data[kind] && mapCargo.data[kind][String(id)]; if (!c) return "";

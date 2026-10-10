@@ -810,7 +810,18 @@ local function stationItem(s, ctx)
 		local owned = api.engine.getComponent(s, api.type.ComponentType.PLAYER_OWNED)
 		if owned and owned.player == player then
 			local rec = { id = s, name = entityName(s), town = num(st2town[s]) }
-			pcall(function() rec.cargo = api.engine.util.station.isStationOfType(s, true) and true or false end)
+			pcall(function()
+				-- what the terminals actually handle. isStationOfType(s, true) only says "supports cargo", which is true
+				-- for most passenger stations too (universal terminals), so the type comes from the terminal flags.
+				local pax, cargo = false, false
+				local station = api.engine.getComponent(s, api.type.ComponentType.STATION)
+				for _, term in ipairs(arr(station and station.terminals or {})) do
+					if term.passengersLoad or term.passengersUnload then pax = true end
+					if term.cargoLoad or term.cargoUnload then cargo = true end
+				end
+				rec.pax = pax
+				rec.cargo = cargo
+			end)
 			pcall(function()
 				local u = api.engine.util.station.calculateStationUsage(s)
 				rec.used, rec.overflow, rec.pool_capacity, rec.terminal_capacity = num(u.totalUsed), num(u.overflow), num(u.poolCapacity), num(u.terminalCapacity)

@@ -612,7 +612,7 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.station_group, s.x, s.y, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
@@ -665,7 +665,7 @@ def api_map(q: dict) -> dict:
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.cap_res+ts.cap_com+ts.cap_ind AS size FROM town t
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
-    st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
+    st = rows("SELECT station_id, name, x, y, is_cargo, is_pax FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
     # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
     # (closed, renamed, earlier saves), which would litter the map with ghosts
     ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i

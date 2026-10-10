@@ -150,6 +150,7 @@ class Store:
         ("line_stop", "terminals", "TEXT"),
         ("line_stop", "alternatives", "TEXT"),
         ("line_stop", "waiting", "TEXT"),
+        ("station", "is_pax", "INTEGER"),
         ("snapshot", "camera", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # mod rev 8+: {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # mod rev 8+: {"<cargo id>": capacity} = what the vehicle can carry
@@ -622,11 +623,11 @@ class Store:
                 continue
             x, y, _z = xyz(s.get("pos"))
             self.con.execute(
-                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, x, y)
-                   VALUES (?,?,?,?,?,?,?,?)
+                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, is_pax, x, y)
+                   VALUES (?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
-                   is_cargo=excluded.is_cargo, x=excluded.x, y=excluded.y""",
-                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), x, y),
+                   is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y""",
+                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO station_state VALUES (?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))

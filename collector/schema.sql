@@ -250,7 +250,8 @@ CREATE TABLE IF NOT EXISTS station (
     name          TEXT,
     town_id       INTEGER,
     station_group INTEGER,
-    is_cargo      INTEGER,
+    is_cargo      INTEGER,                        -- a terminal loads/unloads cargo
+    is_pax        INTEGER,                        -- a terminal loads/unloads passengers (NULL = old mod: not cargo => pax)
     x REAL, y REAL,
     PRIMARY KEY (game_id, station_id)
 );

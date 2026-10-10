@@ -137,8 +137,16 @@
   // Fallback for DBs filled by an older mod: guess from the (English) display name.
   const cargoKey = (c) => { const k = c && typeof c === "object" ? c.cargo_key : null; if (k) return String(k).toLowerCase(); const name = c && typeof c === "object" ? c.cargo : c; return String(name || "").toLowerCase().replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/[\s-]+/g, "_").replace("canned_food", "tinned_food").replace("tinplate", "sheet_metal"); };
   const cargoLabel = (c) => c && typeof c === "object" ? c.cargo : c;
+  // Station kind from the terminal flags. Old mods only sent is_cargo (true for most passenger stations too, since
+  // universal terminals "support cargo"), so without is_pax a station is pax when it is not cargo.
+  function stKind(s) {
+    const pax = s.is_pax == null ? !s.is_cargo : !!s.is_pax, cargo = s.is_pax == null ? !!s.is_cargo : !!s.is_cargo;
+    return { pax, cargo,
+      icons: (sz) => (pax ? ico("passengers", sz) : "") + (cargo ? ico("cargo", sz) : ""),
+      label: () => [pax ? t("station_pax") : "", cargo ? t("station_cargo") : ""].filter(Boolean).join(" · ") };
+  }
   const cargoIcon = (c, cls = "sm") => { const k = cargoKey(c); return `<i class="ico cargo-img ${cls}" style="--ico:url(icons/cargo/${CARGO_ICON_FILES.has(k) ? k : "_mixed"}.png)" title="${esc(cargoName(cargoLabel(c)))}"></i>`; };
-  // What is on board, by cargo type (vehicle_state.cargo, mod rev 8+): the icons the game draws above the wagons,
+  // What is on board, by cargo type (vehicle_state.cargo): the icons the game draws above the wagons,
   // with the count. Nothing when the mod does not export it (older revision) or the vehicle is empty.
   const onBoard = (v, cls = "sm") => Array.isArray(v.cargo) && v.cargo.length
     ? ` <span class="onboard">${v.cargo.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}: ${c.n}">${cargoIcon(c, cls)}<small>${c.n}</small></span>`).join("")}</span>` : "";
@@ -279,7 +287,7 @@
     }
     if (off) { st.textContent = ""; }
   }
-  // Explains greyed-out command buttons: the mod ships with "Permit game control" = Off (rev 2+).
+  // Explains greyed-out command buttons: the mod ships with "Permit game control" = Off.
   const cmdOff = () => !cmd.enabled || cmd.accepted === 0;
   const cmdHint = () => cmdOff() ? `<div class="cmdhint">${ico("alert", "sm")}<span>${t(cmd.enabled ? "commands_off_hint" : "commands_na")}</span></div>` : "";
   $$("#game-speed .sbtn").forEach(b => b.addEventListener("click", () => sendCmd("set_speed", { speed: +b.dataset.speed }, b)));
@@ -727,7 +735,7 @@
       // load: one short gauge per cargo type (icon + used/capacity), stacked for multi-cargo lines; sorted by the overall ratio
       { key: "load", label: t("th_load"), gauge: true, render: l => l.capacities.some(c => c.capacity) ? `<span class="qstack">${l.capacities.filter(c => c.capacity).map(c => `<span title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}${bar(c.used || 0, c.capacity, fillCls(pct(c.used || 0, c.capacity)), `${c.used || 0}/${c.capacity}`)}</span>`).join("")}</span>` : "–", sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
-      // the game's "transported" figure of the line window (last 12 months, mod rev 8+): pax or cargo units per year
+      // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
       // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
       { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
@@ -746,7 +754,13 @@
     el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button>${travel.active && travel.active.kind === "line" && travel.active.id === id ? `<button class="btn" id="line-travel" data-stop="1">${ico("stop", "sm")}${t("cam_travel_stop")}</button>` : `<button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 ? "disabled" : ""}>${ico("follow", "sm")}${t("line_travel")}</button>`}${music.el && !travel.active ? `<button class="btn" id="line-music-off">${ico("stop", "sm")}${t("cam_music_off")}</button>` : ""}</div>
       <p class="muted">${l.stop_names.map(esc).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
-      <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}</table>
+      <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}
+        <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
+        <tr><td>${t("det_throughput")}</td><td>${int(l.throughput)}</td></tr>
+        <tr><td>${t("det_vehicles")}</td><td>${int(l.vehicles)}${l.live ? ` <span class="muted">· ${int(l.live.en_route)} ${t("state.EN_ROUTE").toLowerCase()} · ${kmh(l.live.speed)}</span>` : ""}</td></tr>
+        ${carriesPax(l) ? `<tr><td>${t("det_on_line")}</td><td>${int(l.persons_on_line)}</td></tr><tr><td>${t("th_pax_unhappy")}</td><td>${l.pax_total ? barQuality(l.pax_bad || 0, l.pax_total) : "–"}${l.pax_avg_quality != null && l.pax_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.pax_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
+        ${carriesCargo(l) ? `<tr><td>${t("th_cargo_late")}</td><td>${l.cargo_total ? barQuality(l.cargo_bad || 0, l.cargo_total) : "–"}${l.cargo_avg_quality != null && l.cargo_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.cargo_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
+      </table>
       <h2 style="margin-top:12px">${ico("line_stations")}${t("stops_title")} <small>${(l.stop_list || []).length}</small></h2>
       <div id="line-stops-wrap"></div>
       <h2 style="margin-top:12px">${ico("vehicles")}${t("line_vehicles")} <small>${(h.vehicles || []).length}</small></h2>
@@ -788,7 +802,7 @@
     const mo = $("#line-music-off"); if (mo) mo.addEventListener("click", () => { musicStop(); renderLineDetail(id); });
     bindActions(el);
   }
-  // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour, rev 10):
+  // Travelling along a line = a tour of its vehicles, driven by the mod with live positions (camera_tour):
   // one path built by the mod from the stops (route sent here) + the vehicles' positions at that moment; the
   // dashboard derives altitude and speed from the size of the line and the travelling preferences.
   async function lineTravelling(l, prefs) {
@@ -802,7 +816,7 @@
     // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
     if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
     if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
-    // along the network when the legs are known (rev 11): the ground track = the legs' polylines chained in stop
+    // along the network when the legs are known: the ground track = the legs' polylines chained in stop
     // order, thinned to ~every 60 m (the mod bends through the points), with the stops marked; the mod then flies
     // the rails / roads instead of the straight stop-to-stop route
     const stopsAlong = findRoute();
@@ -934,17 +948,24 @@
         const tip = `${t("term_summary", { main: x.n })} · ${isMain ? t("term_main") : isAlt ? t("term_alt") : t("term_unused")}${bad ? " · " + t("term_incompatible") : ""}${short ? " · " + t("term_too_short") : ""}`;
         return `<span class="tg-n ${isMain ? "main" : isAlt ? "alt" : "off"} ${(isMain || isAlt) && (bad || short) ? "warn" : ""}" title="${esc(tip)}">${x.n}${isMain ? ico("star", "sm") : ""}</span>`; }).join("")}</span>`;
     };
+    // waiting at the stop for this line (the figure of the game's line window): icon + count, red when some are unhappy
+    const ctById = new Map(cts.map(c => [c.cargo_id, c]));
+    const waiting = (st) => {
+      const w = st.waiting || []; if (!w.length) return '<span class="muted">–</span>';
+      return w.map(x => { const c = ctById.get(x.cargo_type); return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(c ? c.name : x.cargo_type)}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: c && c.name, cargo_key: c && c.key })}${x.total}</span>`; }).join("");
+    };
     const viewRow = (st) => `<tr data-stop="${st.stop_index}">
         <td class="num muted">${st.stop_index}</td>
         <td class="wrap">${st.station_group ? `<a class="goto" data-st="${st.station_group}" title="${esc(t("goto_station"))}">${esc(st.name || "?")}</a>` : esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
         <td class="nowrap">${cargoCell(st)}${st.force_unload ? ` <span class="chip bad" title="${esc(t("force_unload"))}">${ico("line_unload", "sm")}</span>` : ""}</td>
         <td class="nowrap">${termBadges(st)}</td>
+        <td class="nowrap">${waiting(st)}</td>
         <td class="center">${st.load_mode == null ? "–" : ico(LOAD_MODE_ICON[st.load_mode] || "load_available", "sm", t("load_mode_" + st.load_mode))}</td>
         <td class="num nowrap">${waits(st)}</td>
         <td class="act">${st.station_group ? entBtns(st.station_group) : ""}<button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
     const editRow = (st) => {
       const w = (k, v, min) => `<input type="number" class="stop-in" data-k="${k}" min="${min}" max="600" step="5" value="${v == null ? "" : Math.round(v)}" style="width:62px">`;
-      return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="7"><div class="stopedit">
+      return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="8"><div class="stopedit">
         <div><small>${st.stop_index}.</small> <b>${esc(st.name || "?")}</b>
           <div class="stopcargo">${cargoCell(st, Infinity)}</div>
           <label class="muted" style="font-size:12px"><input type="checkbox" class="stop-in" data-k="force_unload" ${st.force_unload ? "checked" : ""}> ${t("force_unload")}</label></div>
@@ -954,7 +975,7 @@
         <div class="stopbtns"><button class="btn stop-apply" data-stop="${st.stop_index}">${ico("check", "sm")}${t("apply")}</button><button class="btn stop-apply-all" data-stop="${st.stop_index}" title="${esc(t("apply_all_stops"))}">${ico("line_stations", "sm")}${t("apply_all_stops")}</button><button class="btn stop-cancel">${t("cancel")}</button></div>
       </div></td></tr>`;
     };
-    root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
+    root.innerHTML = `${cmdHint()}<table class="data stops"><thead><tr><th class="num">#</th><th>${t("th_stop")}</th><th>${t("th_cargo_filter")}</th><th>${t("terminals")}</th><th>${t("th_waiting")}</th><th class="center">${t("th_load_mode")}</th><th class="num" title="${esc(t("th_min_wait"))} / ${esc(t("th_max_wait"))}">${t("th_wait_short")}</th><th class="act"></th></tr></thead>
       <tbody>${stops.map(st => (editing === st.stop_index ? editRow(st) : viewRow(st))).join("")}</tbody></table>`;
     bindActions(root);  // camera button and station link of each stop
     $$(".lm-btn", root).forEach(b => b.addEventListener("click", e => {
@@ -1059,6 +1080,13 @@
     const hap = [[t("hap_inside"), tw.hap_inside_unhappy, tw.hap_inside_total], [t("hap_res_out"), tw.hap_from_res_unhappy, tw.hap_from_res_total], [t("hap_res_in"), tw.hap_to_res_unhappy, tw.hap_to_res_total], [t("hap_visitors"), (tw.hap_to_nonres_unhappy || 0) + (tw.hap_from_nonres_unhappy || 0), (tw.hap_to_nonres_total || 0) + (tw.hap_from_nonres_total || 0)], [t("hap_car"), tw.hap_car_unhappy, tw.hap_car_total], [t("hap_walk"), tw.hap_walk_unhappy, tw.hap_walk_total]];
     $("#town-detail").innerHTML = `<h2>${ico("town", "lg")}${esc(tw.name)}${tw.has_hq ? ` <span class="hqstar" title="${esc(t("town_hq"))}">${ico("star", "sm")}</span>` : ""} <small>#${tw.town_id} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${tw.town_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
+      <table class="kv">
+        <tr><td>${t("residential")} · ${t("commercial").toLowerCase()} · ${t("industrial").toLowerCase()}</td><td>${[["used_res", "cap_res"], ["used_com", "cap_com"], ["used_ind", "cap_ind"]].map(([u, c]) => `<span class="mono">${int(tw[u])}/${int(tw[c])}</span>`).join(" · ")}</td></tr>
+        <tr><td>${t("th_stations")} · ${t("det_area").toLowerCase()}</td><td>${int(tw.stations)} · ${tw.area_km2 != null ? num(tw.area_km2, 2) + " km²" : "–"} ${tw.development_active ? `<span class="chip ok">${t("det_dev_active")}</span>` : `<span class="chip warn">${t("det_dev_inactive")}</span>`}</td></tr>
+        <tr><td>${t("pt_share")}</td><td>${tw.line_usage != null ? bar(tw.line_usage, 1, "", Math.round(tw.line_usage * 100) + " %") : "–"}</td></tr>
+        <tr><td>${t("det_traffic")}</td><td>${kmh(tw.traffic_speed)}</td></tr>
+        <tr><td>${ico("noise", "sm")}${t("det_noise")} · ${ico("pollution", "sm")}${t("det_pollution").toLowerCase()}</td><td>${tw.noise_db != null ? num(tw.noise_db, 0) + " dB" : "–"} · <span title="${esc(t("th_pollution_title"))}">${tw.pollution_db != null ? num(tw.pollution_db, 0) : "–"}</span></td></tr>
+      </table>
       <table class="kv">${hap.map(([k, b, tot]) => `<tr><td>${k}</td><td>${barQuality(b || 0, tot || 0)}</td></tr>`).join("")}</table>
       <p class="muted" style="font-size:12px">${t("reach", { a: tw.reach_com_private ?? "–", b: tw.reach_com_public ?? "–", c: tw.reach_ind_private ?? "–", d: tw.reach_ind_public ?? "–" })}</p>
       <h2>${ico("town_supplies")}${t("cargo_needs")}</h2>
@@ -1124,7 +1152,9 @@
     const kind = (ind.construction || "").replace(/^.*\//, "").replace(/\.con$/, "");
     $("#ind-detail").innerHTML = `<h2>${ico("industry", "lg")}${esc(ind.name)} <small>#${ind.industry_id} · ${esc(kind)}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${ind.industry_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
-      <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}</p>
+      <p>${status}${ind.max_level > 0 ? ` <span class="chip">${t("th_level")} ${ind.level ?? "–"}/${ind.max_level}</span>` : ""}${ind.production_rating != null ? ` <span class="chip">${t("th_yield")} ${Math.round(ind.production_rating * 100)} %</span>` : ""}${ind.thrown_away ? ` <span class="chip warn">${t("det_thrown")} ${int(ind.thrown_away)}</span>` : ""}${ind.closure_time > 0 ? ` <span class="chip bad">${t("det_closure")} ${int(ind.closure_time)}</span>` : ""}</p>
+      <table class="kv">${(ind.cargo || []).map(c => { const out = c.direction === "out", a = out ? c.produced_year : c.consumed_year, m = out ? c.max_prod_year : c.max_cons_year, sh = out ? c.shipped_year : c.delivered_year;
+        return `<tr><td>${cargoChip(c)} <small class="muted">${out ? t("th_outputs") : t("th_inputs")}</small></td><td>${m != null || a != null ? `${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)} <small class="muted" title="${esc(out ? t("shipped") : t("delivered"))}">${ico(out ? "cargo_supplied" : "cargo_received", "sm")}${int(sh)}</small>` : ""}${c.capacity != null ? ` <span class="pile" title="${esc(t("det_piles"))}">${ico("stock_full", "sm")}<span class="mono">${int(c.stock)}/${int(c.capacity)}</span></span>` : ""}</td></tr>`; }).join("")}</table>
       ${outs.length ? `<h2>${ico("cargo_supplied")}${t("th_outputs")}</h2><canvas id="chart-ind-out" data-h="170"></canvas>` : ""}
       ${ins.length ? `<h2>${ico("cargo_received")}${t("th_inputs")}</h2><canvas id="chart-ind-in" data-h="170"></canvas>` : ""}
       <h2>${ico("production")}${t("ind_level_rating")}</h2><canvas id="chart-ind-lvl" data-h="130"></canvas>`;
@@ -1150,9 +1180,9 @@
     const stations = s.stations || []; state.cache.stations = stations;
     if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     renderTable($("#st-table"), [
-      { key: "name", label: t("th_station"), render: x => `${ico(x.is_cargo ? "cargo" : "passengers", "sm")}${esc(x.name)}` },
+      { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
-      { key: "is_cargo", label: t("th_type"), render: x => x.is_cargo ? `<span class="chip">${t("cargo")}</span>` : `<span class="chip info">${t("pax")}</span>` },
+      { key: "is_cargo", label: t("th_type"), render: x => { const k = stKind(x); return (k.pax ? `<span class="chip info">${t("pax")}</span>` : "") + (k.cargo ? `<span class="chip">${t("cargo")}</span>` : ""); } },
       { key: "used", label: t("th_waiting"), num: true },
       { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : "–"; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
@@ -1178,11 +1208,12 @@
     const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
     const hist = h.history || [], labels = hist.map(x => dateLabel(x)), lines = h.lines || [];
     const cap = (st.terminal_capacity || 0) + (st.pool_capacity || 0);
-    $("#st-detail").innerHTML = `<h2>${ico(st.is_cargo ? "cargo" : "passengers", "lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
+    $("#st-detail").innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
         <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
-        <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr></table>
+        <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
+        <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>
       <h2>${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
       <h2 style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
@@ -1195,7 +1226,7 @@
   }
 
   // ------------------------------------------------------------ finance (secondary)
-  // ---- the game's accounting journal (mod rev 13). Keys are the engine's "type/maintenance/construction" numbers,
+  // ---- the game's accounting journal. Keys are the engine's "type/maintenance/construction" numbers,
   // checked line by line against the Finances window (see docs). Carriers: 0 road 1 rail 2 tram 3 other 4 air 5 water.
   const JOURNAL_CARRIERS = [[0, "ROAD"], [1, "RAIL"], [2, "TRAM"], [5, "WATER"], [4, "AIR"], [3, "OTHER"]];
   const JOURNAL_LINES = [  // in the game's order within a carrier
@@ -1301,7 +1332,7 @@
 
   // ------------------------------------------------------------ camera views (Map tab panel)
   // Saved on the server next to the database (db/camera_views.json), per savegame. The current camera comes with
-  // the overview (snapshot.camera, mod rev 7+); recalling a view sends set_camera to the game.
+  // the overview (snapshot.camera); recalling a view sends set_camera to the game.
   const camViews = { list: [], loaded: false, cur: null, game: null };  // game = key of the savegame the list belongs to
   const fmtCam = (c) => c ? `x ${Math.round(c.x)} · y ${Math.round(c.y)} · ${Math.round(c.dist)} m · ${Math.round(c.angle * 180 / Math.PI)}° / ${Math.round(c.pitch * 180 / Math.PI)}°` : "";
   // "the camera is on this view": same target within 5 % of the distance, same zoom within 10 %, same heading/pitch within ~6°
@@ -1663,7 +1694,7 @@
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings();
     map.data = await api("/api/map");
-    await loadGeo(); await loadLinePaths(); await loadMapCargo();
+    await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -1696,9 +1727,9 @@
     // ?maplayers=prod,need,stock turns cargo layers on; ?mapzoom=<town_id> centres on a town at a readable scale (links, screenshots)
     const ml = new URLSearchParams(location.search).get("maplayers"); if (ml) ml.split(",").forEach(k => { const el = $("#map-" + k); if (el) el.checked = true; });
     window.addEventListener("resize", () => { if (state.tab === "map") drawMap(canvas); });
-    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "alert", "camera", "star"].forEach(mapIcon);
+    ["veh_bus", "veh_truck", "veh_train", "veh_tram", "veh_plane", "veh_heli", "veh_ship", "veh_car", "industry", "depot", "alert", "camera", "star"].forEach(mapIcon);
   }
-  // ---- geography (mod rev 11): terrain bounds, water contours, street/track network. Static per savegame: fetched
+  // ---- geography: terrain bounds, water contours, street/track network. Static per savegame: fetched
   // with the geo_seq we already have, the server answers "unchanged" unless the mod rewrote its file (network edit).
   const geo = { data: null, seq: null, game: null, layer: null, key: "" };
   async function loadGeo() {
@@ -1712,7 +1743,7 @@
       if (!geo.firstFit && !map.userView) map.fitted = false; geo.firstFit = true;
     } catch (e) { /* older server: no endpoint */ }
   }
-  // line paths (mod rev 11): per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
+  // line paths: per line, the legs' edge ids -> polylines over geo.edges. Fetched with the stamp we have;
   // rebuilt when either the paths or the geography changed.
   const linePaths = { stamp: null, lines: null, poly: {}, builtFor: "" };
   async function loadLinePaths() {
@@ -1755,6 +1786,8 @@
     night: { land: [20, 24, 30],   water: [10, 22, 44],   street: "#2a323c", track: "#6a7684", bridge: "#98a4b0", frame: "#1e262e", page: "#07090c" },
     atlas: { land: [96, 112, 92],  water: [58, 110, 160], street: "#c8c2b0", track: "#2e2e2e", bridge: "#111111", frame: "#3a4a3a", page: "#1a2024", ink: "#101418", halo: "rgba(255,255,255,.55)" },
     paper: { land: [214, 206, 188], water: [150, 184, 210], street: "#ffffff", track: "#5a5248", bridge: "#2a2622", frame: "#a09888", page: "#2a2a2a", ink: "#1a1612", halo: "rgba(255,255,255,.7)" },
+    // the look of the game's own map preview: forest green by altitude, grey rock where the ground is steep, blue-grey water
+    satellite: { land: [96, 116, 66], water: [86, 112, 128], street: "#e6dcb8", track: "#262626", bridge: "#0e0e0e", frame: "#3a4a34", page: "#0b1015", ink: "#f4f6f8", halo: "rgba(0,0,0,.65)", sat: true },
   };
   const MAP_DEFAULTS = { theme: "dark", relief: 1, net: 1, lines: 1 };
   const mapPrefs = () => { try { const p = Object.assign({}, MAP_DEFAULTS, JSON.parse(localStorage.getItem("tf3.map") || "{}")); const q = new URLSearchParams(location.search).get("mapstyle"); if (q && MAP_THEMES[q]) p.theme = q; return p; } catch (e) { return { ...MAP_DEFAULTS }; } };  // ?mapstyle= for screenshots
@@ -1773,7 +1806,103 @@
   // terrain bitmap at `sub` x the grid resolution (the shore cells carry a sub x sub land/water mask: 11 m on an
   // 11 km map), built once per geography. Land: hillshade on the theme tone, plus on the light themes a height ramp
   // (green - ochre - grey - snow) so the mountains read as mountains. Water: theme blue.
+  // ---- full-resolution terrain: db/height_<game>.png, a 16-bit grayscale picture at 4 m written by the
+  // collector; metres = raw * res_z + offset_z. Decoded once into a Uint16Array, shaded once per theme into a bitmap
+  // (2 817 x 2 817 on an 11 km map: ~60 ms), then drawn like the grid bitmap. Water = below the game's water level,
+  // refined by the shore masks of the grid where they exist (the sea is below the level, lakes and rivers are meshes
+  // that can sit above it).
+  // a shore mask is a number (older mods, sub <= 7) or a string of base-64 digits (6 bits each); bit k = sub-cell k on water
+  const B64IDX = (() => { const m = {}; "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".split("").forEach((c, i) => m[c] = i); return m; })();
+  const maskBit = (mask, k) => typeof mask === "string" ? ((B64IDX[mask[Math.floor(k / 6)]] || 0) >> (k % 6)) & 1 : (mask / Math.pow(2, k)) & 1;
+  const hmap = { meta: null, data: null, w: 0, h: 0, loading: false, revs: null };
+  async function loadHeightmap() {
+    if (hmap.loading) return;
+    hmap.loading = true;
+    try {
+      const m = await api("/api/heightmap");
+      if (!m || !m.available || m.url === hmap.revs) return;  // url carries the picture's cache key
+      // decoded by hand: a canvas would keep only the high byte of the 16-bit grey (2 m steps that band the shading).
+      // The collector writes the simplest PNG there is (one IDAT, filter 0 on every row), inflated with the
+      // browser's DecompressionStream.
+      const buf = new Uint8Array(await (await fetch(m.url)).arrayBuffer());
+      const dv = new DataView(buf.buffer); let p = 8, w = 0, h = 0; const idat = [];
+      while (p < buf.length) { const len = dv.getUint32(p), tag = String.fromCharCode(buf[p + 4], buf[p + 5], buf[p + 6], buf[p + 7]); if (tag === "IHDR") { w = dv.getUint32(p + 8); h = dv.getUint32(p + 12); } else if (tag === "IDAT") idat.push(buf.subarray(p + 8, p + 8 + len)); p += 12 + len; }
+      const z = new Blob(idat).stream().pipeThrough(new DecompressionStream("deflate"));
+      const raw = new Uint8Array(await new Response(z).arrayBuffer());
+      const n = w * h, out = new Float32Array(n), stride = 1 + w * 2;
+      for (let y = 0; y < h; y++) { const ro = y * stride + 1, oo = y * w; for (let x = 0; x < w; x++) { const q = ro + x * 2; out[oo + x] = (raw[q] << 8) | raw[q + 1]; } }
+      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.url;
+      geo.bmSeq = null; geo.layer = null; geo.key = "";
+      if (state.tab === "map") drawMap($("#map"));
+    } catch (e) { /* no heightmap yet */ } finally { hmap.loading = false; }
+  }
+  function terrainBitmapHD(g, withWater) {
+    const m = hmap.meta, H = hmap.data; if (!m || !H) return null;
+    const W = hmap.w, Hh = hmap.h, th = mapTheme(), relief = mapPrefs().relief, light = th.land[0] > 80 || th.sat;
+    const c = document.createElement("canvas"); c.width = W; c.height = Hh;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(W, Hh), px = img.data;
+    const toM = (v) => v * m.res_z + m.offset_z, waterRaw = (m.water_level - m.offset_z) / m.res_z;
+    const hmin = toM(m.raw_min), hmax = toM(m.raw_max), step = m.step || 4;
+    // the land/water grid of the geography, for the shore detail (lakes above the water level)
+    let wat = null, nx = 0, ny = 0, sub = 1, shore = null;
+    if (g && g.grid && g.water_rows) {
+      [nx, ny] = g.grid; sub = g.shore_sub || 1; wat = new Uint8Array(nx * ny);
+      for (let row = 0; row < ny; row++) { const runs = String(g.water_rows[row] || "").split(",").map(Number); let col = 0, on = false; for (const k of runs) { if (on) for (let q = 0; q < k && col + q < nx; q++) wat[row * nx + col + q] = 1; col += k; on = !on; } }
+      shore = new Map(); (g.shore || []).forEach(s => shore.set(s[1] * nx + s[0], s[2]));
+    }
+    // altitude ramp (metres above water): the satellite look is forest green low, lighter and drier high, snow at the top
+    // satellite: the game's preview tones - olive meadows low, lighter yellow-green higher, dry ochre near the tops,
+    // snow only at the very top; the rock comes from the slope, not from this ramp
+    const ramp = th.sat
+      ? [[0, 92, 116, 60], [0.2, 112, 132, 70], [0.45, 138, 148, 84], [0.7, 160, 150, 104], [0.9, 176, 168, 150], [1, 236, 238, 240]]
+      : [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
+    const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
+    const rock = [132, 128, 122], water = th.water, zx = (th.sat ? 1.4 : 1.0) * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    const hAt = (x, y) => H[Math.max(0, Math.min(Hh - 1, y)) * W + Math.max(0, Math.min(W - 1, x))];
+    const bw = m.bounds, gw = g && g.bounds ? g.bounds : bw;
+    for (let y = 0; y < Hh; y++) {
+      // the picture runs north (row 0) to south like the grid; world y of this row
+      const wy = bw[3] - (y + 0.5) / Hh * (bw[3] - bw[1]);
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x, o = i * 4, raw = H[i];
+        const wx = bw[0] + (x + 0.5) / W * (bw[2] - bw[0]);
+        // water: below the level, or a grid/shore cell says so (lakes above the level)
+        let isW = raw <= waterRaw + 0.5;
+        if (!isW && wat) {
+          const col = Math.floor((wx - gw[0]) / (gw[2] - gw[0]) * nx), row = Math.floor((gw[3] - wy) / (gw[3] - gw[1]) * ny);
+          if (col >= 0 && col < nx && row >= 0 && row < ny) {
+            const mask = shore.get(row * nx + col);
+            if (mask != null) { const sc = Math.min(sub - 1, Math.floor(((wx - gw[0]) / (gw[2] - gw[0]) * nx - col) * sub)), sr = Math.min(sub - 1, Math.floor(((gw[3] - wy) / (gw[3] - gw[1]) * ny - row) * sub)); isW = maskBit(mask, sr * sub + sc) === 1; }
+            else isW = wat[row * nx + col] === 1;
+          }
+        }
+        if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
+        // slope from the neighbours (metres per metre) and a west-north-west light
+        const dzdx = (hAt(x + 1, y) - hAt(x - 1, y)) * m.res_z / (2 * step), dzdy = (hAt(x, y + 1) - hAt(x, y - 1)) * m.res_z / (2 * step);
+        const slope = Math.sqrt(dzdx * dzdx + dzdy * dzdy);
+        const sx = dzdx * zx, sy = dzdy * zx, nl = 1 / Math.sqrt(sx * sx + sy * sy + 1);
+        const shade = Math.max(0, (-sx * lx - sy * ly + lz) * nl);
+        const f = relief ? 0.6 + 0.6 * (shade - 0.7071) : 0.65;
+        const hm = toM(raw), tH = Math.max(0, Math.min(1, (hm - Math.max(hmin, m.water_level)) / Math.max(1, hmax - Math.max(hmin, m.water_level))));
+        let r, gg, b;
+        if (light) {
+          let base = rampAt(tH);
+          if (th.sat) {
+            // rock where the ground is steep (above ~35 %), blended in over 15 points of slope; bare earth tint on gentle slopes
+            const rk = Math.max(0, Math.min(1, (slope - 0.3) / 0.2));
+            base = [base[0] + (rock[0] - base[0]) * rk, base[1] + (rock[1] - base[1]) * rk, base[2] + (rock[2] - base[2]) * rk];
+          }
+          const k = th.sat ? 0.85 + 0.9 * (f - 0.6) : 0.75 + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k;
+        } else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
+        if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
+        px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
   function terrainBitmap(g, withWater) {
+    if (hmap.data) { const hd = terrainBitmapHD(g, withWater); if (hd) return hd; }
     if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
     const [nx, ny] = g.grid, sub = g.shore_sub || 1, W = nx * sub, Hh = ny * sub;
     const c = document.createElement("canvas"); c.width = W; c.height = Hh;
@@ -1812,7 +1941,7 @@
         // snow on the dark themes too: a light cap above 90 % of the range
         if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
         for (let sr = 0; sr < sub; sr++) for (let sc = 0; sc < sub; sc++) {
-          const isW = mask != null ? ((mask >> (sr * sub + sc)) & 1) === 1 : wat[i] === 1;
+          const isW = mask != null ? maskBit(mask, sr * sub + sc) === 1 : wat[i] === 1;
           const o = ((row * sub + sr) * W + col * sub + sc) * 4;
           if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; }
           else { px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255; }
@@ -1832,7 +1961,8 @@
     // the terrain: the sampled land/water bitmap stretched over the bounds (smoothed by the browser), else a plain
     // slightly lighter rectangle so the map's edge is visible
     if (g.bounds) {
-      const [ax, ay] = P(g.bounds[0], g.bounds[3]), [bx, by] = P(g.bounds[2], g.bounds[1]);
+      const hb = hmap.data && hmap.meta ? hmap.meta.bounds : g.bounds;  // the HD picture covers its own bounds
+      const [ax, ay] = P(hb[0], hb[3]), [bx, by] = P(hb[2], hb[1]);
       const bmKey = showW ? "bmW" : "bmL";
       if (!geo[bmKey] || geo.bmSeq !== geo.seq) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = geo.seq; }
       if (geo[bmKey]) { ctx.imageSmoothingEnabled = true; ctx.drawImage(geo[bmKey], ax, ay, bx - ax, by - ay); }
@@ -1893,7 +2023,7 @@
   // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size, dimmed
   // when the rate is low (produced vs max production, delivered vs need); stock icons grow with the amount (square
   // root, 10 to 26 px). Each row sits on a dark pill so it reads over the relief. Only from a zoom where the rows do
-  // not collide (the `big` threshold of the map).
+  // not collide (the `big` threshold of the map); a row that would still overlap an earlier one is left out.
   const mapCargo = { data: null, at: 0 };
   const townRadius = (tw) => Math.max(8, Math.min(60, Math.sqrt(tw.size || 100) * 0.3 * Math.sqrt(map.scale * 10)));
   const cargoAny = () => $("#map-prod").checked || $("#map-need").checked || $("#map-stock").checked;
@@ -1904,17 +2034,23 @@
   function drawCargoLayers(ctx, d) {
     const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.06) return;
     const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
+    // pills already placed this frame: a new one that would overlap an earlier one is skipped (owners are drawn
+    // biggest first, so at a middle zoom the small neighbours give way instead of piling up)
+    const placed = [];
+    const free = (x, y, w, h) => { for (const p of placed) if (x < p[0] + p[2] && x + w > p[0] && y < p[1] + p[3] && y + h > p[1]) return false; placed.push([x, y, w, h]); return true; };
     const row = (items, cx, cy, side, sizer, alpha) => {
-      if (!items || !items.length) return;
+      if (!items || !items.length) return false;
       const sizes = items.map(sizer), gap = 3, w = sizes.reduce((a, b) => a + b, 0) + gap * (items.length - 1), hmax = Math.max(...sizes);
       let x0, y0;  // top-left of the row
       if (side === "above") { x0 = cx - w / 2; y0 = cy - 17 * k - hmax; }
       else if (side === "below") { x0 = cx - w / 2; y0 = cy + 17 * k; }
       else { x0 = cx + 17 * k; y0 = cy - hmax / 2; }
+      if (!free(x0 - 3, y0 - 3, w + 6, hmax + 6)) return false;
       ctx.fillStyle = "rgba(11,16,21,.85)"; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - 3, y0 - 3, w + 6, hmax + 6, 4) : ctx.rect(x0 - 3, y0 - 3, w + 6, hmax + 6); ctx.fill();
       let x = x0;
       items.forEach((it, i) => { const sz = sizes[i], im = cargoImg(it.key); ctx.globalAlpha = alpha(it); if (im.complete && im.naturalWidth) ctx.drawImage(im, x, y0 + (hmax - sz) / 2, sz, sz); else { ctx.fillStyle = "#c9d1d9"; ctx.fillRect(x, y0 + (hmax - sz) / 2, sz, sz); } x += sz + gap; });
       ctx.globalAlpha = 1;
+      return true;
     };
     const k = isz();
     const fixed = () => 16 * k;
@@ -1928,14 +2064,17 @@
       if (x < -200 || y < -200 || x > ctx.canvas.clientWidth + 200 || y > ctx.canvas.clientHeight + 200) return;
       // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
       const dy = offset ? offset(o) : 0;
-      if (prod && c.out.length) { stroke(x, y, "above"); row(c.out, x, y, "above", fixed, rateAlpha); }
-      if (need && c.in.length) { if (!dy) stroke(x, y, "below"); row(c.in, x, y + dy, "below", fixed, rateAlpha); }
+      if (prod && c.out.length && row(c.out, x, y, "above", fixed, rateAlpha)) stroke(x, y, "above");
+      const needShown = need && c.in.length && row(c.in, x, y + dy, "below", fixed, rateAlpha);
+      if (needShown && !dy) stroke(x, y, "below");
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];
-      if (st.length) { if (!dy) stroke(x, y, "right"); row(st, x, y + dy + (need && c.in.length ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha); }
+      if (st.length && row(st, x, y + dy + (needShown ? 16 * k + 10 : 0), dy ? "below" : "right", grow, stockAlpha) && !dy) stroke(x, y, "right");
     });
-    if ($("#map-ind").checked) draw("industries", d.industries, "industry_id");
-    if ($("#map-towns").checked) draw("towns", d.towns, "town_id", (tw) => townRadius(tw) + 2);
+    // biggest owners first: at a middle zoom the small neighbours yield
+    const bySize = (list, sz) => list.slice().sort((a, b) => sz(b) - sz(a));
+    if ($("#map-ind").checked) draw("industries", bySize(d.industries, i => (i.level || 1) * 10 + (cd.industries[String(i.industry_id)] || { out: [], in: [] }).out.length), "industry_id");
+    if ($("#map-towns").checked) draw("towns", bySize(d.towns, tw => tw.size || 0), "town_id", (tw) => townRadius(tw) + 2);
   }
   function drawIcon(ctx, name, x, y, size, color) {
     const im = mapIcon(name); if (!im.complete || !im.naturalWidth) return false;
@@ -1977,7 +2116,9 @@
   // existing tracks (Dijkstra on the exported geography, server side): the ruler then shows both lengths and draws
   // the two routes, which is what a ruler is for when planning a line between two points that are already served.
   const ruler = { on: false, a: null, b: null, hover: null, net: null, netKey: null };
-  const RULER_SPEED = { road: 50, rail: 80 };  // km/h, placeholders until the vehicle catalogue provides the fastest available vehicle
+  // km/h used when the player owns no vehicle of that carrier yet (the mod exports the top speed of each vehicle;
+  // the server returns the fastest owned one per carrier as road_kmh / rail_kmh)
+  const RULER_SPEED = { road: 50, rail: 80 };
   function rulerSet(on) {
     ruler.on = on; ruler.a = ruler.b = ruler.hover = ruler.net = ruler.netKey = null;
     $("#map-ruler-btn").classList.toggle("active", on);
@@ -2049,13 +2190,14 @@
     if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
     const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
     const dz = ha != null && hb != null ? hb - ha : null;
-    const trip = (m, kmh) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h"; };
+    const trip = (m, kmh, owned) => { const mm = Math.round(m / (kmh / 3.6) / 60); return (mm >= 60 ? Math.floor(mm / 60) + " h " + String(mm % 60).padStart(2, "0") : mm + " min") + " @ " + kmh + " km/h" + (owned ? "" : " <small class=\"muted\">" + t("ruler_speed_guess") + "</small>"); };
     const parts = (p, gap) => gap ? t("ruler_build_straight") : `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
     const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
     const netRow = (mode, sw, kmh) => {
       if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());
       if (net[mode] == null) return row(sw, "–", t("ruler_" + mode, { d: t("ruler_none") }));
-      return row(sw, fmtDist(net[mode]), trip(net[mode], kmh) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
+      const owned = net[mode + "_kmh"] > 0;
+      return row(sw, fmtDist(net[mode]), trip(net[mode], owned ? net[mode + "_kmh"] : kmh, owned) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
     };
     el.innerHTML = row("#e8b04b", fmtDist(dist), ruler.b ? "" : "…")
       + row(null, dz != null ? (dz >= 0 ? "+" : "") + Math.round(dz) + " m" : "–", t("ruler_height"), dz > 0 ? "up" : "down")
@@ -2077,13 +2219,15 @@
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
     const gl = geoLayer(w, h, dpr); if (gl) ctx.drawImage(gl, 0, 0, w, h);
     ctx.font = "12px " + font;
-    // lines: along the network when the mod reported the legs (rev 11), else straight from stop to stop
+    // lines: along the network when the mod reported the legs, else straight from stop to stop
     if ($("#map-lines").checked && d.lines) { ctx.lineJoin = "round"; ctx.lineCap = "round"; d.lines.forEach(l => { const on = lf == null || l.line_id === lf; ctx.strokeStyle = rgb(l.color_r, l.color_g, l.color_b); ctx.globalAlpha = on ? (lf == null ? Math.min(1, 0.5 * lw + 0.1) : 0.95) : 0.08; ctx.lineWidth = (on && lf != null ? 4 : 2) * lw; const legs = linePolylines(l.line_id); if (legs) { [false, true].forEach(pred => { const sel = legs.filter(g => g.predicted === pred); if (!sel.length) return; ctx.setLineDash(pred ? [7, 5] : []); ctx.beginPath(); sel.forEach(g => g.pts.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); })); ctx.stroke(); }); ctx.setLineDash([]); } else if (l.points.length > 1) { ctx.setLineDash(lf == null ? [] : [6, 4]); ctx.beginPath(); l.points.forEach(([x, y], i) => { const [px, py] = P(x, y); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); }); ctx.stroke(); ctx.setLineDash([]); } ctx.globalAlpha = 1; }); ctx.lineJoin = "miter"; ctx.lineCap = "butt"; }
     if ($("#map-towns").checked) d.towns.forEach(tw => { const [x, y] = P(tw.x, tw.y); const r = townRadius(tw); ctx.fillStyle = "rgba(79,138,138,.15)"; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.strokeStyle = th.ink ? "#2f6b6b" : "#4f8a8a"; ctx.stroke(); ctx.textAlign = "center"; ctx.font = "600 13px " + font; ctx.lineWidth = 3; ctx.strokeStyle = halo; ctx.strokeText(tw.name, x, y - r - 5); ctx.fillStyle = ink; ctx.fillText(tw.name, x, y - r - 5); ctx.font = "12px " + font; });
     if ($("#map-hq").checked && d.headquarters) { const [x, y] = P(d.headquarters.x, d.headquarters.y); ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.arc(x, y, 9 * k, 0, 7); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#0b1015"; ctx.stroke(); ctx.fillStyle = "#e6edf3"; ctx.textAlign = "center"; ctx.font = "600 12px " + font; ctx.fillText(t("map_hq"), x, y - 14 * k); ctx.font = "12px " + font; }
     const big = map.scale > 0.08;
     if ($("#map-ind").checked) d.industries.forEach(i => { const [x, y] = P(i.x, i.y); if (!big || !drawIcon(ctx, "industry", x, y, 20 * k, "#bc8cff")) { ctx.fillStyle = "#bc8cff"; ctx.fillRect(x - 5 * k, y - 5 * k, 10 * k, 10 * k); } });
-    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); ctx.fillStyle = s.is_cargo ? "#e8b04b" : "#58a6ff"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill(); });
+    if ($("#map-dep").checked) (d.depots || []).forEach(dp => { const [x, y] = P(dp.x, dp.y); if (!big || !drawIcon(ctx, "depot", x, y, 18 * k, "#9aa7b4")) { ctx.fillStyle = "#9aa7b4"; ctx.fillRect(x - 4 * k, y - 4 * k, 8 * k, 8 * k); } });
+    if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); const kd = stKind(s); ctx.fillStyle = kd.pax ? "#58a6ff" : "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill();
+      if (kd.pax && kd.cargo) { ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 3.5 * k); ctx.lineTo(x + 3.5 * k, y); ctx.lineTo(x, y + 3.5 * k); ctx.lineTo(x - 3.5 * k, y); ctx.closePath(); ctx.fill(); } });
     drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
@@ -2122,7 +2266,7 @@
     if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
     drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
-    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
+    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")} · <span style="color:#9aa7b4">${ico("depot", "sm")}</span>${t("legend_depot")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
   }
   function pickMap(canvas, e) {
     const d = map.data; if (!d) return null;
@@ -2133,7 +2277,7 @@
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
-    if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${s.is_cargo ? t("station_cargo") : t("station_pax")}`));
+    if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {
       const c = mapCargo.data && mapCargo.data[kind] && mapCargo.data[kind][String(id)]; if (!c) return "";
@@ -2147,6 +2291,7 @@
       return s ? `<div class="tipcargo">${s}</div>` : "";
     };
     if ($("#map-ind").checked) d.industries.forEach(i => consider(i, "industry", i.industry_id, `<b>${esc(i.name)}</b><br>${t("industry")}${cargoTip("industries", i.industry_id)}`));
+    if ($("#map-dep").checked) (d.depots || []).forEach(dp => consider(dp, "depot", dp.depot_id, `<b>${esc(dp.name)}</b><br>${t("th_depot")} · ${CA(dp.carrier)}<br>${t("th_parked")} ${dp.vehicles ?? 0} · ${t("th_incoming")} ${dp.incoming ?? 0}`));
     if ($("#map-towns").checked) d.towns.forEach(tw => consider(tw, "town", tw.town_id, `<b>${esc(tw.name)}</b><br>${t("capacity_n", { n: int(tw.size) })}${cargoTip("towns", tw.town_id)}`));
     if ($("#map-hq").checked && d.headquarters) consider(d.headquarters, "hq", d.headquarters.id ?? null, `<b>${t("map_hq")}</b>`);
     return best ? { ...best, mx, my } : null;

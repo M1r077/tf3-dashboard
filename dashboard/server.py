@@ -51,8 +51,8 @@ ALLOWED_CMDS = {
     "set_speed": ("speed",), "set_calendar_speed": ("factor",), "pause": (), "toggle_pause": (), "ping": (),
     "focus_entity": ("entity",), "focus_position": ("x", "y"), "follow_entity": ("entity",),
     "set_camera": ("x", "y", "dist"),  # mod rev 7+
-    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # mod rev 10+: travelling
-    "horn": (),  # mod rev 8+: args.vehicle or args.line
+    "camera_path": ("points",), "camera_stop": (), "camera_tour": (), "camera_cutscene": ("file",), "follow_view": ("entity",),  # travelling
+    "horn": (),  # args.vehicle or args.line
     "select_entity": ("entity",), "open_line_manager": ("line",), "close_windows": (),
     "vehicle_stop": ("vehicle",), "vehicle_start": ("vehicle",), "vehicle_reverse": ("vehicle",),
     "vehicle_depart": ("vehicle",), "vehicle_to_depot": ("vehicle",),
@@ -303,7 +303,7 @@ def _journal_bounds(label: str, ref_year: int | None) -> tuple[int, int] | None:
 
 
 def api_journal(q: dict) -> dict:
-    """The game's accounting journal (mod rev 13). ?view=window (the Finances window's own columns) or history
+    """The game's accounting journal. ?view=window (the Finances window's own columns) or history
     (every column since the start of the game). {cols: [{col, label, start, end}], lines: {"transport/1/5/2/6": [...],
     "total": [...], ...}} where start/end are game months since year 0 (year*12 + month-1, fractional days).
     A whole 70-year history is ~45 columns x ~30 lines: one small payload."""
@@ -383,10 +383,10 @@ def api_lines(q: dict) -> dict:
                   WHERE vs.snapshot_id=(SELECT MAX(snapshot_id) FROM vehicle_state) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, no_load, max_load, terminals, alternatives
+                           force_unload, no_load, max_load, terminals, alternatives, waiting
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
-        for k in ("no_load", "max_load", "terminals", "alternatives"):
+        for k in ("no_load", "max_load", "terminals", "alternatives", "waiting"):
             try:
                 st[k] = json.loads(st[k]) if st.get(k) else []
             except (TypeError, ValueError):
@@ -612,7 +612,7 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.x, s.y, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
@@ -665,12 +665,15 @@ def api_map(q: dict) -> dict:
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.cap_res+ts.cap_com+ts.cap_ind AS size FROM town t
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
-    st = rows("SELECT station_id, name, x, y, is_cargo FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
+    st = rows("SELECT station_id, name, x, y, is_cargo, is_pax FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
     # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
     # (closed, renamed, earlier saves), which would litter the map with ghosts
     ind = rows("""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
                   WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
                         (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state)))""", (gid,))
+    dep = rows("""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
+                  LEFT JOIN depot_state ds ON ds.depot_id=d.depot_id AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)
+                  WHERE d.game_id=? AND d.x IS NOT NULL""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position
@@ -694,14 +697,14 @@ def api_map(q: dict) -> dict:
         d = lines.setdefault(p["line_id"], {"line_id": p["line_id"], "name": p["name"], "color_r": p["color_r"], "color_g": p["color_g"], "color_b": p["color_b"], "points": []})
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
-    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
+    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "depots": dep, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
 
 
 def api_map_cargo(q: dict) -> dict:
     """Cargo layers of the map, per owner (town or industry), from the latest slow snapshot:
       out   : what the owner produces     [{cargo, key, rate}]            rate = produced / max production per year
       in    : what the owner needs        [{cargo, key, rate}]            rate = delivered (or supplied) / need per year
-      stock : what is lying there now     [{cargo, key, amount, capacity}] towns only until the mod exports industry piles
+      stock : what is lying there now     [{cargo, key, amount, capacity}] towns and industry piles
     One query per table, ~200 rows, a few ms."""
     gid = _gid()
     keys = {r["cargo_id"]: r["key"] for r in rows("SELECT cargo_id, key FROM cargo_type WHERE game_id=?", (gid,))}
@@ -710,16 +713,22 @@ def api_map_cargo(q: dict) -> dict:
         return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
     sid = one("SELECT MAX(snapshot_id) sid FROM industry_cargo")
     if sid and sid["sid"]:
-        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year
+        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year, ic.stock, ic.capacity
                          FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
                          WHERE ic.snapshot_id=?""", (gid, sid["sid"])):
             o = owner("industries", r["industry_id"])
+            has_rule = any(r[k] is not None for k in ("produced_year", "max_prod_year", "consumed_year", "max_cons_year", "delivered_year"))
             if r["direction"] == "out":
                 mx = r["max_prod_year"] or 0
-                o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
+                if has_rule:
+                    o["out"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["produced_year"] or 0) / mx if mx else None})
             else:
                 mx = r["max_cons_year"] or 0
-                o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+                if has_rule:
+                    o["in"].append({"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "rate": (r["delivered_year"] or 0) / mx if mx else None})
+            if r["capacity"] is not None:  # the pile; output piles first so what is for sale reads first
+                item = {"cargo": r["cargo_id"], "key": keys.get(r["cargo_id"]), "amount": r["stock"] or 0, "capacity": r["capacity"], "direction": r["direction"]}
+                (o["stock"].insert(0, item) if r["direction"] == "out" else o["stock"].append(item))
     sid = one("SELECT MAX(snapshot_id) sid FROM town_supply")
     if sid and sid["sid"]:
         for r in rows("""SELECT ts.town_id, ts.cargo_id, SUM(ts.v1) AS supplied, SUM(ts.v2) AS needed FROM town_supply ts
@@ -735,8 +744,27 @@ def api_map_cargo(q: dict) -> dict:
     return out
 
 
+def api_heightmap(q: dict) -> dict:
+    """Full-resolution terrain: the sidecar of db/height_<game>.png written by the collector, plus the
+    URL of the picture. `available: false` until the mod has exported the map once."""
+    gid = _gid()
+    side = DB_PATH.parent / f"height_{gid}.json"
+    if not side.is_file():
+        return {"available": False}
+    meta = json.loads(side.read_text(encoding="utf-8"))
+    # cache key = the picture file itself (mtime + size), so a regenerated PNG is fetched even when the terrain
+    # revision signature did not change
+    try:
+        st = (DB_PATH.parent / f"height_{gid}.png").stat()
+        v = f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return {"available": False}
+    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={v}"})
+    return meta
+
+
 def api_geo(q: dict) -> dict:
-    """Map geography (mod rev 11): bounds, water contours, street/track network for the current game. The browser
+    """Map geography: bounds, water contours, street/track network for the current game. The browser
     passes the geo_seq it already has; when nothing changed only {geo_seq} comes back (the full payload is a few
     hundred KB, the map tab asks on every refresh)."""
     gid = _gid()
@@ -855,6 +883,10 @@ def api_distance(q: dict) -> dict:
             out[mode + "_points"] = r["points"]  # the way over the existing network
             out[mode + "_legs"] = r["legs"]      # the two straight legs to build, A -> network and network -> B
             out[mode + "_gap"] = r["gap"]        # True when A and B are on separate networks: the second leg bridges them
+    # fastest vehicle the player owns per carrier (km/h): the speed the ruler times the trip with. TRAM counts as road.
+    for row in rows("""SELECT CASE WHEN carrier='TRAM' THEN 'ROAD' ELSE carrier END AS c, MAX(top_speed) AS v FROM vehicle
+                       WHERE game_id=? AND top_speed IS NOT NULL AND carrier IN ('ROAD','TRAM','RAIL') GROUP BY c""", (gid,)):
+        out[row["c"].lower() + "_kmh"] = row["v"]
     out["ms"] = int((time.time() - t0) * 1000)
     return out
 
@@ -1073,7 +1105,7 @@ def predicted_routes(gid: int) -> dict:
 
 def api_line_paths(q: dict) -> dict:
     """Where each line runs: {line_id: {"mode", "legs": [{stop, edges: [edge entity ids]} | {stop, points}]}}.
-    Legs driven by a vehicle (mod rev 11, MOVE_PATH) are real; the others are predicted on the geography
+    Legs driven by a vehicle (MOVE_PATH) are real; the others are predicted on the geography
     (see predicted_routes) and flagged "predicted". `stamp` lets the browser skip an unchanged answer."""
     gid = _gid()
     try:
@@ -1297,7 +1329,7 @@ def _views_save(d: dict, name: str = "camera_views") -> None:
     tmp.replace(p)
 
 
-# db/travellings.json = { "<game key>": [ {id, name, kind, ...spec}, ... ] } - saved camera travellings (rev 11).
+# db/travellings.json = { "<game key>": [ {id, name, kind, ...spec}, ... ] } - saved camera travellings.
 # A travelling is a recipe, not a baked path: {kind: "view", view: <view id>, move, dir, amp} | {kind: "chain"} |
 # {kind: "line", line: <line id>} plus the shared settings {dur, loop, music, vol, tail, alt?}; it is rebuilt from the
 # current state when played (a line tour over today's vehicles, a view that follows its vehicle...).
@@ -1383,7 +1415,7 @@ def _view_num(v, name: str) -> float:
 
 
 def _view_follow(cam: dict, body: dict) -> dict:
-    """A view attached to a vehicle (rev 11): when the camera was following one and the caller asked to keep it
+    """A view attached to a vehicle: when the camera was following one and the caller asked to keep it
     (body.attach true), store the entity and its name; recalled with follow_view instead of set_camera."""
     if not body.get("attach"):
         return {}
@@ -1638,7 +1670,7 @@ ROUTES = {
     "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
-    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
+    "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/heightmap": api_heightmap, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
     "/api/games": api_games, "/api/music": api_music,
 }
 
@@ -1690,6 +1722,23 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, json.dumps({"error": repr(e)}).encode(), "application/json")
                 except OSError:
                     pass
+            return
+        if u.path.startswith("/height/") and u.path.endswith(".png"):
+            # the terrain picture next to the database (collector output); cached for a day, the URL carries a version
+            gid = u.path[8:-4]
+            f = (DB_PATH.parent / f"height_{gid}.png").resolve() if gid.isdigit() else None
+            if not f or not f.is_file():
+                self._send(404, b"not found", "text/plain")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(f.stat().st_size))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.end_headers()
+            try:
+                self.wfile.write(f.read_bytes())
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
             return
         if u.path.startswith("/music/"):
             # audio for the travelling, whole file (browsers cope without range requests for local files)

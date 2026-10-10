@@ -4,7 +4,7 @@
 --                                                   company, cargo types; every 10-120 s, one file per frame)
 -- via app.saveUserdata, for an external dashboard / collector (second monitor).
 --
--- Why two kinds of files (rev 6): app.saveUserdata serialises and writes the whole table in the calling frame.
+-- Why two kinds of files: app.saveUserdata serialises and writes the whole table in the calling frame.
 -- Up to rev 5 everything went into live.lua, i.e. ~300 KB rewritten every second on a mid-size map, of which 90 %
 -- (lines with their terminals, industries, towns...) only changes every slow cycle. That cost 20 ms per second on a
 -- fast machine and a visible stutter every second on slower ones. Now live.lua is ~30 KB and the big sections are
@@ -18,9 +18,9 @@
 local MOD_ID = "tf3_dashboard_export"
 -- 2: line capacity cargo ids fixed (dense array was read 1-based => off by one); 3: towns.supply;
 -- 4: slow sections in separate slow_*.lua files, static vehicle fields moved to slow_vehicles (collector >= 0.2.0)
--- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (rev 7, companion >= 0.3.0 for the views panel)
--- 7: files moved to towns_industries/tf3dash_* (rev 9, game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
--- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (rev 8, companion >= 0.3.1)
+-- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (companion >= 0.3.0 for the views panel)
+-- 7: files moved to towns_industries/tf3dash_* (game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
+-- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (companion >= 0.3.1)
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other). Up to rev 8 the
@@ -40,7 +40,7 @@ local PARAM_VALUES = {
 	interval_fast = { 1, 2, 5, 10 },
 	interval_slow = { 10, 30, 60, 120 },
 	export_vehicles = { true, false },
-	accept_commands = { false, true }, -- off by default (rev 2): the player opts in to remote control
+	accept_commands = { false, true }, -- off by default: the player opts in to remote control
 	debug_log = { false, true },
 }
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
@@ -229,7 +229,7 @@ local function collectFinance(player)
 	return f
 end
 
--- ---------------------------------------------------------------- finance journal (rev 13)
+-- ---------------------------------------------------------------- finance journal
 -- The game keeps the complete accounting journal in the save game. Instead of rebuilding the past from live
 -- snapshots, the mod asks the engine for the table behind the Finances window
 -- (api.engine.util.finance.computeFinanceTable). The engine chooses the columns itself (fine for the recent past,
@@ -419,7 +419,7 @@ local function modelKey(modelId)
 	return k or nil
 end
 
--- Vehicles are exported in two parts (rev 6). Fast (every snapshot, live.lua): what moves â€” state, line, stop,
+-- Vehicles are exported in two parts. Fast (every snapshot, live.lua): what moves â€” state, line, stop,
 -- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
 -- what the game only changes when the player edits the vehicle â€” name, consist, model, capacity, icon, costs. The
 -- collector merges both on vehicle id. Before rev 6 all of it was fetched and written every second.
@@ -463,7 +463,7 @@ local function collectVehicles()
 	return out
 end
 
--- ---------------------------------------------------------------- line paths (rev 11)
+-- ---------------------------------------------------------------- line paths
 -- Where a line really runs: the game keeps, for every vehicle, the series of network edges it is following to its
 -- next stop (MOVE_PATH.path.edges = {{EdgeId{entity, index}, dir}}). Collected with the slow vehicles section (one
 -- vehicle per step, a table of ids, no geometry); the edges' entities are the BASE_EDGE segments exported in the
@@ -569,6 +569,17 @@ local function vehicleStaticItem(v)
 			if k then parts[#parts + 1] = (p.part.reversed and "-" or "") .. k end
 		end
 		if #parts > 0 then rec.model_key = parts[1]:gsub("^%-", ""); rec.parts = table.concat(parts, ",") end
+	end)
+	pcall(function()
+		-- top speed of the consist in km/h = the slowest part (metadata.landVehicle / waterVehicle / airVehicle.topSpeed, m/s)
+		local top
+		for _, p in ipairs(arr(tv.transportVehicleConfig.vehicles)) do
+			local md = api.res.modelRep.get(p.part.modelId); md = md and md.metadata
+			local lv = md and (md.landVehicle or md.waterVehicle or md.airVehicle)
+			local ts = lv and num(lv.topSpeed)
+			if ts and ts > 0 and (not top or ts < top) then top = ts end
+		end
+		if top then rec.top_speed = math.floor(top * 3.6 + 0.5) end
 	end)
 	pcall(function() rec.running_cost = num(api.engine.util.vehicle.getRunningCost(v)) end)
 	pcall(function() rec.value = num(api.engine.util.vehicle.getDepreciatedValue(v)) end)
@@ -764,6 +775,16 @@ local function lineItem(l, ctx)
 					end)
 					for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
 				end)
+				pcall(function()
+					-- items waiting at this stop for this line (the figure in the game's line window), per cargo the line carries
+					local w = {}
+					for _, c in ipairs(rec.capacity or {}) do
+						local q = api.engine.util.cargo.getCargoQualityDataAtStop(l, i - 1, c.cargo_type)
+						local total = num(q.countTotal)
+						if total and total > 0 then w[#w + 1] = { cargo_type = c.cargo_type, total = total, bad = num(q.countBad) or 0 } end
+					end
+					st.waiting = w
+				end)
 				rec.stop_list[i] = st
 			end
 		end)
@@ -786,7 +807,18 @@ local function stationItem(s, ctx)
 		local owned = api.engine.getComponent(s, api.type.ComponentType.PLAYER_OWNED)
 		if owned and owned.player == player then
 			local rec = { id = s, name = entityName(s), town = num(st2town[s]) }
-			pcall(function() rec.cargo = api.engine.util.station.isStationOfType(s, true) and true or false end)
+			pcall(function()
+				-- what the terminals actually handle. isStationOfType(s, true) only says "supports cargo", which is true
+				-- for most passenger stations too (universal terminals), so the type comes from the terminal flags.
+				local pax, cargo = false, false
+				local station = api.engine.getComponent(s, api.type.ComponentType.STATION)
+				for _, term in ipairs(arr(station and station.terminals or {})) do
+					if term.passengersLoad or term.passengersUnload then pax = true end
+					if term.cargoLoad or term.cargoUnload then cargo = true end
+				end
+				rec.pax = pax
+				rec.cargo = cargo
+			end)
 			pcall(function()
 				local u = api.engine.util.station.calculateStationUsage(s)
 				rec.used, rec.overflow, rec.pool_capacity, rec.terminal_capacity = num(u.totalUsed), num(u.overflow), num(u.poolCapacity), num(u.terminalCapacity)
@@ -875,7 +907,7 @@ local TOWN_PARTS = {
 	-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
 	-- "supplied / needed"; v3 = an internal group id, stored but not displayed. land_use is always 0 (whole town):
 	-- the call costs ~55 ms per town in game (it walks every building), so the per-land-use variants (which only
-	-- partition the same figures) are not exported any more (rev 5), and the towns are refreshed in rotation:
+	-- partition the same figures) are not exported any more, and the towns are refreshed in rotation:
 	-- SUPPLY_TOWNS_PER_CYCLE towns per slow cycle (the stalest first), the others keep their last value. The figures
 	-- move slowly (rolling supply, needs grow with the town), the dashboard shows them with the snapshot time anyway.
 	function(t, rec, ctx)
@@ -956,7 +988,24 @@ local function industryItem(i, ctx)
 				local p = api.engine.util.industry.getIndustryProductivityInfo(i)
 				rec.producing = p.producing and true or false; rec.boost_rule = p.boostFromRule and true or false; rec.boost_persons = p.boostFromPersonCapacity and true or false
 			end)
-			pcall(function() local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST); if s then rec.thrown_away = num(s.thrownAwayCargo) end end)
+			pcall(function()
+				local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST)
+				if not s then return end
+				rec.thrown_away = num(s.thrownAwayCargo)
+				-- what lies in the piles now: per stock (input / output / storage) and cargo type, amount and capacity.
+				-- getStockCount is the figure of the industry window; stocks are 0-based ids in StockList.stocks order.
+				local sys = api.engine.system.simEntityAtStockSystem
+				rec.stock = {}
+				for idx, st in ipairs(arr(s.stocks)) do
+					local sid = idx - 1
+					local ok, n = pcall(sys.getStockCount, sl, sid)
+					if ok then
+						local ct = num(st.cargoType)
+						local kind = ({ OutputStock = "out", InputStock = "in", StorageStock = "store" })[enumName("StockListType", { "InputStock", "OutputStock", "StorageStock" }, st.type) or ""] or "store"
+						rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
+					end
+				end
+			end)
 			pcall(function()
 				local io = arr(api.engine.util.stock.getInputsOutputsFromRules(sl))
 				rec.inputs, rec.outputs = {}, {}
@@ -1004,6 +1053,18 @@ local function depotItem(d, ctx)
 				maintenance_pool = num(dep and dep.maintenancePool), pool_max = num(dep and dep.maxPoolUsage), pool_avg = num(dep and dep.averagePoolUsage) }
 			pcall(function() rec.vehicles = count(api.engine.system.transportVehicleSystem.getDepotVehicles(d)) end)
 			pcall(function() rec.incoming = count(api.engine.system.transportVehicleSystem.getGoingToDepotVehicles(d)) end)
+			pcall(function()
+				-- position = the depot construction's transform (same as stations)
+				local con = api.engine.system.streetConnectorSystem.getConstructionEntityForDepot(d)
+				local c = con and api.engine.getComponent(con, api.type.ComponentType.CONSTRUCTION)
+				if c then local m = c.transf; rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) } end
+			end)
+			if rec.pos == nil then
+				pcall(function()
+					local bv = api.engine.getComponent(d, api.type.ComponentType.BOUNDING_VOLUME)
+					if bv and bv.bbox then local mn, mx = bv.bbox.min, bv.bbox.max; rec.pos = { x = (num(mn.x) + num(mx.x)) / 2, y = (num(mn.y) + num(mx.y)) / 2, z = num(mn.z) } end
+				end)
+			end
 			return rec
 		end
 	end
@@ -1160,7 +1221,7 @@ local function collectCamera()
 	return cam
 end
 
--- ---------------------------------------------------------------- camera travelling (rev 10)
+-- ---------------------------------------------------------------- camera travelling
 -- camera_path: the dashboard sends a list of waypoints once ({x, y, dist, angle, pitch} + the duration of each
 -- leg); the mod interpolates on every frame (guiUpdate runs per rendered frame) and calls setCameraData, so the
 -- movement is as smooth as the frame rate. Nothing touches the simulation. Catmull-Rom on the ground point and the
@@ -1204,7 +1265,7 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
--- Ground clearance (rev 11): the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
+-- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
 -- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
 -- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
 -- if the eye would be lower than the highest of them + CAM_CLEARANCE, the distance is raised (same heading and
@@ -1244,7 +1305,7 @@ local function smooth(t) return t * t * (3 - 2 * t) end
 local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
 local function headingOf(dx, dy) return atan2(-dx, dy) end
 
--- Line tour (rev 10): ONE camera path built when the command arrives, from the points of interest of the line =
+-- Line tour: ONE camera path built when the command arrives, from the points of interest of the line =
 -- its stops (route sent by the dashboard, in order) + the positions of its vehicles AT THAT MOMENT, inserted at
 -- their place along the route. Then it is played exactly like camera_path (Catmull-Rom, constant ground speed).
 -- Altitude: high enough to read the line (derived from the size of the route, never a ground-level shot);
@@ -1371,7 +1432,7 @@ local function camTourBuild(args)
 		if nxt then local dx, dy = nxt.x - q.x, nxt.y - q.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = dx / n, dy / n end end
 		if prv then local dx, dy = q.x - prv.x, q.y - prv.y; local n = math.sqrt(dx * dx + dy * dy); if n > 0 then hx, hy = hx + dx / n, hy + dy / n end end
 		if hx == 0 and hy == 0 then hy = 1 end
-		-- zoom profile, kept shallow (rev 11.1): vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
+		-- zoom profile, kept shallow: vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
 		-- mid-stretch = 1.15 x alt. The former 0.45 .. 1.5 range made the camera dive and climb by a factor of three
 		-- every few seconds, together with the pitch swinging 0.75 .. 1.05: that is what turned stomachs.
 		local dist = q.kind == "vehicle" and alt * 0.7 or q.kind == "stop" and alt * 0.8 or q.swing and alt * 1.05 or alt * 1.15
@@ -1453,7 +1514,7 @@ local function camTourStart(args)
 	return true
 end
 
--- ---------------------------------------------------------------- geography (rev 11)
+-- ---------------------------------------------------------------- geography
 -- Static picture of the map for the dashboard's map tab: the terrain bounds, the water (contours of the water
 -- meshes: sea, lakes, rivers) and the network (every street and track edge as a segment with its type). Written to
 -- tf3dash_geo.lua once after the first slow cycle, then again only when the number of edges changed (the player
@@ -1467,7 +1528,11 @@ local GEO_MIN_INTERVAL = 60        -- s between two collections when the network
 local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
 local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
 local GEO_HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
-local GEO_SHORE_SUB = 4            -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (11 m on an 11 km map)
+local GEO_SHORE_SUB = 11           -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (4 m on an 11 km map,
+                                   -- the terrain resolution; ~1 400 cells x 121 = 170 000 isOnWater samples, ~4 s of frames)
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64C = {}
+for i = 1, 64 do B64C[i - 1] = B64:sub(i, i) end
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
 local geoSeq = 0
@@ -1624,7 +1689,7 @@ end
 
 -- shore refinement: once the coarse grid is complete, list the cells whose 4-neighbourhood mixes land and water,
 -- then sample each SUBxSUB; a cell = { col, row, mask } with bit k = sub-cell k (row-major, north-west first) on water.
--- A coast of 11 km on a 256 grid is ~1 500 boundary cells = 24 000 extra samples, a second of frames.
+-- A coast of 11 km on a 256 grid is ~1 400 boundary cells x 121 = 170 000 extra samples, a few seconds of frames.
 local function geoShoreStep(job)
 	local g = job.grid
 	if g.shoreList == nil then
@@ -1654,15 +1719,19 @@ local function geoShoreStep(job)
 		if i == nil then return true end
 		local col, row = i % g.nx, math.floor(i / g.nx)
 		local x0, y0 = b[1] + col * cw, b[4] - row * ch
-		local mask, bit = 0, 1
+		-- sub x sub bits do not fit a number past sub 7 (53-bit doubles): the mask is a string of base-64 digits,
+		-- 6 bits each, bit k of the mask = sub-cell k (row-major, north-west first) on water
+		local digits, acc, nb = {}, 0, 0
 		for sr = 0, sub - 1 do
 			for sc = 0, sub - 1 do
 				local p = Vec2f.new(x0 + (sc + 0.5) * cw / sub, y0 - (sr + 0.5) * ch / sub)
-				if api.engine.terrain.isOnWater(p) then mask = mask + bit end
-				bit = bit * 2
+				if api.engine.terrain.isOnWater(p) then acc = acc + 2 ^ nb end
+				nb = nb + 1
+				if nb == 6 then digits[#digits + 1] = B64C[acc]; acc, nb = 0, 0 end
 			end
 		end
-		g.shore[#g.shore + 1] = { col, row, mask }
+		if nb > 0 then digits[#digits + 1] = B64C[acc] end
+		g.shore[#g.shore + 1] = { col, row, table.concat(digits) }
 	end
 	return false
 end
@@ -1759,6 +1828,112 @@ local function geoJobRun(budget)
 		end
 	until os.clock() - t0 >= budget
 	return nil
+end
+
+-- ---------------------------------------------------------------- heightmap (full resolution)
+-- The terrain is stored tile by tile (256 m, TERRAIN_TILE_HEIGHTMAP: 65x65 integers at 4 m, metres = raw * baseResolution.z
+-- + offsetZ, 5 cm steps), readable in Lua at no cost (the array is already in memory, ~0 ms per tile measured). The
+-- whole map (44x44 tiles = 7.9 M values on an 11 km map) does not fit one Lua file, so the tiles go out in band files
+-- tf3dash_height_<band>.lua of HEIGHT_BAND tile rows each, one tile per frame, each tile one printable string: the
+-- first height in full, then the difference to the previous vertex (row-major), both as variable-length base-64 digits
+-- (6 bits per character, the low bit of the first digit is the sign, the top bit of every digit says "more digits").
+-- Flat land is 1 character per vertex: ~5 KB per tile, ~10 MB for the map, written once per load and again when the
+-- terrain changed (getTerrainEntityRevisions, the game's own change counter, checked with the geo edge count).
+local HEIGHT_PREFIX = PREFIX .. "height_"
+local HEIGHT_BAND = 4              -- tile rows per file (44 tiles x 4 rows x ~5 KB = ~1 MB per file)
+local HEIGHT_TILES_PER_STEP = 2    -- tiles encoded per frame (~1 ms each: 4 225 values through the encoder)
+local heightJob = nil
+local heightRevs = nil             -- revision signature of the terrain at the last export
+local lastHeightCheck = -1e9
+local heightCache = nil            -- { bands, tiles } of the last export
+
+-- variable-length signed integer: digits of 5 payload bits, bit 6 (value 32) = another digit follows; sign in the low
+-- bit of the first digit (zigzag)
+local function vint(out, v)
+	local z = v >= 0 and v * 2 or (-v * 2 - 1)
+	repeat
+		local d = z % 32
+		z = (z - d) / 32
+		if z > 0 then d = d + 32 end
+		out[#out + 1] = B64C[d]
+	until z == 0
+end
+
+local function heightRevSignature()
+	local ok, revs = pcall(api.engine.terrain.getTerrainEntityRevisions)
+	if not ok or type(revs) ~= "table" then return nil end
+	local acc, n = 0, 0
+	for e, r in pairs(revs) do
+		local a = num(r and r.num and r.num[1]) or 0
+		local b = num(r and r.num and r.num[2]) or 0
+		acc = (acc + (num(e) or 0) * 31 + a * 7 + b) % 2147483647
+		n = n + 1
+	end
+	return string.format("%d:%d", n, acc)
+end
+
+local function heightJobStart()
+	local world = api.engine.util.getWorld()
+	local tr = api.engine.getComponent(world, api.type.ComponentType.TERRAIN)
+	if not tr then return false end
+	local sz = vec2(tr.size)
+	if not sz or sz.x <= 0 or sz.y <= 0 then return false end
+	-- tile indices are centred on the map: -n/2 .. n/2-1 (probe: tile -1,-1 exists, tile 43,43 does not on 44x44)
+	local tx0, ty0 = -math.floor(sz.x / 2), -math.floor(sz.y / 2)
+	heightJob = { nx = sz.x, ny = sz.y, tx0 = tx0, ty0 = ty0, i = 0, band = {}, bandNo = 0, bands = 0, tiles = 0, started = os.clock(),
+		meta = { schema = SCHEMA, mod = MOD_ID, grid = { sz.x, sz.y }, origin = { tx0, ty0 }, side = 65, step = num(tr.baseResolution.x) or 4,
+			res_z = num(tr.baseResolution.z) or 0.05, offset_z = num(tr.offsetZ) or 0, water_level = num(tr.waterLevel) or 0,
+			band_rows = HEIGHT_BAND, revs = heightRevSignature() } }
+	return true
+end
+
+-- one band file: { meta..., band = k, rows = {first tile row, last}, tiles = { "<encoded>", ... row-major } }
+local function heightBandWrite(job)
+	local k = job.bandNo
+	local data = { band = k, row0 = k * HEIGHT_BAND, tiles = job.band }
+	for key, v in pairs(job.meta) do data[key] = v end
+	data.bands = math.ceil(job.ny / HEIGHT_BAND)
+	local ok, err = pcall(app.saveUserdata, DIR, HEIGHT_PREFIX .. k, data)
+	if not ok then log("saveUserdata failed for heightmap band " .. k .. ":", tostring(err)) end
+	job.band = {}
+	job.bandNo = k + 1
+	job.bands = job.bands + 1
+	return ok
+end
+
+-- returns true when the whole map is out
+local function heightJobRun()
+	local job = heightJob
+	if job == nil then return false end
+	local Vec2i = api.type.Vec2i
+	for _ = 1, HEIGHT_TILES_PER_STEP do
+		local total = job.nx * job.ny
+		if job.i >= total then
+			if #job.band > 0 then heightBandWrite(job) end
+			heightCache = { bands = job.bands, tiles = job.tiles }
+			log(string.format("heightmap written: %d tiles in %d files, %.1fs", job.tiles, job.bands, os.clock() - job.started))
+			heightJob = nil
+			return true
+		end
+		local col, row = job.i % job.nx, math.floor(job.i / job.nx)
+		local ok, e = pcall(api.engine.terrain.getHeightmapEntity, Vec2i.new(job.tx0 + col, job.ty0 + row))
+		local hm = ok and e and api.engine.getComponent(e, api.type.ComponentType.TERRAIN_TILE_HEIGHTMAP)
+		local out = {}
+		if hm and hm.vertices then
+			local prev = nil
+			for _, v in pairs(hm.vertices) do
+				local iv = math.floor(num(v) or 0)
+				if prev == nil then vint(out, iv) else vint(out, iv - prev) end
+				prev = iv
+			end
+		end
+		job.band[#job.band + 1] = table.concat(out)
+		job.tiles = job.tiles + 1
+		job.i = job.i + 1
+		-- a band is complete when its last tile row is done
+		if col == job.nx - 1 and (row + 1) % HEIGHT_BAND == 0 then heightBandWrite(job); return false end
+	end
+	return false
 end
 
 local function geoWrite(job)
@@ -1948,7 +2123,7 @@ local COMMANDS = {
 		api.gui.camera.setCameraData(api.type.Vec5f.new(x, y, dist, angle, pitch))
 		return true
 	end,
-	-- a view attached to a vehicle (rev 11): follow it, then apply the saved framing (distance, heading, pitch) on
+	-- a view attached to a vehicle: follow it, then apply the saved framing (distance, heading, pitch) on
 	-- top of the follow camera, which owns the position. The framing is re-applied for a few frames because the
 	-- follow camera slides to the vehicle first (see followFrame in guiUpdate).
 	follow_view = function(args)
@@ -1965,7 +2140,7 @@ local COMMANDS = {
 	camera_stop = function() camPathStop("camera_stop"); return true end,
 	-- line tour: one path over the stops of a line + its vehicles' positions at this moment (see camTourBuild)
 	camera_tour = function(args) camPathStop("new tour"); return camTourStart(args or {}) end,
-	-- experiment (rev 10): play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
+	-- experiment: play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
 	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts
 	-- it outside a mission / from userdata is what this command is here to find out. Answer carries the API result.
 	camera_cutscene = function(args)
@@ -2336,6 +2511,22 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		if not okG then log("geo collection failed:", tostring(done)); geoJob = nil
 		elseif done then pcall(geoWrite, done); return end  -- not in the same frame as live.lua (a big write)
 	end
+	-- full-resolution heightmap: after the geography, once per load, and again when the terrain revisions changed
+	-- (the player raised or dug ground); checked with the geo minute tick above, two tiles per frame meanwhile
+	if heightJob == nil and geoJob == nil and geoCache ~= nil and now - lastHeightCheck >= GEO_MIN_INTERVAL then
+		lastHeightCheck = now
+		local sig = heightRevSignature()
+		if heightCache == nil or (sig ~= nil and sig ~= heightRevs) then
+			heightRevs = sig
+			local okH, startedH = pcall(heightJobStart)
+			if not okH then log("heightmap export failed to start:", tostring(startedH)); heightJob = nil end
+		end
+	end
+	if heightJob ~= nil then
+		local okH, doneH = pcall(heightJobRun)
+		if not okH then log("heightmap export failed:", tostring(doneH)); heightJob = nil
+		elseif doneH then return end
+	end
 
 	if now - lastFast < o.interval_fast then return end
 	local tb = os.clock()
@@ -2364,7 +2555,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 end
 
--- ---------------------------------------------------------------- status window (rev 10)
+-- ---------------------------------------------------------------- status window
 -- The status window (status_ui.script.lua, a plugin of the game's mod button area) reads from this script with
 --   api.gui.fireGuiScriptEvent(UI_ID, "read")  -> guiHandleEvent returns { status, current = { key = 1-based index } }
 -- Read-only: settings are changed in the game's mod menu, like for any other mod. (A rev 9 prototype wrote them to

@@ -104,7 +104,8 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   whole-line actions (including the horn of every vehicle).
 - **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on
   the object (a vehicle: follow it). With mod revision 11 the map draws the savegame's **geography**: shaded relief,
-  sea, lakes and rivers, every road and track (bridges, tunnels), four map styles (gear button), and lines are drawn
+  sea, lakes and rivers, every road and track (bridges, tunnels), five map styles (gear button; mod revision 14 brings
+  the **full-resolution terrain**, 4 m, with a satellite look: rock where it is steep, meadows below), and lines are drawn
   **along the network** (the real path of each vehicle, a predicted route until one has driven it). A **ruler** button measures as the crow flies, with the height difference and the distance the game actually pays (straight line + 8 x the climb, never the length of track), plus the distance by road and by rail over the existing network (dashed where nothing is built). **Cargo layers** (production / demand / stocks) draw the cargo icons next to each industry and town, dimmed by how far they are from their maximum; hovering shows the figures, and a vehicle shows what it carries. **Camera views**
   (mod revision 7): save the game camera under a name and recall it with one click or Shift+1..9; a view can be
   attached to a vehicle (revision 11: recalled = follow it again with the same framing). Views are kept

@@ -2335,8 +2335,12 @@
     if (!ruler.on) return;
     // hung right under the ruler button (the toolbar lives outside the map card, so position from its screen rect)
     const br = $("#map-ruler-btn").getBoundingClientRect(), cr = el.offsetParent.getBoundingClientRect();
-    el.style.left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth)) + "px";
-    el.style.top = Math.max(8, br.bottom - cr.top + 6) + "px";
+    const left = Math.max(8, Math.min(cr.width - el.offsetWidth - 8, br.right - cr.left - el.offsetWidth));
+    let top = Math.max(8, br.bottom - cr.top + 6);
+    // never over the legend (top-right box): when the two would overlap sideways, hang the readout under the legend
+    const lg = $("#map-legend"); const lr = lg && lg.offsetParent ? lg.getBoundingClientRect() : null;
+    if (lr && left + el.offsetWidth > lr.left - cr.left - 8 && top < lr.bottom - cr.top + 6) top = lr.bottom - cr.top + 6;
+    el.style.left = left + "px"; el.style.top = top + "px";
     if (!a || !b) { el.innerHTML = `<div class="hint">${t(a ? "ruler_hint_b" : "ruler_hint_a")}</div>`; return; }
     const dist = Math.hypot(b.x - a.x, b.y - a.y), ha = heightAt(a.x, a.y), hb = heightAt(b.x, b.y);
     const dz = ha != null && hb != null ? hb - ha : null;
@@ -2344,10 +2348,11 @@
     const parts = (p, gap) => gap ? t("ruler_build_straight") : `A +${fmtDist(p[0])} · ${fmtDist(p[1])} · +${fmtDist(p[2])} B`;
     const row = (sw, v, s, cls) => `<div class="r"><i style="background:${sw || "transparent"}"></i><b class="${cls || ""}">${v}</b><span>${s}</span></div>`;
     const netRow = (mode, sw, kmh) => {
-      if (!net || !net.available) return row(sw, "…", t("ruler_" + mode, { d: "" }).trim());
-      if (net[mode] == null) return row(sw, "–", t("ruler_" + mode, { d: t("ruler_none") }));
+      const lab = `${ico(mode === "rail" ? "veh_train" : "veh_truck", "sm")}`;  // the game's carrier icons: the colour alone said nothing
+      if (!net || !net.available) return row(sw, "…", lab + t("ruler_" + mode, { d: "" }).trim());
+      if (net[mode] == null) return row(sw, "–", lab + t("ruler_" + mode, { d: t("ruler_none") }));
       const owned = net[mode + "_kmh"] > 0;
-      return row(sw, fmtDist(net[mode]), trip(net[mode], owned ? net[mode + "_kmh"] : kmh, owned) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
+      return row(sw, fmtDist(net[mode]), lab + trip(net[mode], owned ? net[mode + "_kmh"] : kmh, owned) + (net[mode + "_parts"] ? "<br>" + parts(net[mode + "_parts"], net[mode + "_gap"]) : ""));
     };
     el.innerHTML = row("#e8b04b", fmtDist(dist), ruler.b ? "" : "…")
       + row(null, dz != null ? (dz >= 0 ? "+" : "") + Math.round(dz) + " m" : "–", t("ruler_height"), dz > 0 ? "up" : "down")

@@ -211,7 +211,7 @@ local function collectTime()
 	local world = api.engine.util.getWorld()
 	local gt = api.engine.getComponent(world, api.type.ComponentType.GAME_TIME)
 	local gs = api.engine.getComponent(world, api.type.ComponentType.GAME_SPEED)
-	local t = { game_time_ms = num(gt and gt.gameTime), tick = num(gt and gt.tickCount), update_count = num(gt and gt.updateCount),
+	local t = { game_time_ms = num(gt and gt.gameTime),
 		time_of_day_sec = num(gt and gt.timeOfDaySec), speed = num(gs and gs.speedup), millis_per_day = num(gs and gs.millisPerDay) }
 	local ok, d = pcall(api.engine.util.getCalendarDate, t.game_time_ms or 0)
 	if ok and d then t.year, t.month, t.day = num(d.year), num(d.month), num(d.day) end
@@ -224,7 +224,6 @@ local function collectFinance(player)
 	local acc = api.engine.getComponent(player, api.type.ComponentType.ACCOUNT)
 	local f = { balance = num(acc and acc.balance), loan = num(acc and acc.loan) }
 	local ok, v = pcall(api.engine.util.finance.calculateEarnings, player); if ok then f.earnings_year_to_date = num(v) end
-	ok, v = pcall(api.engine.util.finance.getPlayersBalance, player); if ok then f.bank_balance = num(v) end
 	ok, v = pcall(api.engine.util.headquarters.getTransportedData)
 	if ok and v then f.passengers_transported = num(v.passengersTransported); f.cargo_transported = num(v.cargoTransported) end
 	return f
@@ -432,7 +431,7 @@ local function collectVehicles()
 		if tv then
 			local rec = { id = v, state = enumName("TransportVehicleState", VSTATES, tv.state), line = num(tv.line), stop_index = num(tv.stopIndex),
 				user_stopped = tv.userStopped and true or false, no_path = tv.noPath and true or false, depot = num(tv.depot),
-				days_in_depot = num(tv.daysInDepot), days_at_terminal = num(tv.daysAtTerminal), doors_open = tv.doorsOpen and true or false }
+				days_in_depot = num(tv.daysInDepot), days_at_terminal = num(tv.daysAtTerminal) }
 			pcall(function() rec.speed = num(api.engine.util.vehicle.getSpeed(v)) end)
 			pcall(function() rec.pos = vec3(api.engine.util.vehicle.getPosition(v)) end)
 			-- load = items on board; cargo = the same split by cargo type (what the game draws above the wagons),
@@ -752,8 +751,6 @@ local function lineItem(l, ctx)
 				pcall(function()
 					local c = s.stopConfig
 					st.force_unload = c.forceUnload and true or false
-					st.destroy_for_config_change = c.destroyForConfigChange and true or false
-					st.destroy_for_refresh = c.destroyForRefresh and true or false
 					-- load[] / maxLoad[] are dense arrays over all cargo types (Lua index k = cargo id k-1).
 					-- Export only the cargo ids that are NOT loaded (the common case is "everything allowed").
 					local blocked = {}
@@ -835,7 +832,6 @@ local function stationItem(s, ctx)
 				if c then
 					local m = c.transf
 					rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) }
-					rec.construction = c.fileName
 				end
 			end)
 			if rec.pos == nil then
@@ -855,10 +851,9 @@ end
 
 local function townsBegin(cargoNames)
 	local sys = api.engine.system
-	local ctx = { names = cargoNames, caps = {}, traffic = {}, buildings = {} }
+	local ctx = { names = cargoNames, caps = {}, traffic = {} }
 	pcall(function() ctx.caps = sys.townBuildingSystem.getTown2personCapacitiesMap() end)
 	pcall(function() ctx.traffic = api.engine.util.town.computeTownsTrafficSpeedMap(1.0) end)
-	pcall(function() ctx.buildings = sys.townBuildingSystem.getTown2BuildingMap() end)
 	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.TOWN)), ctx
 end
 
@@ -874,8 +869,7 @@ local TOWN_PARTS = {
 		rec.development_active = town and town.developmentActive and true or false
 		local c = arr(ctx.caps[t]); rec.cap_res, rec.cap_com, rec.cap_ind = num(c[1]), num(c[2]), num(c[3])
 		local tr = ctx.traffic[t]
-		if tr then rec.traffic_speed = num(tr[1]); rec.congestion_levels = arr(tr[2]) end
-		rec.buildings = count(ctx.buildings[t])
+		if tr then rec.traffic_speed = num(tr[1]) end
 	end,
 	function(t, rec)
 		local u = arr(api.engine.util.town.getTownCapacityUsage(t))
@@ -983,7 +977,7 @@ local function industryItem(i, ctx)
 		local ind = api.engine.getComponent(i, api.type.ComponentType.INDUSTRY)
 		if ind then
 			local rec = { id = i, name = entityName(i), level = num(ind.level), max_level = num(ind.maxLevel), closure_time = num(ind.closureTimeStamp),
-				upgrade_progress = num(ind.upgradeProgress), manual = ind.manualDevelopment and true or false, stock_list = num(ind.stockList) }
+				manual = ind.manualDevelopment and true or false, stock_list = num(ind.stockList) }
 			local sl = ind.stockList
 			pcall(function()
 				local c = api.engine.getComponent(ind.construction, api.type.ComponentType.CONSTRUCTION)
@@ -1821,7 +1815,6 @@ local function geoJobRun(budget)
 		else done = true end
 		if done then
 			job.geo.duration = os.clock() - job.started
-			job.geo.edge_count = #job.edges
 			if job.grid then
 				job.geo.water_rows = job.grid.rows
 				job.geo.heights = job.grid.heights

@@ -33,6 +33,8 @@ xcopy /q /y /i "collector\schema.sql" "%STAGE%\collector\" >nul
 xcopy /q /y /i "collector\run_collector.cmd" "%STAGE%\collector\" >nul
 xcopy /q /y /i "dashboard\*.py" "%STAGE%\dashboard\" >nul
 xcopy /q /y /i /s "dashboard\static\*" "%STAGE%\dashboard\static\" /exclude:build_exclude.txt >nul
+REM icons\ is excluded (extracted from the player's game at first start) except our own drawn icons, which ship
+xcopy /q /y /i /s "dashboard\static\icons\own\*" "%STAGE%\dashboard\static\icons\own\" >nul
 xcopy /q /y /i /s "docs\*" "%STAGE%\docs\" >nul
 mkdir "%STAGE%\music" >nul 2>nul
 copy /y "music\README.txt" "%STAGE%\music\" >nul

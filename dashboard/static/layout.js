@@ -13,6 +13,18 @@
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
   const KEY = "tf3.layout";
   const COLS = 12, ROW = 10, GAP = 14, MIN_W = 2, MIN_H = 12;  // MIN_H rows = 120 px
+  /** Shipped layout, per tab: panel -> [x, y, w, h] (grid columns / rows of ROW px). Used when a tab has no saved
+      layout (first start, Reset); cards unknown to the preset (added later) flow below it as usual. */
+  const PRESET = {
+    overview: { "fleet-state": [4, 35, 3, 35], "by-carrier": [2, 0, 5, 35], "alerts": [0, 0, 2, 49], "fleet-perf": [2, 90, 5, 33], "idle": [0, 49, 2, 74], "stuck": [2, 35, 2, 55], "worn": [7, 35, 4, 34], "lines-bad": [7, 0, 4, 35], "lines-load": [7, 69, 4, 37] },
+    vehicles: { "veh-table": [0, 0, 7, 64], "veh-detail": [7, 0, 5, 64] },
+    lines: { "lines-table": [0, 0, 6, 123], "line-detail": [6, 0, 6, 123] },
+    map: { "cam-views": [7, 0, 2, 39], "travellings": [9, 0, 3, 39], "map": [0, 0, 7, 111], "trv-workshop": [7, 39, 4, 63] },
+    towns: { "towns-table": [0, 0, 7, 117], "town-detail": [7, 0, 5, 117] },
+    industries: { "ind-table": [0, 0, 7, 105], "ind-detail": [7, 0, 5, 101] },
+    stations: { "st-table": [0, 0, 7, 64], "st-detail": [7, 0, 5, 99], "dep-table": [0, 64, 7, 64] },
+    finance: { "journal": [0, 0, 6, 83], "balance": [6, 0, 3, 32], "earnings": [0, 83, 6, 37], "transport": [6, 32, 3, 28], "network": [9, 32, 3, 28], "company-chart": [9, 0, 3, 32], "company": [8, 60, 4, 56], "costs": [6, 60, 2, 30] },
+  };
   let store = load();
   let editing = false;
   const listeners = [];
@@ -95,6 +107,11 @@
   function stateOf(container) {
     const tab = tabOf(container), def = defaults(container);
     let st = store[tab];
+    if (!st && PRESET[tab]) {
+      st = { v: 2, panels: {} };
+      for (const [id, g] of Object.entries(PRESET[tab])) if (def.order.includes(id)) st.panels[id] = { x: g[0], y: g[1], w: g[2], h: g[3], hidden: false };
+      store[tab] = st; save();
+    }
     if (!st || st.v !== 2) {
       // migrate v1 (order + w + h in px) or start from the HTML defaults: flow in order
       const old = st || {};

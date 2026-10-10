@@ -158,9 +158,16 @@ class Store:
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
-    DATA_VERSION = 1
+    DATA_VERSION = 2
 
     def _migrate(self):
+        # tables whose layout changed before any release and that the mod rewrites in full on its next file: when the
+        # stored layout lacks a column of the current schema, drop and recreate (nothing is lost)
+        for table, must_have in (("finance_journal", "view"), ("finance_journal_col", "view")):
+            cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
+            if cols and must_have not in cols:
+                self.con.execute(f"DROP TABLE {table}")
+        self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
         for table, col, typ in self.MIGRATIONS:
             cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
@@ -277,42 +284,49 @@ class Store:
         return len(rows)
 
     def ingest_journal(self, snap: dict, jf: dict) -> int:
-        """Upsert the game's accounting journal (mod rev 13, tf3dash_journal.lua) for the game `snap` belongs to.
-        Returns the number of columns stored."""
+        """Replace the game's accounting journal views (mod rev 13, tf3dash_journal.lua) for the game `snap` belongs
+        to. Returns the number of columns stored over both views."""
         j = jf.get("journal")
         if not isinstance(j, dict):
             return 0
         gid = self.game_id(snap, iso())
         now = iso()
-        periods = [str(p) for p in as_list(j.get("periods"))]
-        interval = int(j.get("interval_ms") or 0)
-        count = len(periods)
-        rows: list[tuple] = []
+        year = j.get("year")
+        total = 0
+        for view in ("window", "history"):
+            tab = j.get(view)
+            if not isinstance(tab, dict):
+                continue
+            periods = [str(p) for p in as_list(tab.get("periods"))]
+            count = len(periods)
+            rows: list[tuple] = []
 
-        def series(kind: str, carrier: int, key: str, vals: Any) -> None:
-            for i, v in enumerate(as_list(vals)[:count]):
-                if isinstance(v, (int, float)):
-                    rows.append((gid, i, kind, carrier, key, int(v)))
+            def series(kind: str, carrier: int, key: str, vals: Any) -> None:
+                for i, v in enumerate(as_list(vals)[:count]):
+                    if isinstance(v, (int, float)):
+                        rows.append((gid, view, i, kind, carrier, key, int(v)))
 
-        for carrier, by_key in (j.get("transport") or {}).items():
-            if isinstance(by_key, dict):
-                for key, vals in by_key.items():
-                    series("transport", int(carrier), str(key), vals)
-        for key, vals in (j.get("investment") or {}).items():
-            series("investment", -1, str(key), vals)
-        for key, vals in (j.get("other") or {}).items():
-            series("other", -1, str(key), vals)
-        for kind in ("loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance"):
-            if kind in j:
-                series(kind, -1, "", j[kind])
-        self.con.executemany(
-            "INSERT OR REPLACE INTO finance_journal(game_id, col, kind, carrier, key, amount) VALUES (?,?,?,?,?,?)", rows)
-        self.con.executemany(
-            "INSERT OR REPLACE INTO finance_journal_col(game_id, col, label, start_ms, interval_ms, received_at) VALUES (?,?,?,?,?,?)",
-            [(gid, i, p, i * interval, interval, now) for i, p in enumerate(periods)])
+            for carrier, by_key in (tab.get("transport") or {}).items():
+                if isinstance(by_key, dict):
+                    for key, vals in by_key.items():
+                        series("transport", int(carrier), str(key), vals)
+            for key, vals in (tab.get("investment") or {}).items():
+                series("investment", -1, str(key), vals)
+            for key, vals in (tab.get("other") or {}).items():
+                series("other", -1, str(key), vals)
+            for kind in ("loan", "interest", "loanBorrowing", "loanRepayment", "total", "balance"):
+                if kind in tab:
+                    series(kind, -1, "", tab[kind])
+            self.con.execute("DELETE FROM finance_journal WHERE game_id=? AND view=?", (gid, view))
+            self.con.execute("DELETE FROM finance_journal_col WHERE game_id=? AND view=?", (gid, view))
+            self.con.executemany(
+                "INSERT INTO finance_journal(game_id, view, col, kind, carrier, key, amount) VALUES (?,?,?,?,?,?,?)", rows)
+            self.con.executemany(
+                "INSERT INTO finance_journal_col(game_id, view, col, label, received_at, game_year) VALUES (?,?,?,?,?,?)",
+                [(gid, view, i, p, now, year) for i, p in enumerate(periods)])
+            total += count
         self.con.commit()
-        return count
-
+        return total
     def ingest(self, snap: dict) -> int | None:
         now = iso()
         real_time = iso(snap.get("real_time")) if isinstance(snap.get("real_time"), (int, float)) else now

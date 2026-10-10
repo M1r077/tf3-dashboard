@@ -1193,7 +1193,7 @@
     ["4/1/6", "journal_upkeep_buildings"], ["4/1/7", "journal_upkeep_warehouses"], ["5/2/6", "journal_income"], ["7/2/6", "journal_other"],
   ];
   const JOURNAL_INVEST = [["3/2/6", "journal_buy_vehicles"], ["2/2/0", "journal_build_roads"], ["2/2/1", "journal_build_tracks"], ["2/2/6", "journal_build_buildings"], ["2/2/7", "journal_other"]];
-  const journalUi = { cols: 8, open: new Set(["1"]), data: null };
+  const journalUi = { view: "window", open: new Set(["1"]), data: null, history: null };
   // the game prints "$-35,6 M": sign after the currency, one decimal, K / M / B
   const moneyGame = (n) => {
     if (n == null) return "–";
@@ -1204,12 +1204,12 @@
     if (a >= 1e3) return `$${sgn}${num(a / 1e3, 0)} K`;
     return `$${sgn}${num(a, 0)}`;
   };
-  $$("#journal-cols button").forEach(b => b.addEventListener("click", () => { journalUi.cols = +b.dataset.n; $$("#journal-cols button").forEach(x => x.classList.toggle("active", x === b)); renderJournalTable(); }));
+  $$("#journal-view button").forEach(b => b.addEventListener("click", async () => { journalUi.view = b.dataset.v; journalUi.scrolled = null; $$("#journal-view button").forEach(x => x.classList.toggle("active", x === b)); journalUi.data = await api("/api/journal", { view: journalUi.view }); renderJournalTable(); }));
   function renderJournalTable() {
     const j = journalUi.data, tbl = $("#journal-table");
     if (!j || !j.cols.length) { tbl.innerHTML = `<tr><td class="empty">${t("no_data_yet")}</td></tr>`; return; }
-    const n = j.cols.length, from = journalUi.cols ? Math.max(0, n - journalUi.cols) : 0, idx = [];
-    for (let i = from; i < n; i++) idx.push(i);
+    const n = j.cols.length, idx = [];
+    for (let i = 0; i < n; i++) idx.push(i);
     const L = j.lines, zero = new Array(n).fill(0);
     const row = (vals) => vals || zero;
     const cells = (vals, strong) => idx.map(i => { const v = row(vals)[i]; return `<td class="${v === 0 ? "zero" : v < 0 ? "neg" : "pos"}">${moneyGame(v)}</td>`; }).join("");
@@ -1240,20 +1240,26 @@
     tbl.innerHTML = h;
     $$("tr.carrier", tbl).forEach(tr => tr.addEventListener("click", () => { const c = tr.dataset.c; if (journalUi.open.has(c)) journalUi.open.delete(c); else journalUi.open.add(c); renderJournalTable(); }));
     $("#journal-range").textContent = t("journal_periods", { n, a: j.cols[0].label, b: j.cols[n - 1].label });
+    const wrap = tbl.parentElement; if (wrap && !journalUi.scrolled) { wrap.scrollLeft = wrap.scrollWidth; journalUi.scrolled = journalUi.view; }  // like the game: the latest periods first
   }
 
   async function renderFinance(o) {
     const fin = await api("/api/finance", { limit: Math.max(600, settings.history), range: settings.range });
     const ser = fin.series || [], labels = ser.map(x => dateLabel(x));
     const tx = tsOpts(ser, "fin");
-    // journal: the game's table, and its summary lines as curves over the whole game (one point per column)
-    const j = await api("/api/journal"); journalUi.data = j; renderJournalTable();
-    const jl = (j.cols || []).map(c => c.label), jx = (j.cols || []).map(c => c.start_ms / 1000);
+    // journal: the game's table (the view the user picked) and, as curves, the whole-game history: one point per
+    // engine column placed at the START of its period on a game-time axis (months), labelled with the engine's header
+    const [jt, jh] = await Promise.all([api("/api/journal", { view: journalUi.view }), api("/api/journal", { view: "history" })]);
+    journalUi.data = jt; journalUi.history = jh; renderJournalTable();
+    const hc = (jh.cols || []).filter(c => c.start != null), hl = hc.map(c => c.label), hx = hc.map(c => c.start * 2629800);  // months -> "seconds" so the axis is monotonic
+    const pick = (name) => hc.map(c => (jh.lines && jh.lines[name] || [])[c.col]);
+    const monthName = (c) => { const y = Math.floor(c.start / 12), m = Math.floor(c.start % 12); return c.end - c.start >= 12 ? String(y) : `${m + 1}/${String(y).slice(-2)}`; };
+    const xg = hc.map(monthName);
     Charts.lineChart($("#chart-balance"), [
-      { name: t("journal_bank"), values: j.lines && j.lines.balance || [], color: "#4f8a8a", area: true, unit: "$" },
-      { name: t("journal_debt"), values: j.lines && j.lines.loan || [], color: "#d62560", dash: [6, 4], unit: "$" },
-    ], jl, { unit: "$", ts: jx, xGame: jl });
-    Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: j.lines && j.lines.total || [], color: "#e8b04b", area: true, unit: "$", step: true }], jl, { zeroBase: true, unit: "$", ts: jx, xGame: jl });
+      { name: t("journal_bank"), values: pick("balance"), color: "#4f8a8a", area: true, unit: "$" },
+      { name: t("journal_debt"), values: pick("loan"), color: "#d62560", dash: [6, 4], unit: "$" },
+    ], hl, { unit: "$", ts: hx, xGame: xg, gameOnly: true });
+    Charts.lineChart($("#chart-earn"), [{ name: t("journal_total"), values: pick("total"), color: "#e8b04b", area: true, unit: "$", step: true }], hl, { zeroBase: true, unit: "$", ts: hx, xGame: xg, gameOnly: true });
     Charts.lineChart($("#chart-transport"), [
       { name: t("passengers"), values: ser.map(x => x.passengers_transported), color: "#58a6ff" },
       { name: t("cargo"), values: ser.map(x => x.cargo_transported), color: "#e8b04b", axis: "right" },

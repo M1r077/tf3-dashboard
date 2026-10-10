@@ -276,6 +276,52 @@ Three independent parts:
      draft when it is a movement around a view.
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
      the Advanced Camera Tool); not exposed in the UI until tested in a free game.
+   - **Finance journal** (mod 13 / companion 0.6.0, `tf3dash_journal.lua`): the Finances tab shows the game's own
+     accounting table, not a reconstruction. Principle: **the past does not need to be measured while playing, it is
+     in the savegame**. The engine keeps the complete journal (every booking since the start of the game) and the
+     Finances window is a view on it: `api.engine.util.finance.computeFinanceTable(player, ChartConfig)` returns a
+     `FinanceData` {`transport` by carrier and journal key, `investment`, `other`, `loan`, `interest`, `loanBorrowing`,
+     `loanRepayment`, `total`, `balance`, `header`} with one value per column. The mod exports two tables:
+     - *window*: `ChartConfig.new()` untouched (interval 1 461 000 ms = 1 game year + 1 s, count 20) = **exactly the
+       columns the game shows** (4 to 20 depending on the age of the game). Verified against the window line by line
+       (e.g. "9/87 - 11/87", Rail: -35 579 614 / -7 126 204 / -1 486 321 / -3 612 352 / 110 315 776, total 3 119 332,
+       bank 1 180 624 245, all matching the displayed `$-35,6 M` ... `$1,18 B`).
+     - *history*: interval = 1 game year (1 460 000 ms), count = years since the start + 2 = every column since the
+       start of the game. On a 70-year game: 43 columns from `1920` to `9/89 - 7/90`.
+     What the probes taught (10 Oct 2026, all logged with *Debug log* on): `interval` and `count` only **bound the
+     span**, the engine picks the columns itself - fine towards today (half-months, months, quarters), coarser further
+     back (years, then 4-year blocks), the last column reaching into the future (the period has just begun). Asking for
+     one column per month since 1920 is not possible (`interval = 1 month, count = 510` gave 2-month columns at the end
+     and weeks in between). So the dashboard never computes a column's bounds from an index: it parses the engine's
+     header (`"1920"`, `"1943 - 1946"`, `"9/87 - 11/87"`, `"4/88"`, `"1/3/90 - 16/3/90"`; two-digit years take the
+     century of the game year written with the file, `server._journal_bounds`).
+     Keys: the enums `JournalEntry.Type / Maintenance / Construction` are integers behind userdata without names
+     (`pairs` gives nothing, `tostring` an address); `FinanceData:unfoldKey(k)` returns the three as a 1-based table.
+     The mod exports them as `"type/maintenance/construction"` and the dashboard names them (`JOURNAL_LINES` in
+     `app.js`), with the mapping established on the game's own figures:
+     | key | line of the Finances window | key | line |
+     |---|---|---|---|
+     | `4/0/6` | Running costs vehicles | `5/2/6` | Income |
+     | `4/3/6` | Maintenance vehicles | `7/2/6` | Other (one-off, carrier 3) |
+     | `4/1/0` | Upkeep roads (carrier 0) | inv `3/2/6` | Buy vehicles |
+     | `4/1/1` | Upkeep tracks (carrier 1) | inv `2/2/0` / `2/2/1` | Construction roads / tracks |
+     | `4/1/6` | Upkeep buildings | inv `2/2/6` / `2/2/7` | Construction buildings / other (sales included, sign mixed) |
+     | `4/1/7` | Upkeep warehouses (carrier 3) | `total` | the window's "Income" summary line (= net result) |
+     Carriers: 0 road, 1 rail, 2 tram, 3 other, 4 air, 5 water (`api.type.enum.Carrier` order). The labels in
+     `i18n.js` are the game's own strings (`base/strings/<lang>/LC_MESSAGES/base.mo`: "Running Costs Vehicles",
+     "Maintenance Vehicles", "Upkeep Tracks", "Loan Transactions", "Bank Account"...), so the dashboard says what the
+     game says in every language.
+     Cost: both tables computed natively, **2-12 ms together on a 70-year game**, file 70-80 KB written in 8-9 ms,
+     once per game month (the month index of `game_time_ms` changed) or when the game clock went backwards (savegame
+     reloaded). The collector (`ingest_journal`) replaces the two views in `finance_journal` / `finance_journal_col`
+     on every new file (33 ms for 15 000 rows); nothing is ever purged - a whole game is a few thousand rows.
+     `/api/journal?view=window|history` returns `{cols: [{col, label, start, end}], lines: {"transport/1/5/2/6": [...],
+     "investment/3/2/6": [...], "total": [...], "balance": [...], ...}}` (start / end in game months since year 0).
+     The tab: the table with the game's grouping (carriers unfold on click, investments, the Summary block: Income =
+     `total`, Loan transactions = borrowing + repayment + interest, Bank account, Debt), toggle "As in the game" /
+     "Whole game"; below, Bank account and Result per period as curves over the whole game on a game-time axis (one
+     point per engine column, placed at the start of its period, labelled with the engine's header). Money is printed
+     the way the game does (`$-35,6 M`, `$1,18 B`). Not available with a mod older than 13 (the panel stays empty).
    - **Cargo per vehicle** (mod rev 8 / companion 0.3.1): the fast vehicle record carries `cargo` = {cargo id: count
      on board} (from `getNumCargoPerTypeInVehicle`, the same call that gives the total load) and the slow record
      `capacities` = {cargo id: capacity} (from `getVehicleCapacities`). Both are dense arrays over all cargo types in

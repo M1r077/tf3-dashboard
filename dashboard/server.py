@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import re
 import math
 import os
 import shutil
@@ -254,17 +255,73 @@ def api_finance(q: dict) -> dict:
     return {"series": series, "company": comp}
 
 
+_JOURNAL_RE = re.compile(r"^\s*(?:(\d{1,2})/)?(?:(\d{1,2})/)?(\d{2,4})\s*(?:-\s*(?:(\d{1,2})/)?(?:(\d{1,2})/)?(\d{2,4}))?\s*$")
+
+
+def _journal_bounds(label: str, ref_year: int | None) -> tuple[int, int] | None:
+    """Period bounds (start, end) in game months since year 0, from the engine's header. Forms seen: "1920",
+    "1943 - 1946", "9/87 - 11/87", "4/88", "1/3/90 - 16/3/90" (day/month/yy), "16/3/90 - 31/3/90".
+    Two-digit years take the century of ref_year (the game year when the file was written)."""
+    m = _JOURNAL_RE.match(label or "")
+    if not m:
+        return None
+    a1, a2, ay, b1, b2, by = m.groups()
+
+    def year(y: str) -> int:
+        v = int(y)
+        if len(y) <= 2 and ref_year:
+            c = ref_year - ref_year % 100
+            v += c
+            if v > ref_year + 1:
+                v -= 100
+        return v
+
+    def part(d, mo, y):
+        # "d/m/yy" -> day, month; "m/yy" -> month; "yyyy" -> whole year
+        if d is not None and mo is not None:
+            return year(y), int(mo), int(d)
+        if d is not None:
+            return year(y), int(d), None
+        return year(y), None, None
+    sy, sm, sd = part(a1, a2, ay)
+    start = sy * 12 + ((sm or 1) - 1) + (((sd or 1) - 1) / 31)
+    if by is None:
+        if sm is None:
+            end = start + 12
+        elif sd is None:
+            end = start + 1
+        else:
+            end = start + 0.5
+    else:
+        ey, em, ed = part(b1, b2, by)
+        if em is None:
+            end = ey * 12 + 12
+        elif ed is None:
+            end = ey * 12 + em  # inclusive month
+        else:
+            end = ey * 12 + (em - 1) + ((ed - 1) / 31)
+    return start, end
+
+
 def api_journal(q: dict) -> dict:
-    """The game's accounting journal (mod rev 13): every column since the start of the game.
-    {cols: [{col, label, start_ms, interval_ms}], lines: {"transport/1/5/2/6": [amounts per col], "total": [...], ...}}
-    Sparse per line: missing columns are 0. A whole 70-year game is ~500 columns x ~30 lines: one small payload."""
+    """The game's accounting journal (mod rev 13). ?view=window (the Finances window's own columns) or history
+    (every column since the start of the game). {cols: [{col, label, start, end}], lines: {"transport/1/5/2/6": [...],
+    "total": [...], ...}} where start/end are game months since year 0 (year*12 + month-1, fractional days).
+    A whole 70-year history is ~45 columns x ~30 lines: one small payload."""
     gid = _gid()
-    cols = rows("SELECT col, label, start_ms, interval_ms FROM finance_journal_col WHERE game_id=? ORDER BY col", (gid,))
+    view = (q.get("view") or ["window"])[0]
+    if view not in ("window", "history"):
+        view = "window"
+    cols = rows("SELECT col, label, game_year FROM finance_journal_col WHERE game_id=? AND view=? ORDER BY col", (gid, view))
     if not cols:
-        return {"cols": [], "lines": {}}
+        return {"view": view, "cols": [], "lines": {}}
     n = cols[-1]["col"] + 1
+    out_cols = []
+    for c in cols:
+        b = _journal_bounds(c["label"], c["game_year"])
+        out_cols.append({"col": c["col"], "label": c["label"], "start": b[0] if b else None, "end": b[1] if b else None})
     lines: dict[str, list[int]] = {}
-    for r in rows("SELECT col, kind, carrier, key, amount FROM finance_journal WHERE game_id=?", (gid,)):
+    for r in rows("SELECT col, kind, carrier, key, amount FROM finance_journal WHERE game_id=? AND view=?", (gid, view)):
         name = r["kind"] if r["carrier"] < 0 and not r["key"] else (
             f"{r['kind']}/{r['carrier']}/{r['key']}" if r["carrier"] >= 0 else f"{r['kind']}/{r['key']}")
         arr = lines.get(name)
@@ -272,8 +329,7 @@ def api_journal(q: dict) -> dict:
             arr = lines[name] = [0] * n
         if 0 <= r["col"] < n:
             arr[r["col"]] = r["amount"]
-    return {"cols": cols, "lines": lines}
-
+    return {"view": view, "cols": out_cols, "lines": lines}
 
 def api_alerts(q: dict) -> dict:
     snap = one("SELECT snapshot_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")

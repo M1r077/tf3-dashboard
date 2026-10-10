@@ -1,0 +1,39 @@
+# Changelog
+
+Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
+
+## Mod 13 / companion 0.6.0 - 10 October 2026
+
+Also companion 0.5.2 (10 October, mod 12): the map ruler (air distance, height difference, the distance the game pays).
+
+
+Revision 13 + companion program 0.6.0 (10 October 2026): the game's finance journal, cargo layers on the map, road and rail distances on the ruler. The Finances page now shows the game's own finance table, by financial year, every line of the Finances window (running costs and maintenance by carrier, upkeep of roads, tracks and buildings, income, construction, vehicle purchases), kept for the whole savegame. The map gets three cargo layers: production, demand and stocks drawn as cargo icons next to each industry and town, dimmed by how far they are from their maximum; hovering gives the figures, and a vehicle shows what it carries. The ruler now also gives the distance by road and by rail over your network, dashed where nothing is built. Cards on every page can be dragged and resized. The mod also fixes a bug where every vehicle was reported under one carrier. Revision 13 needs companion 0.6.0 for the journal and the layers; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+## Mod 12 / companion 0.5.1 - 9 October 2026
+
+Revision 12 + companion program 0.5.1 (9 October 2026): a calmer line tour. The line tour of revision 11 flew too fast and dived over every stop and vehicle; it made people sick. The camera now moves at half the speed, keeps a nearly constant height and turns its head much less. Mod and companion both carry the change (the mod holds the zoom profile, the companion the speed); either one alone already helps. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+## Mod 11 / companion 0.5.0 - 9 October 2026
+
+Revision 11 + companion program 0.5.0 (9 October 2026): the map gets the real terrain, lines follow the tracks, a Travellings panel, the game's soundtrack. The map now draws the geography of your savegame: shaded relief with an altitude ramp, sea, lakes and rivers with refined shores, every road and railway (bridges and tunnels marked), with four map styles (dark, night, atlas, paper). Lines are drawn along the network: the real path of each vehicle as it drives, and a predicted route for lines not visited yet; the line tour now flies the rails and roads instead of straight stop-to-stop. Camera views can be attached to a vehicle (recalled = follow it again with the same framing), and the camera now keeps 60 m above the highest terrain between it and its target, so a travelling never dives into a hill. New Travellings card: compose a travelling (around a view, a chain of views you order by drag and drop, or a line tour), tune movement, duration, altitude, loop and music, play it, save up to 20 per savegame and edit them in place. Music: besides your own files, the game's 24 soundtrack pieces are offered, read straight from the game's install. Clicking a vehicle on the map follows it. The geography export costs the game about 2 ms per frame for a second or two after a load. Revision 11 needs companion 0.5.0 for the new map and the travellings; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+## Mod 10 / companion 0.4.0 - 9 October 2026
+
+Revision 10 + companion program 0.4.0 (9 October 2026): camera travelling, line tour, music, savegame backups. The dashboard can now fly the camera: smooth movements around a saved view (orbit, dolly, flyover, sweep, spiral), the chain of all your views, and a line tour - one flight over a line, its stops and where its vehicles are at that moment, with a gentle pan over each. Drop your own music files in the companion's music folder and they play with the travellings (on your screen, not in the game). Also: per-savegame backups and restore of the database and camera views, resizable table columns, transported-per-year and service-quality columns on the Lines tab, partial Chinese UI. The camera commands need Permit game control switched On in the mod settings (off by default); the mod never buys, sells or demolishes anything. Revision 10 needs companion 0.4.0 for the travelling buttons; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+## Mod 9 / companion 0.3.2 - 8 October 2026
+
+Revision 9 + companion program 0.3.2 (8 October 2026): required after the game's stability update (build 40420). Since that update the game only lets mods write to a few of its userdata folders, and the export folder this mod used until revision 8 (dashboard_export) is no longer one of them: the mod ran but nothing was written, the dashboard stayed empty. Revision 9 writes to userdata/towns_industries/tf3dash_*.lua instead, a folder the game allows; the files carry a prefix so they never mix with your own town/industry exports. Companion 0.3.2 reads the new location (and still understands the old one). Both are needed: update the mod here, download the companion from GitHub, reload your savegame. Nothing else changes; your history is kept.
+
+## Mod 8 / companion 0.3.1 - October 2026
+
+Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); Português (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+## Earlier
+
+- 0.4.1 (mod 10): fixes after 0.4.0.
+- 0.3.0 (mod 7): camera views, current camera drawn on the map.
+- 0.2.0 - 0.2.7 (mod 6): remote control, stop editor, Epic/GOG support, empty-database checklist, readable console, embedded Python fixes.
+- 0.1.0 - 0.1.1: first exports, collector, dashboard.
+
+Every version is a git tag <version> with a GitHub release.

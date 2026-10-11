@@ -656,7 +656,9 @@ table.journal tr.carrier td:first-child { background: var(--panel2); }
 table.journal td { padding: 5px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 table.journal td:first-child { color: var(--text); }
 table.journal tr.carrier td { cursor: pointer; background: var(--panel2); }
-table.journal tr.carrier td:first-child { display: flex; align-items: center; gap: 8px; }
+/* the carrier label cell stays a table cell (display: flex on a td turns it into a block, which breaks position: sticky
+   and let the carrier rows scroll away under the figures); the flex row lives in a wrapper span instead */
+table.journal tr.carrier td:first-child > .cl { display: flex; align-items: center; gap: 8px; }
 table.journal tr.carrier.open td:first-child .chev { transform: rotate(90deg); }
 table.journal .chev { display: inline-block; width: 0; height: 0; border: 5px solid transparent; border-left: 6px solid var(--muted); border-right: 0; transition: transform .15s; }
 table.journal tr.carrier .ico { width: var(--isz, 18px); height: var(--isz, 18px); }

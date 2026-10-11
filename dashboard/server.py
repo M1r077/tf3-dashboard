@@ -842,7 +842,29 @@ def _geo_graph(edges: list, kind_test) -> dict:
         pos.setdefault(a, (e[0], e[1])); pos.setdefault(b, (e[2], e[3]))
         d = math.hypot(e[2] - e[0], e[3] - e[1])
         adj.setdefault(a, []).append((b, d, e)); adj.setdefault(b, []).append((a, d, e))
-    return {"adj": adj, "pos": pos, "nodes": list(pos.keys()), "edges": [e for e in edges if len(e) >= 5 and kind_test(e[4])]}
+    kept = [e for e in edges if len(e) >= 5 and kind_test(e[4])]
+    # connected components, once per geography: the ruler projects both ends on the SAME component. A real network
+    # has many islands (an industry's access road of 4 nodes, a depot siding, a town the player only reached by
+    # rail); projecting each end on whatever segment is nearest often lands on an island and says "not connected"
+    # while the main network runs 50 m further.
+    comp: dict = {}
+    cid = 0
+    for n in adj:
+        if n in comp:
+            continue
+        cid += 1
+        stack = [n]; comp[n] = cid
+        while stack:
+            u = stack.pop()
+            for v, _, _ in adj[u]:
+                if v not in comp:
+                    comp[v] = cid; stack.append(v)
+    by_comp: dict = {}
+    for e in kept:
+        c = comp.get(key(e[0], e[1]))
+        if c is not None:
+            by_comp.setdefault(c, []).append(e)
+    return {"adj": adj, "pos": pos, "nodes": list(pos.keys()), "edges": kept, "comp": comp, "by_comp": by_comp}
 
 
 def _nearest_node(gr: dict, x: float, y: float, limit: float = 400.0):
@@ -926,10 +948,10 @@ def api_distance(q: dict) -> dict:
     return out
 
 
-def _project(gr: dict, x: float, y: float):
-    """Nearest point of the network to (x, y): (edge, t in [0, 1], px, py, distance). Scans every segment (a few ms)."""
+def _project(edges: list, x: float, y: float):
+    """Nearest point of these segments to (x, y): (edge, t in [0, 1], px, py, distance). Scans every segment (a few ms)."""
     best = None
-    for e in gr["edges"]:
+    for e in edges:
         dx, dy = e[2] - e[0], e[3] - e[1]
         l2 = dx * dx + dy * dy
         tt = 0.0 if l2 == 0 else max(0.0, min(1.0, ((x - e[0]) * dx + (y - e[1]) * dy) / l2))
@@ -941,14 +963,42 @@ def _project(gr: dict, x: float, y: float):
 
 
 def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> dict | None:
-    """Shortest way over one network between two arbitrary map points: each point is projected on the nearest
-    segment (any distance), the search starts from both ends of that segment and may finish at either end of the
-    target segment. Returns the approach walks, the network length and the polyline, or None when not connected."""
+    """Shortest way over one network between two arbitrary map points. Both ends are projected on the SAME connected
+    component, chosen by the approach walks: the component that A and B reach with the least building (approach A +
+    approach B) is the one the ruler routes over. Not the cheapest total: with that, a 4-node access road near the
+    middle "wins" against the real network because two straight walks are shorter than the roads. Candidates within
+    1.5x the best approach sum are also routed and the shortest total among them is kept (a slightly farther
+    network with a direct way beats a nearer one that goes round). The answer is always a real way over some
+    component, its approach walks drawn dashed by the dashboard (= to build); the "gap" answer (build straight from
+    A to B) is kept only for the degenerate case where no component yields a route."""
     if not gr["edges"]:
         return None
-    pa, pb = _project(gr, ax, ay), _project(gr, bx, by)
-    if not pa or not pb:
-        return None
+    best_r = None
+    cands = []
+    for _, edges in gr["by_comp"].items():
+        pa, pb = _project(edges, ax, ay), _project(edges, bx, by)
+        if pa and pb:
+            cands.append((pa[4] + pb[4], edges, pa, pb))
+    cands.sort(key=lambda c: c[0])
+    air = math.hypot(bx - ax, by - ay)
+    for s, edges, pa, pb in cands:
+        if best_r is not None and s > cands[0][0] * 1.5:
+            break
+        r = _component_distance(gr, edges, pa, pb, ax, ay, bx, by)
+        if r and (best_r is None or r["total"] < best_r["total"]):
+            best_r = r
+    if best_r is None:
+        # no component holds both ends: the proposal is to build straight from A to B. Flagged "gap" so the
+        # dashboard shows the whole thing dashed.
+        return {"approach_a": 0.0, "network": 0.0, "approach_b": air, "total": air, "gap": True,
+                "points": [], "legs": [[[ax, ay], [bx, by]]]}
+    return best_r
+
+
+def _component_distance(gr: dict, edges: list, pa, pb, ax: float, ay: float, bx: float, by: float) -> dict | None:
+    """Shortest way within one connected component, given the two projections (see _project); the search starts
+    from both ends of the first segment and may finish at either end of the target segment. None when the search
+    fails (should not happen inside one component)."""
     def key(x, y):
         return (int(round(x / 5.0)), int(round(y / 5.0)))
     ea, ta, pax, pay, da = pa
@@ -976,18 +1026,13 @@ def _network_distance(gr: dict, ax: float, ay: float, bx: float, by: float) -> d
                 dist[m] = nd; prev[m] = (n, e); heapq.heappush(pq, (nd, m))
     pos = gr["pos"]
     if best is None:
-        # not connected: the proposal is to build straight from A to B (a stub of unrelated network near A or B is
-        # not a way, so none is drawn). Flagged "gap" so the dashboard shows the whole thing dashed.
-        air = math.hypot(bx - ax, by - ay)
-        return {"approach_a": 0.0, "network": 0.0, "approach_b": air, "total": air, "gap": True,
-                "points": [], "legs": [[[ax, ay], [bx, by]]]}
-    gap = False
+        return None
     nodes = [best_n]; n = best_n
     while n in prev:
         n = prev[n][0]; nodes.append(n)
     nodes.reverse()
-    pts = [[pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + ([[pbx, pby]] if not gap else [])
-    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "gap": gap,
+    pts = [[pax, pay]] + [[pos[n][0], pos[n][1]] for n in nodes] + [[pbx, pby]]
+    return {"approach_a": da, "network": best, "approach_b": db, "total": da + best + db, "gap": False,
             "points": pts, "legs": [[[ax, ay], [pax, pay]], [[pbx, pby], [bx, by]]]}
 
 

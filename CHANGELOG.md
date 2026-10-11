@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+Ruler: the road and rail proposals no longer disappear into "not linked: build straight" when both points are in towns the network does join. A network is many islands (an industry's access road, a depot siding, a town only reached by rail); each end used to be projected on whatever segment was nearest, often such an island. Both ends are now projected on the same connected piece of network, the one they reach with the least building, and the route is drawn over it.
+
 ## Revision 15 + companion 0.7.0 - 11 October 2026
 
 Revision 15 + companion program 0.7.0 (11 October 2026): what is waiting at a station, by cargo. The station detail now lists what waits there - passengers, coal, goods... - with the count and, in red, how many have waited too long, the game's own quality figures (`getCargoQualityDataAtStation`) read for the cargos of the lines serving the station only, so the export costs the game a few milliseconds per cycle. Detail panels get icons: the capacity of a station splits into platforms and storage with the game's icons, overflow and workers rows too. Finances journal: the carrier rows (Road, Rail, Water...) no longer scroll away under the figures in Firefox (reported by violetV-). And three nets so a database problem can no longer go unnoticed (below). Revision 15 needs companion 0.7.0 for the waiting-by-cargo list; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest

@@ -4,6 +4,12 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased
 
+Stations table: the waiting column shows the per-cargo chips of the detail instead of the bare total.
+
+What a freight station can load (mod rev 16 + companion): in TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0. The mod now exports the stock lists in each station's catchment area; the table shows "can load" chips (cargo icon + amount in the piles) and the detail lists each industry in reach with its piles and a link. Passenger stations get a grey "in transit" chip when the station counts more people than wait (boarding, moving between platforms). Freight stations no longer show a 0 waiting, a dash occupancy or a 0 overflow: the game has no such notions for them.
+
+Map: a "views" toggle hides the saved camera pins and the travelling track. Cargo layers: steeper dimming ramp (grey = nothing happens yet, full = need met / production at its maximum; a need served at a third stays close to grey). Camera views, travellings and workshop keep their scroll across refreshes when the card is sized smaller than its content.
+
 Ruler: the road and rail proposals no longer disappear into "not linked: build straight" when both points are in towns the network does join. A network is many islands (an industry's access road, a depot siding, a town only reached by rail); each end used to be projected on whatever segment was nearest, often such an island. Both ends are now projected on the same connected piece of network, the one they reach with the least building, and the route is drawn over it.
 
 ## Revision 15 + companion 0.7.0 - 11 October 2026

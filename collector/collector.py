@@ -176,6 +176,7 @@ class Store:
         ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per game day
         ("industry_state", "boosters", "TEXT"),  # 0.6.1 added it to the schema but not here: pre-0.6.1 databases lost every slow cycle since
         ("station_state", "waiting", "TEXT"),  # JSON [{cargo_type, cargo, total, bad}] what waits at the station (mod rev 15+)
+        ("station", "catch", "TEXT"),  # JSON [{entity, stock_list}] stock lists in the station's catchment area (mod rev 16+)
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -669,12 +670,17 @@ class Store:
             if not isinstance(s, dict) or s.get("id") is None:
                 continue
             x, y, _z = xyz(s.get("pos"))
+            # catchables (mod rev 16+): stock lists the station can load from; changes only when something is built, so
+            # it lives on the station row, not in the per-cycle state. Kept as-is when an older mod does not send it.
+            catch = [x for x in as_list(s.get("catch")) if isinstance(x, dict) and x.get("stock_list") is not None]
             self.con.execute(
-                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, is_pax, x, y)
-                   VALUES (?,?,?,?,?,?,?,?,?)
+                """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, is_pax, x, y, catch)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
-                   is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y""",
-                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y),
+                   is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y,
+                   catch=COALESCE(excluded.catch, station.catch)""",
+                (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y,
+                 json.dumps([{"entity": x.get("entity"), "stock_list": x["stock_list"]} for x in catch], separators=(",", ":")) if "catch" in s else None),
             )
             waiting = as_list(s.get("waiting"))
             self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines, waiting) VALUES (?,?,?,?,?,?,?,?)",

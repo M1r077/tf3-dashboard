@@ -379,6 +379,11 @@
     }));
   }
   function keepScroll(el, top) { if (!top) return; el.scrollTop = top; requestAnimationFrame(() => { el.scrollTop = top; }); }
+  // panels rebuilt with innerHTML on every refresh (camera views, travellings, workshop) scroll inside a child
+  // (.cv-list, .cv-travel) when the card is sized smaller than its content: remember those offsets before the
+  // rebuild and put them back after, so a refresh does not send the user back to the top
+  const scrollSnapshot = (box) => [...box.querySelectorAll(".cv-list, .cv-travel")].map(el => el.scrollTop);
+  const scrollRestore = (box, tops) => { [...box.querySelectorAll(".cv-list, .cv-travel")].forEach((el, i) => keepScroll(el, tops[i])); };
 
   // ------------------------------------------------------------ tabs
   const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
@@ -1270,11 +1275,14 @@
       { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
       { key: "is_cargo", label: t("th_type"), render: x => { const k = stKind(x); return (k.pax ? `<span class="chip info">${t("pax")}</span>` : "") + (k.cargo ? `<span class="chip">${t("cargo")}</span>` : ""); } },
-      // waiting: one chip per cargo with its count, red when some have waited too long (mod rev 15+); older mods, or a
-      // station where nothing waits, show the plain total. Sorted on the total either way.
-      { key: "used", label: t("th_waiting"), num: true, render: x => { const chips = stationWaitingChips(x); return chips && chips.length ? `<span class="wchips">${chips.join("")}</span>` : int(x.used); } },
-      { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : "–"; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
-      { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
+      // waiting: pax chips (red when some waited too long), grey in-transit chip, and for freight the piles the station
+      // can load from (mod rev 16+). Nothing when there is nothing to show (a freight station has no waiting in TF3);
+      // the plain total only for an older mod that does not send the breakdown. Sorted on the total.
+      { key: "used", label: t("th_waiting"), num: true, render: x => { const chips = stationWaitingChips(x); return chips.length ? `<span class="wchips">${chips.join("")}</span>` : (Array.isArray(x.waiting) || Array.isArray(x.catch)) ? "" : int(x.used); } },
+      // occupancy and overflow are passenger notions (platform + waiting hall capacity); a freight station has no
+      // capacity at all in TF3, so its cells stay empty rather than showing a meaningless dash or 0
+      { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : ""; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
+      { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : ((x.terminal_capacity || 0) + (x.pool_capacity || 0) ? "0" : "") },
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
     ], stations, { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
@@ -1294,16 +1302,46 @@
   // calling at the station. Game figures only, as in the station window.
   // what waits at the station, per cargo (mod rev 15+): icon + count, red when some have waited too long; the game's
   // station window figures. Older mod: no row at all rather than a wrong one.
+  // In TF3 only passengers wait at a station; freight sits in the piles of the industries and warehouses in the
+  // catchment area until a vehicle calls. So "waiting" has two faces here:
+  //   - pax: the game's quality figures (mod rev 15+), red when some have waited too long, plus a grey "in transit"
+  //     chip when the station counts more items than wait (boarding, transferring between platforms);
+  //   - freight: the output piles the station can load from (mod rev 16+), one chip per cargo, summed over the
+  //     catchable industries, with the amount / capacity in the tooltip.
+  // Nothing at all when the mod does not say, rather than a misleading 0.
   const stationWaitingChips = (st) => {
-    const w = st.waiting; if (!Array.isArray(w)) return null;
     const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
-    return w.slice().sort((a, b) => b.total - a.total).map(x => {
-      const c = ctById.get(x.cargo_type), name = c ? c.name : x.cargo;
-      return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(cargoName(name || "?"))}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: name, cargo_key: c && c.key })}${x.total}</span>`; });
+    const chips = [];
+    if (Array.isArray(st.waiting)) {
+      let sum = 0;
+      st.waiting.slice().sort((a, b) => b.total - a.total).forEach(x => {
+        const c = ctById.get(x.cargo_type), name = c ? c.name : x.cargo; sum += x.total || 0;
+        chips.push(`<span class="chip ${x.bad ? "bad" : ""}" title="${esc(cargoName(name || "?"))}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: name, cargo_key: c && c.key })}${x.total}</span>`); });
+      const transit = (st.used || 0) - sum;
+      if (transit > 0) chips.push(`<span class="chip muted" title="${esc(t("st_transit_tip"))}">${ico("load_available", "sm")}${transit}</span>`);
+    }
+    if (Array.isArray(st.catch)) {
+      const per = new Map();  // cargo id -> {amount, capacity}
+      st.catch.forEach(c => (c.stock || []).forEach(p => { const a = per.get(p.cargo) || { amount: 0, capacity: 0 }; a.amount += p.amount || 0; a.capacity += p.capacity || 0; per.set(p.cargo, a); }));
+      // empty piles are left out: the table says what can be loaded now, the detail lists every pile per industry
+      [...per.entries()].filter(([, a]) => a.amount > 0).sort((a, b) => b[1].amount - a[1].amount).forEach(([cid, a]) => {
+        const c = ctById.get(cid), name = c ? c.name : String(cid);
+        chips.push(`<span class="chip" title="${esc(cargoName(name))}: ${a.amount} / ${a.capacity} ${esc(t("st_pile_tip"))}">${cargoIcon({ cargo: name, cargo_key: c && c.key })}${a.amount}</span>`); });
+    }
+    return chips;
   };
-  const stationWaitingRow = (st) => {
-    const chips = stationWaitingChips(st); if (!chips) return "";
-    return `<tr><td>${t("st_waiting_by_cargo")}</td><td>${chips.join(" ") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`;
+  // detail rows: the pax chips, then one row per catchable industry with its piles (a link opens the industry)
+  const stationWaitingRows = (st) => {
+    let h = "";
+    if (Array.isArray(st.waiting)) { const chips = stationWaitingChips({ ...st, catch: null }); h += `<tr><td>${t("st_waiting_by_cargo")}</td><td>${chips.join(" ") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`; }
+    if (Array.isArray(st.catch)) {
+      const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
+      const rows = st.catch.filter(c => c.name).map(c => {
+        const piles = (c.stock || []).map(p => { const ct = ctById.get(p.cargo), name = ct ? ct.name : String(p.cargo); return `<span class="chip" title="${esc(cargoName(name))}: ${p.amount} / ${p.capacity}">${cargoIcon({ cargo: name, cargo_key: ct && ct.key })}${p.amount}</span>`; });
+        return `<div class="catchrow"><button class="btn iconbtn goto" data-ind="${esc(c.name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button>${esc(c.name)} ${piles.join(" ")}</div>`; });
+      h += `<tr><td>${t("st_catch")}</td><td>${rows.join("") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`;
+    }
+    return h;
   };
   async function renderStationDetail(id) {
     const st = (state.cache.stations || []).find(x => x.station_id === id); if (!st) return;
@@ -1313,15 +1351,16 @@
     const el = $("#st-detail"), top = el.scrollTop;
     el.innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
-      <table class="kv"><tr><td>${stKind(st).icons("sm")}${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
-        ${stationWaitingRow(st)}
-        <tr><td>${t("st_capacity_split")}</td><td>${ico("terminal", "sm")}${int(st.terminal_capacity)} <span class="muted">${t("st_platforms")}</span> &nbsp;+&nbsp; ${ico("station_pool", "sm")}${int(st.pool_capacity)} <span class="muted">${t("st_storage")}</span></td></tr>
-        <tr><td>${ico("terminal_full", "sm")}${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
+      <table class="kv">${cap || st.used ? `<tr><td>${stKind(st).icons("sm")}${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>` : ""}
+        ${stationWaitingRows(st)}
+        ${cap ? `<tr><td>${t("st_capacity_split")}</td><td>${ico("terminal", "sm")}${int(st.terminal_capacity)} <span class="muted">${t("st_platforms")}</span> &nbsp;+&nbsp; ${ico("station_pool", "sm")}${int(st.pool_capacity)} <span class="muted">${t("st_storage")}</span></td></tr>
+        <tr><td>${ico("terminal_full", "sm")}${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>` : ""}
         <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>
       <h2 data-sec="lines">${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}
       <h2 data-sec="hist" style="margin-top:12px">${ico("terminal_full")}${t("st_waiting_history")}</h2><canvas id="chart-st-1" data-h="170"></canvas>`;
     bindActions(el); sectionize(el);  // bindActions also binds the .goto[data-line] rows
+    $$("button.goto[data-ind]", el).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); $("#ind-filter").value = b.dataset.ind; showTab("industries"); }));
     Charts.lineChart($("#chart-st-1"), [
       { name: t("th_waiting"), values: hist.map(x => x.used), color: "#4f8a8a", area: true },
       { name: t("th_capacity"), values: hist.map(x => (x.terminal_capacity || 0) + (x.pool_capacity || 0) || null), color: "#8b98a8", dash: [4, 4] },
@@ -1558,6 +1597,7 @@
       </span></div>`;
     // the travelling settings and buttons live in their own panel (renderTravellings); the views' tools only
     // hand a draft over to it
+    const tops = scrollSnapshot(box);
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
@@ -1581,6 +1621,7 @@
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: v.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) editViews({ action: "delete", id }); }
       }));
     });
+    scrollRestore(box, tops);
   }
 
 
@@ -1659,6 +1700,7 @@
     // subject: a view (number + name), the chain of views, the line handed over by a line sheet (kept in the draft)
     const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat(tp.kind === "line" || trv.line ? ["line"] : []);
     const viewPick = tp.kind === "view" ? `<span class="seg wrap" data-tset="view">${camViews.list.map((v, i) => `<button data-v="${v.id}" class="${v.id === tp.view ? "active" : ""}" title="${esc(v.name)}"><b>${i + 1}</b> ${esc(v.name.length > 12 ? v.name.slice(0, 11) + "…" : v.name)}</button>`).join("")}</span>` : "";
+    const tops = scrollSnapshot(box);
     box.innerHTML = cmdHint() + `<div class="cv-travel ${editing ? "editing" : ""}">
         <div class="tr-row tr-head">${editing ? `<button class="lbl tr-name" data-trename title="${esc(t("cam_rename"))}">${ico("ct_edit", "sm")}${esc(editing.name)}</button>` : `<span class="lbl">${t("trv_draft")}</span>`}
           ${seg("kind", kinds, tp.kind, k => `<span title="${esc(t("trv_kind_" + k))}">${ico(KIND_ICO[k], "sm")}</span>`)}
@@ -1722,6 +1764,7 @@
       $("[data-ttail]", row).addEventListener("click", () => apply("tail", !tp.tail));
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; if (!editing) saveTravelPrefs(specOf(tp)); if (music.el) music.el.volume = tp.vol; });
     });
+    scrollRestore(box, tops);
   }
   function bindPlayer(box, tp) {
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", async () => {
@@ -1746,6 +1789,7 @@
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>${ico("ct_down", "sm")}</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">${ico("ct_trash", "sm")}</button>
       </span></div>`;
+    const tops = scrollSnapshot(box);
     box.innerHTML = cmdHint() + (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`);
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, s = trv.list.find(x => x.id === id); if (!s) return;
@@ -1758,6 +1802,7 @@
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: s.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) { if (trv.editing === id) trv.editing = null; editTravellings({ action: "delete", id }); } }
       }));
     });
+    scrollRestore(box, tops);
   }
 
   // ------------------------------------------------------------ savegames & backups (settings panel)
@@ -2237,7 +2282,9 @@
     const k = isz();
     const fixed = () => 16 * k;
     const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
-    const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
+    // grey where nothing happens yet, full when the need is met (or production runs at its maximum); squared so a
+    // first third of the way still reads as "far from done" (0 -> .2, 30 % -> .27, 60 % -> .49, 100 % -> 1)
+    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return 0.2 + 0.8 * r * r; };
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
     const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
@@ -2436,14 +2483,16 @@
     // selected movement when idle. The current camera itself is the view cone drawn just below.
     // preview = the draft of the travellings panel when it is a movement around a view (dotted eye track)
     const tv = travel.active || (trv.draft && trv.draft.kind === "view" && camViews.list.find(v => v.id === trv.draft.view) ? (() => { const tp = { ...TRAVEL_DEFAULTS, ...trv.draft }, v = liveView(camViews.list.find(x => x.id === tp.view)); return v ? { points: TRAVEL_MOVES[tp.move](v, tp), preview: true } : null; })() : null);
-    if (tv && tv.points.length > 1) {
+    if (tv && tv.points.length > 1 && $("#map-views").checked) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
       tv.points.forEach((pt, i) => { const a = CAM_ANGLE_SIGN * pt.angle + CAM_ANGLE_OFFSET, back = pt.dist * Math.cos(Math.abs(pt.pitch)); const ex = pt.x + Math.sin(a) * back, ey = pt.y - Math.cos(a) * back; const [x, y] = P(ex, ey); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
       ctx.stroke(); ctx.restore();
     }
+    // the "views" toggle hides the saved pins and the travelling track; the live camera cone stays (it is the
+    // player's position, not a saved view)
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : ink);
-    camViews.list.forEach((v0, i) => {
+    if ($("#map-views").checked) camViews.list.forEach((v0, i) => {
       const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
       const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
       drawIcon(ctx, "star", x, y - 17 * k, 20 * k, "#e8b04b");
@@ -2462,7 +2511,7 @@
     // what a vehicle carries right now, icon + amount per cargo (same layout as the owner tooltips)
     const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
-    camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
+    if ($("#map-views").checked) camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)

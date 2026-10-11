@@ -132,6 +132,15 @@ Three independent parts:
      stations x cargo types (67 x 14 = 938 on the reference save). Stored as JSON in station_state.waiting; the
      station detail shows it as icon chips, red when some items have waited too long. calculateStationUsage keeps
      giving the single total (`used`) and the capacities.
+     In TF3 only passengers wait at a station: the getCargoQualityDataAt* family is documented "persons waiting" and
+     the game never calls it with another cargo type; freight-only stations have used = 0 and capacity 0 for ever (202
+     cycles on the reference save). Freight sits in the piles of the industries and warehouses in the station's catchment
+     area until a vehicle calls. So (mod rev 16+) each station also carries `catch` = the stock lists in reach
+     (catchmentAreaSystem.getStationCatchables(station, true), a cached lookup, one per station), stored once on
+     station.catch since it only changes when something is built. The server joins it to the industries' output piles
+     (`/api/stations` catch[].stock) and the dashboard shows "Can load" chips in the table and one row per industry in
+     the detail. When `used` exceeds the sum of waiting passengers the difference is shown as a grey "in transit" chip
+     (boarding, or moving between platforms).
      Full catalogue of what the API allows (done / doable / risky / impossible): docs/API_CATALOGUE.md.
 
 2. **Collector `collector\collector.py`** (Python, stdlib only): watches `live.lua`, parses it (`luatable.py`, own Lua

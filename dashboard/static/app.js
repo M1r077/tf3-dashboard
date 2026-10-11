@@ -1207,7 +1207,7 @@
     if (!bl || !bl.length) return "";
     return `<h2>${ico("booster")}${t("boosters")}</h2><table class="kv boosters">${bl.map(b => {
       const tick = b.active ? `<span class="chip ok">${ico("check", "sm")}${t("boost_active")}</span>` : `<span class="chip">${t("boost_inactive")}</span>`;
-      if (b.kind === "workers") return `<tr><td>${ico("town_workplaces", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num ${b.active ? "pos" : "muted"}">${b.potential != null ? boostPct(b.potential) : (b.active ? boostPct(b.factor) : "")}</td><td>${tick}</td></tr>`;
+      if (b.kind === "workers") return `<tr><td>${ico("passengers", "sm")}${t("boost_workers")}</td><td>${bar(b.workers || 0, b.need || 0, b.active ? "ok" : "", `${int(b.workers)}/${int(b.need)}`)} <small class="muted">${t("boost_workers_hint", { c: int(b.capacity) })}</small></td><td class="num ${b.active ? "pos" : "muted"}">${b.potential != null ? boostPct(b.potential) : (b.active ? boostPct(b.factor) : "")}</td><td>${tick}</td></tr>`;
       return `<tr><td>${(b.needs || []).map(n => cargoChip(n)).join(" ")}</td><td>${(b.needs || []).map(n => bar(n.have || 0, n.need || 0, (n.have || 0) >= (n.need || 0) ? "ok" : "", `${int(n.have)}/${int(n.need)}`)).join("<br>")}</td><td class="num ${b.active ? "pos" : "muted"}">${boostPct(b.factor)}</td><td>${tick}</td></tr>`;
     }).join("")}</table>`;
   }
@@ -1297,9 +1297,9 @@
     const el = $("#st-detail"), top = el.scrollTop;
     el.innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
-      <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
-        <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
-        <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
+      <table class="kv"><tr><td>${stKind(st).icons("sm")}${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
+        <tr><td>${t("st_capacity_split")}</td><td>${ico("terminal", "sm")}${int(st.terminal_capacity)} <span class="muted">${t("st_platforms")}</span> &nbsp;+&nbsp; ${ico("station_pool", "sm")}${int(st.pool_capacity)} <span class="muted">${t("st_storage")}</span></td></tr>
+        <tr><td>${ico("terminal_full", "sm")}${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
         <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>
       <h2 data-sec="lines">${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}

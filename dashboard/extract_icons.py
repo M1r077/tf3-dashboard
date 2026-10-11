@@ -215,6 +215,7 @@ ICONS: dict[str, tuple[str, str]] = {
     "person": (GUI, "gui/line_vehicle_mgmt/icons/symbol_person@2x.tga"),
     "unhappy": (GUI, "gui/entity_window/icons/unhappy_passenger@2x.tga"),
     "terminal_full": (GUI, "gui/entity_window/icons/terminal_full@2x.tga"),
+    "station_pool": (GUI, "gui/entity_window/icons/station_pool@2x.tga"),
     "wrench": (GUI, "gui/line_vehicle_mgmt/icons/symbol_wrench@2x.tga"),
     "maintenance": (GUI, "gui/line_vehicle_mgmt/icons/maintenance_costs@2x.tga"),
     "money": (GUI, "gui/construction/menu/symbol_coin_stack@2x.tga"),

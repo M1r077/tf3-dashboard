@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Revision 15 + companion 0.7.0 - 11 October 2026
+
+Revision 15 + companion program 0.7.0 (11 October 2026): what is waiting at a station, by cargo. The station detail now lists what waits there - passengers, coal, goods... - with the count and, in red, how many have waited too long, the game's own quality figures (`getCargoQualityDataAtStation`) read for the cargos of the lines serving the station only, so the export costs the game a few milliseconds per cycle. Detail panels get icons: the capacity of a station splits into platforms and storage with the game's icons, overflow and workers rows too. Finances journal: the carrier rows (Road, Rail, Water...) no longer scroll away under the figures in Firefox (reported by violetV-). And three nets so a database problem can no longer go unnoticed (below). Revision 15 needs companion 0.7.0 for the waiting-by-cargo list; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 After the 0.6.1-0.6.4 silent failure, three nets so a database problem can no longer go unnoticed: the collector adds at start-up any column `schema.sql` declares and the database lacks (and says so), instead of failing on every insert; `test\migrate_check.py` opens old databases with the current code, ingests a recorded export and fails the release build when a table stays empty or a migration is missing; and while `db\collector_errors.log` has been written in the last 24 h, the collector says so at start-up and the dashboard shows a red bar with the count, the time of the last failure and the file path.
 

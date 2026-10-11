@@ -192,6 +192,7 @@ class Store:
             cols = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
                 self.con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+        self.added_columns = self._sync_columns()
         v = self.con.execute("PRAGMA user_version").fetchone()[0]
         if v < 1:
             # mod schema 1 exported line capacities with cargo ids off by one (+1): the engine returns a
@@ -221,6 +222,40 @@ class Store:
             self.con.execute("PRAGMA user_version = 4")
             self.con.commit()
         self.con.commit()  # space freed by a migration is reclaimed by compact() on its next pass
+
+    @staticmethod
+    def schema_columns(sql: str | None = None) -> dict[str, dict[str, str]]:
+        """{table: {column: declared type}} read from schema.sql. Uses an in-memory database so SQLite does the
+        parsing: what CREATE TABLE declares is exactly what PRAGMA table_info reports."""
+        mem = sqlite3.connect(":memory:")
+        mem.executescript(sql if sql is not None else SCHEMA_SQL.read_text(encoding="utf-8"))
+        out = {}
+        for (name,) in mem.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+            out[name] = {r[1]: r[2] for r in mem.execute(f"PRAGMA table_info({name})")}
+        mem.close()
+        return out
+
+    def _sync_columns(self) -> list[tuple[str, str]]:
+        """Safety net behind MIGRATIONS: any column that schema.sql declares and the database lacks is added
+        (ALTER TABLE ADD COLUMN, nullable). 0.6.1 added industry_state.boosters to the schema and forgot the
+        migration: on older databases every slow insert failed for three releases. With this, a forgotten entry
+        costs a console line instead of the history. Returns what was added."""
+        added = []
+        for table, want in self.schema_columns().items():
+            have = {r["name"] for r in self.con.execute(f"PRAGMA table_info({table})")}
+            if not have:
+                continue  # the table itself is created by the CREATE TABLE IF NOT EXISTS above
+            for col, typ in want.items():
+                if col not in have:
+                    try:
+                        self.con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ or ''}".rstrip())
+                    except sqlite3.OperationalError as e:
+                        # NOT NULL without default, or a key column: cannot be added in place. Better to stop here
+                        # with the reason than to fail on every insert
+                        raise RuntimeError(f"database {self.db_path} lacks {table}.{col} and it cannot be added ({e}): "
+                                           f"a migration is missing in collector.py") from e
+                    added.append((table, col))
+        return added
 
     # (table, column) pairs removed by the 0.6.1 audit; dropped from databases created before it
     DROPPED = (
@@ -1151,6 +1186,11 @@ def main(argv: list[str] | None = None) -> int:
         console.banner(f"TF3 Dashboard collector {VERSION}", f"database: {args.db}")
     for w in tf3paths.sync_warning(args.db):
         say(w, "warn")
+    if store.added_columns:
+        say("database upgraded: added " + ", ".join(f"{t}.{c}" for t, c in store.added_columns), "ok")
+    if ERROR_LOG.exists() and time.time() - ERROR_LOG.stat().st_mtime < 86400:
+        say(f"{ERROR_LOG.name} was written in the last 24 h ({ERROR_LOG.stat().st_size // 1024} KB): something failed, "
+            f"have a look (or delete the file if the cause is fixed)", "warn")
     # the game does not always create the export folder itself (saveUserdata then fails with "directory not
     # available"): make sure it exists wherever the game may write
     for d in tf3paths.ensure_export_dir(args.live.parent if args.live else None):

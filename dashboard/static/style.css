@@ -517,6 +517,9 @@ table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertic
 .offlinebar { display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 12px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-bottom: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border)); }
 .offlinebar .ico { color: var(--warn); }
 .offlinebar .btn.sm { margin-left: auto; }
+.errorsbar { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-bottom-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
+.errorsbar .ico { color: var(--bad); }
+.errorsbar code { font-size: 11px; opacity: .85; }
 body.offline #k-date { color: var(--warn); }
 /* stacked gauges in a cell (quality pax + cargo, one gauge per cargo type): one compact row each, shorter bars */
 .qstack { display: inline-flex; flex-direction: column; gap: 2px; vertical-align: middle; }

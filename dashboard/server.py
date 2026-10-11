@@ -235,6 +235,7 @@ def api_overview(q: dict) -> dict:
             "game": game, "balance_prev": prev, "lang": (game or {}).get("lang"), "version": VERSION, "camera": camera,
             "live": {"fresh": live["fresh"], "age_s": live["age_s"], "offline": offline, "selected": _selected_game["gid"] is not None,
                      "has_other": (one("SELECT COUNT(*) n FROM game") or {}).get("n", 0) > 1},
+            "collector_errors": _collector_errors(),
             "commands": {"enabled": not CMD_DISABLED, "accepted": 0 if offline else snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
@@ -1731,6 +1732,43 @@ def forget_game(body: dict) -> dict:
         _selected_game["gid"] = None  # whatever was shown, fall back to the latest
     console.say(f"save {key} queued for deletion: the collector removes it within seconds", "warn")
     return {"queued": True}
+
+
+_errlog_cache: dict = {"at": 0.0, "value": None}
+
+
+def _collector_errors() -> dict | None:
+    """db/collector_errors.log written in the last 24 h: {count, age_s, path}, else None. The collector appends one
+    traceback per failed ingest; 0.6.1-0.6.3 filled it for three releases without anyone looking. Checked at most
+    every 10 s (a stat, plus a count of 'ingest failed' lines only when the file changed)."""
+    now = time.time()
+    if now - _errlog_cache["at"] < 10:
+        return _errlog_cache["value"]
+    _errlog_cache["at"] = now
+    path = DB_PATH.parent / "collector_errors.log"
+    try:
+        st = path.stat()
+    except OSError:
+        _errlog_cache["value"] = None
+        return None
+    age = now - st.st_mtime
+    if age > 86400 or st.st_size == 0:
+        _errlog_cache["value"] = None
+        return None
+    prev = _errlog_cache.get("sig")
+    if prev != (st.st_mtime, st.st_size):
+        n = 0
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("===== "):  # one header per failed ingest (collector.py)
+                        n += 1
+        except OSError:
+            n = 0
+        _errlog_cache["sig"] = (st.st_mtime, st.st_size)
+        _errlog_cache["count"] = n
+    _errlog_cache["value"] = {"count": _errlog_cache.get("count", 0), "age_s": int(age), "path": str(path)}
+    return _errlog_cache["value"]
 
 
 def _db_size() -> dict:

@@ -9,6 +9,12 @@ for /f "tokens=1 delims=# " %%v in ("%VERSION%") do set VERSION=%%v
 set VERSION=%VERSION:"=%
 if "%VERSION%"=="" (echo could not read VERSION from dashboard\server.py & exit /b 1)
 echo [build] version %VERSION%
+
+REM checks first: translations complete, and old databases still migrate and ingest (0.6.1 shipped without that)
+call "%~dp0_python.cmd" || exit /b 1
+echo [build] checks
+node test\i18ncheck.js || (echo [build] i18n check failed & exit /b 1)
+%PY% test\migrate_check.py || (echo [build] migration check failed: no release & exit /b 1)
 set PYVER=3.12.10
 set PYZIP=python-%PYVER%-embed-amd64.zip
 set PYURL=https://www.python.org/ftp/python/%PYVER%/%PYZIP%

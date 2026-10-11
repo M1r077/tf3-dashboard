@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+After the 0.6.1-0.6.4 silent failure, three nets so a database problem can no longer go unnoticed: the collector adds at start-up any column `schema.sql` declares and the database lacks (and says so), instead of failing on every insert; `test\migrate_check.py` opens old databases with the current code, ingests a recorded export and fails the release build when a table stays empty or a migration is missing; and while `db\collector_errors.log` has been written in the last 24 h, the collector says so at start-up and the dashboard shows a red bar with the count, the time of the last failure and the file path.
+
 ## Companion 0.6.4 - 11 October 2026 (mod 14 unchanged)
 
 Collector fix, important for anyone whose database was created before 0.6.1: the `boosters` column added then was missing from the migrations, so on such a database every slow cycle failed (lines, towns, stations, industries, depots were not recorded since 0.6.1 - the live part kept working, which hid it; `db/collector_errors.log` shows "table industry_state has 10 columns but 11 values were supplied"). The column is now added on start-up and every insert names its columns. Forget a save: deleted everything referencing the save (geo, finance journal, line paths were missed and the deletion failed on a foreign key; errors are now reported in the collector console).

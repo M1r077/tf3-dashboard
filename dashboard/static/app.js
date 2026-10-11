@@ -168,6 +168,20 @@
   const dateLabel = (s) => !(s && s.month) ? "" : i18n.dict._ymd ? `${s.year}年${s.month}月${s.day ? s.day + "日" : ""}` : `${s.day ? s.day + " " : ""}${MON()[s.month]} ${s.year}`;
   const headway = (sec) => sec == null ? "–" : sec >= 3600 ? (sec / 3600).toFixed(1) + " h" : sec >= 60 ? Math.round(sec / 60) + " min" : Math.round(sec) + " s";
   const rgb = (r, g, b) => (r == null) ? "#8b98a8" : `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`;
+// the line colour lifted to a readable brightness for a small icon on the dark map: dark navy / forest green lines
+// (common for road and tram lines) kept their hue but vanished against the black disc. The colour is mixed towards
+// white until its perceived luminance (Rec. 709 weights: blue counts for 7 %, green for 72 %, so a pure blue needs
+// much more lift than a green) reaches `minY`; bright colours are left alone. Map only - swatches and tables keep
+// the game's exact colour.
+const rgbLit = (r, g, b, minY = 0.42) => {
+  if (r == null) return "#8b98a8";
+  const lum = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const y = lum(r, g, b);
+  if (y >= minY) return rgb(r, g, b);
+  // mixing towards white moves luminance linearly: y' = y + t (1 - y)  =>  t = (minY - y) / (1 - y)
+  const t = (minY - y) / (1 - y);
+  return rgb(r + t * (1 - r), g + t * (1 - g), b + t * (1 - b));
+};
   const ago = (iso) => { if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000; if (d < 90) return Math.round(d) + " s"; if (d < 5400) return Math.round(d / 60) + " min"; if (d < 172800) return (d / 3600).toFixed(1) + " h"; return Math.round(d / 86400) + " d"; };
   const bar = (v, max, cls = "", txt) => { const p = max ? Math.min(100, 100 * v / max) : 0; return `<span class="bar ${cls}"><i style="width:${p}%"></i></span> <span class="mono">${txt != null ? txt : Math.round(p) + "%"}</span>`; };
   const barQuality = (bad, total) => { if (!total) return '<span class="muted">–</span>'; const p = pct(bad, total); const cls = p > 30 ? "bad" : p > 10 ? "warn" : "ok"; return `<span class="bar ${cls}"><i style="width:${p}%"></i></span> <span class="mono">${p.toFixed(0)}% (${bad}/${total})</span>`; };
@@ -2469,7 +2483,7 @@
     drawCargoLayers(ctx, d);
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
-      if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgb(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
+      if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgbLit(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
         ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12 * k, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();

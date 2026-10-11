@@ -2,6 +2,12 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+Stations table: the waiting column shows the per-cargo chips of the detail instead of the bare total.
+
+What a freight station can load (mod rev 16 + companion): in TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0. The mod now exports the stock lists in each station's catchment area; the table shows "can load" chips (cargo icon + amount in the piles) and the detail lists each industry in reach with its piles and a link. Passenger stations get a grey "in transit" chip when the station counts more people than wait (boarding, moving between platforms). Freight stations no longer show a 0 waiting, a dash occupancy or a 0 overflow: the game has no such notions for them.
+
 ## Revision 15 + companion 0.7.0 - 11 October 2026
 
 Revision 15 + companion program 0.7.0 (11 October 2026): what is waiting at a station, by cargo. The station detail now lists what waits there - passengers, coal, goods... - with the count and, in red, how many have waited too long, the game's own quality figures (`getCargoQualityDataAtStation`) read for the cargos of the lines serving the station only, so the export costs the game a few milliseconds per cycle. Detail panels get icons: the capacity of a station splits into platforms and storage with the game's icons, overflow and workers rows too. Finances journal: the carrier rows (Road, Rail, Water...) no longer scroll away under the figures in Firefox (reported by violetV-). And three nets so a database problem can no longer go unnoticed (below). Revision 15 needs companion 0.7.0 for the waiting-by-cargo list; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest

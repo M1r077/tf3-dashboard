@@ -640,17 +640,40 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, t.name AS town_name, ss.*
+    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, s.catch, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
                  ORDER BY ss.used DESC""", (gid,))
+    # catchables (mod rev 16+): the stock lists in reach of each station, resolved to the industries we know and their
+    # output piles at the latest industry snapshot = what the station can load (freight never waits at a station in TF3).
+    # Stock lists we do not know (a warehouse the mod does not export as an industry) are kept with their id only.
+    piles: dict = {}
+    by_sl = {r["stock_list"]: r for r in rows("SELECT industry_id, stock_list, name FROM industry WHERE game_id=? AND stock_list IS NOT NULL", (gid,))}
+    sid = one("SELECT MAX(x.snapshot_id) sid FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
+    if sid and sid["sid"]:
+        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.stock, ic.capacity FROM industry_cargo ic
+                         WHERE ic.snapshot_id=? AND ic.direction='out' AND ic.capacity IS NOT NULL ORDER BY ic.cargo_id""", (sid["sid"],)):
+            piles.setdefault(r["industry_id"], []).append({"cargo": r["cargo_id"], "amount": r["stock"] or 0, "capacity": r["capacity"]})
     for s in st:
         # what waits, per cargo: [{cargo_type, cargo, total, bad}] (mod rev 15+); None when the mod does not say
         try:
             s["waiting"] = json.loads(s["waiting"]) if s.get("waiting") else None
         except (TypeError, ValueError):
             s["waiting"] = None
+        try:
+            catch = json.loads(s["catch"]) if s.get("catch") else None
+        except (TypeError, ValueError):
+            catch = None
+        if catch is None:
+            s["catch"] = None
+            continue
+        out = []
+        for c in catch:
+            ind = by_sl.get(c.get("stock_list"))
+            out.append({"stock_list": c.get("stock_list"), "industry_id": ind["industry_id"] if ind else None,
+                        "name": ind["name"] if ind else None, "stock": piles.get(ind["industry_id"], []) if ind else []})
+        s["catch"] = out
     cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
     return {"stations": st, "cargo_types": cargo_types}
 

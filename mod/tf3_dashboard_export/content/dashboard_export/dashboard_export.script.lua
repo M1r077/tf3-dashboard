@@ -863,6 +863,20 @@ local function stationItem(s, ctx)
 				end
 				rec.waiting = w
 			end)
+			-- what the station can load: the industries (warehouses are industries too) in its catchment area. In TF3
+			-- freight never waits at a station - it sits in those piles until a vehicle calls - so this is the freight
+			-- side of "waiting". getStationCatchables(s, true) also lists every town building with a cargo demand
+			-- (a bus stop in a town centre gets a hundred of them), hence the INDUSTRY filter. One cached lookup per
+			-- station; the piles themselves are in the industries section (stock_list).
+			pcall(function()
+				local cs = {}
+				for _, e in pairs(api.engine.system.catchmentAreaSystem.getStationCatchables(s, true)) do
+					local id = num(e)
+					local ind = id and api.engine.getComponent(e, api.type.ComponentType.INDUSTRY)
+					if ind then cs[#cs + 1] = { entity = id, stock_list = num(ind.stockList) or id } end
+				end
+				rec.catch = cs
+			end)
 			pcall(function()
 				local con = st2con[s]
 				if con == nil then con = sys.streetConnectorSystem.getConstructionEntityForStation(s) end

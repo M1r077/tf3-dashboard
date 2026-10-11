@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS station (
     is_cargo      INTEGER,                        -- a terminal loads/unloads cargo
     is_pax        INTEGER,                        -- a terminal loads/unloads passengers (NULL = old mod: not cargo => pax)
     x REAL, y REAL,
+    catch         TEXT,                           -- JSON [{entity, stock_list}]: stock lists (industries, warehouses) in the catchment area = what the station can load (mod rev 16+; NULL = older mod)
     PRIMARY KEY (game_id, station_id)
 );
 

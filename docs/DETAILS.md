@@ -137,7 +137,15 @@ Three independent parts:
    - `python collector.py --list-games` / `--forget-game <id>`: a "game" = one player entity; the dashboard only shows
      the most recently seen game. `--forget-game` deletes everything recorded for another savegame.
    - a snapshot that crashes the import is logged to `db\collector_errors.log` (full traceback) and skipped; the
-     collector keeps running.
+     collector keeps running. While that file was written in the last 24 h, the collector says so at start-up and the
+     dashboard shows a red bar (count, last failure, path) - delete the file once the cause is fixed.
+   - schema changes: a new column goes to `schema.sql` **and** to `Store.MIGRATIONS` (ALTER TABLE on existing databases).
+     Two nets behind that rule, after 0.6.1 shipped a column without its migration and lost the slow history of
+     pre-0.6.1 databases for three releases: `Store._sync_columns()` adds at start-up any column `schema.sql` declares
+     and the database lacks (reported as "database upgraded: added ..."), and `test\migrate_check.py` (run by
+     `build_release.cmd`, no zip if it fails) opens the old databases in `test\` with the current code, ingests the
+     recorded export in `test\export\` and fails when a table stays empty, when the columns differ from a fresh
+     database, or when the data only got in thanks to the safety net.
    - slow sections are only stored when they were re-collected (`slow_seq` changed)
    - retention (`Store.rollup`, every 60 s): per-snapshot detail (vehicles, alerts, finance) is kept for 2 h, then rolled
      up per minute into `agg_*_min`; beyond 2 h the slow snapshots (lines, towns, stations, industries, depots: ~20 KB

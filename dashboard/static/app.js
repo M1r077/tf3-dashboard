@@ -464,7 +464,7 @@
     const o = await api("/api/overview");
     const dot = $("#st-dot"), txt = $("#st-text");
     if (o.version) $("#brand-ver").textContent = o.version;
-    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); renderOffline(null); await renderSetup(); return null; }
+    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); renderOffline(null); renderCollectorErrors(o); await renderSetup(); return null; }
     $("#setup-card").style.display = "none";
     if (o.lang && o.lang !== i18n.gameLang) {
       i18n.gameLang = o.lang;
@@ -508,7 +508,7 @@
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
-    renderOffline(o);
+    renderOffline(o); renderCollectorErrors(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
     if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
     return o;
@@ -1832,6 +1832,16 @@
     const session = g.first_seen && g.last_seen ? ` <span class="muted">${t("offline_session", { a: realDate(g.first_seen), b: realDate(g.last_seen), n: int(g.snapshots || 0) })}</span>` : "";
     $("#offline-text").innerHTML = t("offline_text", { save: `<b>${esc(label)}</b>`, date: `<b>${esc(date(s))}</b>`, ago: ago(s.real_time || s.received_at) }) + session;
     const pick = $("#offline-pick"); pick.style.display = (o.live.selected || o.live.has_other) ? "" : "none";
+  }
+
+  // the collector failed to record something in the last 24 h (db/collector_errors.log): a red bar nobody can miss.
+  // 0.6.1-0.6.3 lost the slow history on older databases for three releases because the only sign was that log file
+  function renderCollectorErrors(o) {
+    const bar = $("#errors-bar"); if (!bar) return;
+    const e = o && o.collector_errors;
+    bar.style.display = e ? "" : "none";
+    if (!e) return;
+    $("#errors-text").innerHTML = t("collector_errors", { n: int(e.count), ago: ago(new Date(Date.now() - e.age_s * 1000).toISOString()), path: `<code>${esc(e.path)}</code>` });
   }
 
   // ------------------------------------------------------------ map

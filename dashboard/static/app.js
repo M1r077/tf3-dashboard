@@ -379,6 +379,11 @@
     }));
   }
   function keepScroll(el, top) { if (!top) return; el.scrollTop = top; requestAnimationFrame(() => { el.scrollTop = top; }); }
+  // panels rebuilt with innerHTML on every refresh (camera views, travellings, workshop) scroll inside a child
+  // (.cv-list, .cv-travel) when the card is sized smaller than its content: remember those offsets before the
+  // rebuild and put them back after, so a refresh does not send the user back to the top
+  const scrollSnapshot = (box) => [...box.querySelectorAll(".cv-list, .cv-travel")].map(el => el.scrollTop);
+  const scrollRestore = (box, tops) => { [...box.querySelectorAll(".cv-list, .cv-travel")].forEach((el, i) => keepScroll(el, tops[i])); };
 
   // ------------------------------------------------------------ tabs
   const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
@@ -1558,6 +1563,7 @@
       </span></div>`;
     // the travelling settings and buttons live in their own panel (renderTravellings); the views' tools only
     // hand a draft over to it
+    const tops = scrollSnapshot(box);
     box.innerHTML = `${cmdHint()}<button class="btn cv-save" ${views.length >= 9 ? "disabled" : ""} title="${views.length >= 9 ? esc(t("cam_max")) : ""}">${ico("star", "sm")}${esc(t("cam_save"))}</button>` +
       (views.length ? `<div class="cv-list">${views.map(row).join("")}</div>` : `<p class="cv-empty">${t("cam_empty")}</p>`) +
       `<div class="cv-cur">${t("cam_current")}: ${fmtCam(cur)}${cur.follow ? " · " + t("cam_following") : ""}</div>`;
@@ -1581,6 +1587,7 @@
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: v.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) editViews({ action: "delete", id }); }
       }));
     });
+    scrollRestore(box, tops);
   }
 
 
@@ -1659,6 +1666,7 @@
     // subject: a view (number + name), the chain of views, the line handed over by a line sheet (kept in the draft)
     const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat(tp.kind === "line" || trv.line ? ["line"] : []);
     const viewPick = tp.kind === "view" ? `<span class="seg wrap" data-tset="view">${camViews.list.map((v, i) => `<button data-v="${v.id}" class="${v.id === tp.view ? "active" : ""}" title="${esc(v.name)}"><b>${i + 1}</b> ${esc(v.name.length > 12 ? v.name.slice(0, 11) + "…" : v.name)}</button>`).join("")}</span>` : "";
+    const tops = scrollSnapshot(box);
     box.innerHTML = cmdHint() + `<div class="cv-travel ${editing ? "editing" : ""}">
         <div class="tr-row tr-head">${editing ? `<button class="lbl tr-name" data-trename title="${esc(t("cam_rename"))}">${ico("ct_edit", "sm")}${esc(editing.name)}</button>` : `<span class="lbl">${t("trv_draft")}</span>`}
           ${seg("kind", kinds, tp.kind, k => `<span title="${esc(t("trv_kind_" + k))}">${ico(KIND_ICO[k], "sm")}</span>`)}
@@ -1722,6 +1730,7 @@
       $("[data-ttail]", row).addEventListener("click", () => apply("tail", !tp.tail));
       $("[data-tvol]", row).addEventListener("input", e => { tp.vol = +e.target.value; if (!editing) saveTravelPrefs(specOf(tp)); if (music.el) music.el.volume = tp.vol; });
     });
+    scrollRestore(box, tops);
   }
   function bindPlayer(box, tp) {
     $$("[data-travel]", box).forEach(b => b.addEventListener("click", async () => {
@@ -1746,6 +1755,7 @@
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>${ico("ct_down", "sm")}</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">${ico("ct_trash", "sm")}</button>
       </span></div>`;
+    const tops = scrollSnapshot(box);
     box.innerHTML = cmdHint() + (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`);
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, s = trv.list.find(x => x.id === id); if (!s) return;
@@ -1758,6 +1768,7 @@
         else if (a === "delete") { if (await modal.confirm(t("cam_delete_confirm", { name: s.name }), { title: t("cam_delete_title"), ok: t("cam_delete_title"), danger: true })) { if (trv.editing === id) trv.editing = null; editTravellings({ action: "delete", id }); } }
       }));
     });
+    scrollRestore(box, tops);
   }
 
   // ------------------------------------------------------------ savegames & backups (settings panel)

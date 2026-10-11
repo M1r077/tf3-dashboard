@@ -2470,14 +2470,16 @@
     // selected movement when idle. The current camera itself is the view cone drawn just below.
     // preview = the draft of the travellings panel when it is a movement around a view (dotted eye track)
     const tv = travel.active || (trv.draft && trv.draft.kind === "view" && camViews.list.find(v => v.id === trv.draft.view) ? (() => { const tp = { ...TRAVEL_DEFAULTS, ...trv.draft }, v = liveView(camViews.list.find(x => x.id === tp.view)); return v ? { points: TRAVEL_MOVES[tp.move](v, tp), preview: true } : null; })() : null);
-    if (tv && tv.points.length > 1) {
+    if (tv && tv.points.length > 1 && $("#map-views").checked) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
       tv.points.forEach((pt, i) => { const a = CAM_ANGLE_SIGN * pt.angle + CAM_ANGLE_OFFSET, back = pt.dist * Math.cos(Math.abs(pt.pitch)); const ex = pt.x + Math.sin(a) * back, ey = pt.y - Math.cos(a) * back; const [x, y] = P(ex, ey); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
       ctx.stroke(); ctx.restore();
     }
+    // the "views" toggle hides the saved pins and the travelling track; the live camera cone stays (it is the
+    // player's position, not a saved view)
     if (camViews.cur) drawViewCone(ctx, camViews.cur, act ? "#e8b04b" : ink);
-    camViews.list.forEach((v0, i) => {
+    if ($("#map-views").checked) camViews.list.forEach((v0, i) => {
       const v = liveView(v0) || v0;  // attached views are pinned where the vehicle is now
       const [x, y] = P(v.x, v.y), on = act && act.id === v0.id;
       drawIcon(ctx, "star", x, y - 17 * k, 20 * k, "#e8b04b");
@@ -2496,7 +2498,7 @@
     // what a vehicle carries right now, icon + amount per cargo (same layout as the owner tooltips)
     const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
-    camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
+    if ($("#map-views").checked) camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
     if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)

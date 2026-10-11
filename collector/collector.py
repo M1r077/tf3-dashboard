@@ -175,6 +175,7 @@ class Store:
         ("agg_vehicle_min", "game_time_ms", "INTEGER"),  # simulation clock of the minute, like the other aggregates
         ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per game day
         ("industry_state", "boosters", "TEXT"),  # 0.6.1 added it to the schema but not here: pre-0.6.1 databases lost every slow cycle since
+        ("station_state", "waiting", "TEXT"),  # JSON [{cargo_type, cargo, total, bad}] what waits at the station (mod rev 15+)
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -675,8 +676,10 @@ class Store:
                    is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y""",
                 (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y),
             )
-            self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines) VALUES (?,?,?,?,?,?,?)",
-                             (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines")))
+            waiting = as_list(s.get("waiting"))
+            self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines, waiting) VALUES (?,?,?,?,?,?,?,?)",
+                             (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines"),
+                              json.dumps(waiting, separators=(",", ":")) if waiting else None))
 
     def _towns(self, sid: int, gid: int, now: str, ts: Any):
         def pair(p: Any) -> tuple[Any, Any]:

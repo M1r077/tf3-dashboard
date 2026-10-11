@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS station_state (
     pool_capacity     INTEGER,
     terminal_capacity INTEGER,
     lines             INTEGER,
+    waiting           TEXT,                       -- JSON list of {cargo_type, cargo, total, bad}: what waits at the station, per cargo the calling lines carry (mod rev 15+; NULL = older mod or nothing waiting)
     PRIMARY KEY (snapshot_id, station_id)
 );
 

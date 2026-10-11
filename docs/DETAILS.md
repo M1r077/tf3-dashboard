@@ -127,6 +127,11 @@ Three independent parts:
      Depots export `pos` (streetConnectorSystem.getConstructionEntityForDepot -> CONSTRUCTION.transf), stored in depot.x/y.
      Each stop also carries `waiting` = items waiting there for this line, per cargo type, with the number of unhappy
      ones (api.engine.util.cargo.getCargoQualityDataAtStop; the figure of the game's line window), shown in the stops table.
+     Stations (mod rev 15+) carry the same per cargo for the whole station (`waiting`, getCargoQualityDataAtStation),
+     asked only for the cargo types carried by the lines calling there: ~1 engine call per line stop instead of
+     stations x cargo types (67 x 14 = 938 on the reference save). Stored as JSON in station_state.waiting; the
+     station detail shows it as icon chips, red when some items have waited too long. calculateStationUsage keeps
+     giving the single total (`used`) and the capacities.
      Full catalogue of what the API allows (done / doable / risky / impossible): docs/API_CATALOGUE.md.
 
 2. **Collector `collector\collector.py`** (Python, stdlib only): watches `live.lua`, parses it (`luatable.py`, own Lua

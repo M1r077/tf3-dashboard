@@ -640,7 +640,10 @@ def api_industry_history(q: dict) -> dict:
 
 def api_stations(q: dict) -> dict:
     gid = _gid()
-    st = rows("""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, s.catch, t.name AS town_name, ss.*
+    # station.catch is added by the collector's migration (0.7.1): a database the collector has not opened yet
+    # (dashboard started on an old copy, offline planning) has no such column; read NULL then, never fail
+    has_catch = "catch" in {r["name"] for r in rows("PRAGMA table_info(station)")}
+    st = rows(f"""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, {"s.catch" if has_catch else "NULL AS catch"}, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)

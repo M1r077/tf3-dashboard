@@ -2202,8 +2202,9 @@
   const P = (x, y) => [map.ox + x * map.scale, map.oy - y * map.scale]; // game y up
   // ---- cargo layers. Three toggles, one visual grammar for towns and industries: small cargo icons in rows anchored
   // to their owner. Above = what it produces (industries), below = what it needs (towns and industries), right = what
-  // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size, dimmed
-  // when the rate is low (produced vs max production, delivered vs need); stock icons grow with the amount (square
+  // is lying there now (towns; industry piles need a mod export). Production and demand icons are fixed size:
+  // production dimmed when the rate is low (produced vs max production), demand dimmed when it is MET (delivered vs
+  // need), so both layers light up where there is something to do; stock icons grow with the amount (square
   // root, 10 to 26 px). Each row sits on a dark pill so it reads over the relief. Only from a zoom where the rows do
   // not collide (the `big` threshold of the map); a row that would still overlap an earlier one is left out.
   const mapCargo = { data: null, at: 0 };
@@ -2237,7 +2238,10 @@
     const k = isz();
     const fixed = () => 16 * k;
     const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
+    // production: bright when it runs near its maximum. Demand: the other way round - a need that is met fades out,
+    // what is missing stays bright, so the layer points at the work to do
     const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
+    const needAlpha = (it) => it.rate == null ? 0.9 : 0.3 + 0.7 * (1 - Math.max(0, Math.min(1, it.rate)));
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
     const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
@@ -2247,7 +2251,7 @@
       // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
       const dy = offset ? offset(o) : 0;
       if (prod && c.out.length && row(c.out, x, y, "above", fixed, rateAlpha)) stroke(x, y, "above");
-      const needShown = need && c.in.length && row(c.in, x, y + dy, "below", fixed, rateAlpha);
+      const needShown = need && c.in.length && row(c.in, x, y + dy, "below", fixed, needAlpha);
       if (needShown && !dy) stroke(x, y, "below");
       // empty stocks are only worth showing when the demand row is off (it already says what is missing)
       const st = stock ? c.stock.filter(it => (it.amount || 0) > 0 || !need || !c.in.length) : [];

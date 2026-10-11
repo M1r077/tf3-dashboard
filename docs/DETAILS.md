@@ -489,11 +489,15 @@ Three independent parts:
      that component in a window, we rebuild the look from the same heights).
    - **Ruler** (companion 0.5.2 / 0.6.0): two clicks on the map. `/api/distance?ax&ay&bx&by` answers the straight
      distance, the height difference and the distance the game pays (straight + 8 x the climb), then the distance by
-     road and by rail over the network of the `geo` table: each end is projected on the nearest segment of the kind
-     (perpendicular projection, no limit), a multi-source Dijkstra runs between the two approach sets (graphs cached
-     per geo sequence, `_route_cache["graphs"]`). The drawn route is a solid line; the approaches are dashed. When the
-     two ends sit on different components the API answers `gap: true` and the dashboard draws a straight dashed line
-     A->B ("not linked: build straight") rather than a detour over an unrelated piece of network. Segment lengths are
+     road and by rail over the network of the `geo` table. A real network is many islands (an industry's 4-node access
+     road, a depot siding, a town the player only reached by rail: on the reference save the road graph has 25
+     components, Agde being one of its own), so both ends are projected on the SAME connected component: the
+     component the two ends reach with the least building (approach A + approach B) is routed, as are the candidates
+     within 1.5x of that sum, and the shortest total wins (a multi-source Dijkstra per candidate; graphs and
+     components cached per geo sequence, `_route_cache["graphs"]`). Up to 0.7.0 each end was projected on whatever
+     segment was nearest, which often landed on an island and answered "not linked" for towns the road did join.
+     The drawn route is a solid line; the approaches are dashed (= to build). `gap: true` (straight dashed A->B)
+     only remains for the degenerate case where no component yields a route. Segment lengths are
      chords (curves are under-estimated by a few %); the travel times use placeholder speeds (50 km/h road, 80 rail)
      until the vehicle catalogue is exported. 4-6 ms per call on a 4 800 segment map.
      Travel times (mod 14): timed with the fastest vehicle the player owns per carrier (ehicle.top_speed, km/h,

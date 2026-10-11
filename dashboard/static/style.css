@@ -222,6 +222,10 @@ table.data td.wrap { white-space: normal; }
 #st-table .wchips { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; white-space: nowrap; }
 #st-table .wchips .chip { margin: 0; padding: 0 5px; line-height: 1.5; }
 #st-table .wchips .chip .ico { margin-right: 2px; }
+.chip.muted { opacity: .6; }
+/* station detail: one line per industry in reach, its piles after the name */
+.catchrow { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.catchrow .iconbtn { flex: none; }
 #ind-table .indcargo small { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
 #ind-table .indcargo small .ico { margin: 0; }
 /* key/value sheets: narrow label column, values left-aligned right after it (no value pushed to the far right) */

@@ -2271,7 +2271,9 @@
     const k = isz();
     const fixed = () => 16 * k;
     const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
-    const rateAlpha = (it) => it.rate == null ? 0.9 : 0.35 + 0.65 * Math.max(0, Math.min(1, it.rate));
+    // grey where nothing happens yet, full when the need is met (or production runs at its maximum); squared so a
+    // first third of the way still reads as "far from done" (0 -> .2, 30 % -> .27, 60 % -> .49, 100 % -> 1)
+    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return 0.2 + 0.8 * r * r; };
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
     const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {

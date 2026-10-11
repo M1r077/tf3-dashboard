@@ -645,7 +645,14 @@ def api_stations(q: dict) -> dict:
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
                  WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
                  ORDER BY ss.used DESC""", (gid,))
-    return {"stations": st}
+    for s in st:
+        # what waits, per cargo: [{cargo_type, cargo, total, bad}] (mod rev 15+); None when the mod does not say
+        try:
+            s["waiting"] = json.loads(s["waiting"]) if s.get("waiting") else None
+        except (TypeError, ValueError):
+            s["waiting"] = None
+    cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
+    return {"stations": st, "cargo_types": cargo_types}
 
 
 def api_station_history(q: dict) -> dict:

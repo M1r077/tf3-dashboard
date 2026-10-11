@@ -1259,6 +1259,7 @@
   async function renderStations() {
     const [s, d] = await Promise.all([api("/api/stations"), api("/api/depots")]);
     const stations = s.stations || []; state.cache.stations = stations;
+    if (s.cargo_types && s.cargo_types.length) state.cache.cargoTypes = s.cargo_types;
     if (state.selStGroup) {  // link from a line's stop: the stop knows the station group, the table is by station (a group may hold several)
       const grp = state.selStGroup; state.selStGroup = null;
       const hit = stations.find(x => x.station_group === grp) || stations.find(x => x.station_id === grp);
@@ -1289,6 +1290,16 @@
 
   // Detail card: waiting items against the capacity (platforms + storage) and the overflow over time, plus the lines
   // calling at the station. Game figures only, as in the station window.
+  // what waits at the station, per cargo (mod rev 15+): icon + count, red when some have waited too long; the game's
+  // station window figures. Older mod: no row at all rather than a wrong one.
+  const stationWaitingRow = (st) => {
+    const w = st.waiting; if (!Array.isArray(w)) return "";
+    const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
+    const chips = w.slice().sort((a, b) => b.total - a.total).map(x => {
+      const c = ctById.get(x.cargo_type), name = c ? c.name : x.cargo;
+      return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(cargoName(name || "?"))}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: name, cargo_key: c && c.key })}${x.total}</span>`; });
+    return `<tr><td>${t("st_waiting_by_cargo")}</td><td>${chips.join(" ") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`;
+  };
   async function renderStationDetail(id) {
     const st = (state.cache.stations || []).find(x => x.station_id === id); if (!st) return;
     const h = await api("/api/station_history", { id, limit: settings.history, range: settings.range });
@@ -1298,6 +1309,7 @@
     el.innerHTML = `<h2>${stKind(st).icons("lg")}${esc(st.name)} <small>#${st.station_id}${st.town_name ? " · " + esc(st.town_name) : ""}</small></h2>
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv"><tr><td>${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>
+        ${stationWaitingRow(st)}
         <tr><td>${t("st_capacity_split")}</td><td>${t("st_capacity_fmt", { t: int(st.terminal_capacity), p: int(st.pool_capacity) })}</td></tr>
         <tr><td>${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>
         <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>

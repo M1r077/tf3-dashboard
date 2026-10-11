@@ -792,9 +792,28 @@ local function lineItem(l, ctx)
 	end
 end
 
-local function stationsBegin(player)
+-- cargo types a line carries (ids), from the same capacity table the lines section uses; cached per line for the cycle
+local function lineCargoIds(l, cache)
+	local ids = cache[l]
+	if ids then return ids end
+	ids = {}
+	pcall(function()
+		local usages = api.engine.util.line.getLineCapacityUsages(l, false)
+		local n, dense = 0, usages[0] == nil
+		for k in pairs(usages) do n = n + 1; if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then dense = false end end
+		dense = dense and n > 0 and usages[n] ~= nil
+		for k, u in pairs(usages) do
+			local ct = dense and (num(k) - 1) or num(k)
+			if ct and ((num(u.used) or 0) > 0 or (num(u.capacity) or 0) > 0) then ids[#ids + 1] = ct end
+		end
+	end)
+	cache[l] = ids
+	return ids
+end
+
+local function stationsBegin(player, cargoNames)
 	local sys = api.engine.system
-	local ctx = { player = player, st2town = {}, st2con = {} }
+	local ctx = { player = player, names = cargoNames, st2town = {}, st2con = {}, lineCargos = {} }
 	pcall(function() ctx.st2town = sys.stationSystem.getStation2TownMap() end)
 	pcall(function() ctx.st2con = sys.streetConnectorSystem.getStation2ConstructionMap() end)
 	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.STATION)), ctx
@@ -824,7 +843,26 @@ local function stationItem(s, ctx)
 				rec.used, rec.overflow, rec.pool_capacity, rec.terminal_capacity = num(u.totalUsed), num(u.overflow), num(u.poolCapacity), num(u.terminalCapacity)
 			end)
 			pcall(function() rec.station_group = num(sys.stationGroupSystem.getStationGroup(s)) end)
-			pcall(function() rec.lines = count(sys.lineSystem.getLineStopsForStation(s)) end)
+			pcall(function()
+				local stops = sys.lineSystem.getLineStopsForStation(s)
+				rec.lines = count(stops)
+				-- what waits here, per cargo: asked only for the cargo types the lines calling here carry
+				-- (67 stations x 14 cargo types would be ~900 engine calls a cycle; this is ~1 per line stop).
+				local seen, w = {}, {}
+				for _, ls in pairs(stops) do
+					-- each entry is a (line, stopIndex) pair; exposed as a 1-based array (or 0-based, be tolerant)
+					local l = type(ls) == "table" and (ls[1] or ls[0]) or ls
+					for _, ct in ipairs(lineCargoIds(l, ctx.lineCargos)) do
+						if not seen[ct] then
+							seen[ct] = true
+							local q = api.engine.util.cargo.getCargoQualityDataAtStation(s, ct)
+							local total = num(q.countTotal)
+							if total and total > 0 then w[#w + 1] = { cargo_type = ct, cargo = ctx.names[ct], total = total, bad = num(q.countBad) or 0 } end
+						end
+					end
+				end
+				rec.waiting = w
+			end)
 			pcall(function()
 				local con = st2con[s]
 				if con == nil then con = sys.streetConnectorSystem.getConstructionEntityForStation(s) end
@@ -1159,7 +1197,7 @@ end
 -- snapshot never mixes two cycles (slow_seq semantics unchanged for the collector).
 local SLOW_SECTIONS = {
 	{ name = "lines", begin = function(c) return linesBegin(c.player, c.names) end, item = lineItem },
-	{ name = "stations", begin = function(c) return stationsBegin(c.player) end, item = stationItem },
+	{ name = "stations", begin = function(c) return stationsBegin(c.player, c.names) end, item = stationItem },
 	{ name = "towns", begin = function(c) return townsBeginParts(c.names, c.first) end, item = townItem,
 	  label = function(it) return tostring(it[1]) .. "/" .. tostring(it[2]) end },
 	{ name = "industries", begin = function(c) return industriesBegin(c.names) end, item = industryItem },

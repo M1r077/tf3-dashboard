@@ -1349,20 +1349,20 @@
       const keys = JOURNAL_LINES.map(([k]) => `transport/${c}/${k}`).filter(k => L[k]);
       if (!keys.length) return;
       const open = journalUi.open.has(String(c));
-      h += `<tr class="carrier ${open ? "open" : ""}" data-c="${c}"><td><span class="chev"></span>${ico(ICON_BY_CARRIER[name])}${CA(name)}</td>${cells(sum(keys))}</tr>`;
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="${c}"><td><span class="cl"><span class="chev"></span>${ico(ICON_BY_CARRIER[name])}${CA(name)}</span></td>${cells(sum(keys))}</tr>`;
       if (open) JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) h += `<tr class="detail"><td>${t(label)}</td>${cells(L[key])}</tr>`; });
     });
     // investments, only the lines that exist
     const inv = JOURNAL_INVEST.filter(([k]) => L[`investment/${k}`]);
     if (inv.length) {
       const open = journalUi.open.has("inv");
-      h += `<tr class="carrier ${open ? "open" : ""}" data-c="inv"><td><span class="chev"></span>${ico("station")}${t("journal_investments")}</td>${cells(sum(inv.map(([k]) => `investment/${k}`)))}</tr>`;
+      h += `<tr class="carrier ${open ? "open" : ""}" data-c="inv"><td><span class="cl"><span class="chev"></span>${ico("station")}${t("journal_investments")}</span></td>${cells(sum(inv.map(([k]) => `investment/${k}`)))}</tr>`;
       if (open) inv.forEach(([k, label]) => h += `<tr class="detail"><td>${t(label)}</td>${cells(L[`investment/${k}`])}</tr>`);
     }
     h += `<tr class="section"><td colspan="${idx.length + 1}">${t("journal_summary")}<i></i></td></tr>`;
     h += `<tr class="summary strong"><td>${t("journal_income")}</td>${cells(L.total)}</tr>`;
     const loansOpen = journalUi.open.has("loan");
-    h += `<tr class="carrier ${loansOpen ? "open" : ""}" data-c="loan"><td><span class="chev"></span>${ico("money")}${t("journal_loans")}</td>${cells(sum(["loanBorrowing", "loanRepayment", "interest"]))}</tr>`;
+    h += `<tr class="carrier ${loansOpen ? "open" : ""}" data-c="loan"><td><span class="cl"><span class="chev"></span>${ico("money")}${t("journal_loans")}</span></td>${cells(sum(["loanBorrowing", "loanRepayment", "interest"]))}</tr>`;
     if (loansOpen) { h += `<tr class="detail"><td>${t("journal_new_loans")}</td>${cells(L.loanBorrowing)}</tr><tr class="detail"><td>${t("journal_repay")}</td>${cells(L.loanRepayment)}</tr><tr class="detail"><td>${t("journal_interest")}</td>${cells(L.interest)}</tr>`; }
     h += `<tr class="summary"><td>${t("journal_bank")}</td>${cells(L.balance)}</tr>`;
     h += `<tr class="summary"><td>${t("journal_debt")}</td>${cells(L.loan)}</tr></tbody>`;

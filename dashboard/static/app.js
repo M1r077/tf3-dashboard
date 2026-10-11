@@ -1270,7 +1270,9 @@
       { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
       { key: "is_cargo", label: t("th_type"), render: x => { const k = stKind(x); return (k.pax ? `<span class="chip info">${t("pax")}</span>` : "") + (k.cargo ? `<span class="chip">${t("cargo")}</span>` : ""); } },
-      { key: "used", label: t("th_waiting"), num: true },
+      // waiting: one chip per cargo with its count, red when some have waited too long (mod rev 15+); older mods, or a
+      // station where nothing waits, show the plain total. Sorted on the total either way.
+      { key: "used", label: t("th_waiting"), num: true, render: x => { const chips = stationWaitingChips(x); return chips && chips.length ? `<span class="wchips">${chips.join("")}</span>` : int(x.used); } },
       { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : "–"; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "0" },
       { key: "lines", label: t("th_lines"), num: true },
@@ -1292,12 +1294,15 @@
   // calling at the station. Game figures only, as in the station window.
   // what waits at the station, per cargo (mod rev 15+): icon + count, red when some have waited too long; the game's
   // station window figures. Older mod: no row at all rather than a wrong one.
-  const stationWaitingRow = (st) => {
-    const w = st.waiting; if (!Array.isArray(w)) return "";
+  const stationWaitingChips = (st) => {
+    const w = st.waiting; if (!Array.isArray(w)) return null;
     const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
-    const chips = w.slice().sort((a, b) => b.total - a.total).map(x => {
+    return w.slice().sort((a, b) => b.total - a.total).map(x => {
       const c = ctById.get(x.cargo_type), name = c ? c.name : x.cargo;
       return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(cargoName(name || "?"))}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: name, cargo_key: c && c.key })}${x.total}</span>`; });
+  };
+  const stationWaitingRow = (st) => {
+    const chips = stationWaitingChips(st); if (!chips) return "";
     return `<tr><td>${t("st_waiting_by_cargo")}</td><td>${chips.join(" ") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`;
   };
   async function renderStationDetail(id) {

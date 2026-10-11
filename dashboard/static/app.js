@@ -421,6 +421,10 @@
     const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ""}${widths[c.key] ? ` style="width:${widths[c.key]}px;min-width:${widths[c.key]}px;max-width:${widths[c.key]}px"` : ""}><span class="thl">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</span>${c.key === "act" ? "" : '<span class="colgrip"></span>'}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
+    // in a table card the title is sticky at 0 and the column headers stick right under it: tell CSS how tall the
+    // title (plus any tools row between it and the table) is, so the headers never slide under it
+    const card = table.closest(".tablecard");
+    if (card) { let h = 0; for (let el = table.previousElementSibling; el; el = el.previousElementSibling) h += el.getBoundingClientRect().height; card.style.setProperty("--thtop", Math.floor(h) + "px"); }
     if (!sorted.length) {
       // A real message in the middle of the card, not a one-line "no data". opts.total = rows before the filters
       // (so the filters hide everything); opts.empty = { icon, text, hint } for "nothing exists yet".

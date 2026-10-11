@@ -153,7 +153,10 @@ table.data.compact th, table.data.compact td { padding: 4px 8px; font-size: 12px
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .card h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
 .tablecard { padding: 0; overflow: auto; max-height: calc(100vh - 230px); }
-.tablecard h2 { padding: 12px 14px 0; }
+/* the card scrolls as a whole (so the table can also scroll sideways); title and column headers stay put: the title
+   sticks at 0, the headers right under it (--thtop = the title's height, measured by renderTable) */
+.tablecard h2 { padding: 12px 14px 10px; margin: 0; position: sticky; top: 0; z-index: 4; background: var(--panel); }
+.tablecard table.data th { top: calc(var(--thtop, 0px) - 1px); }  /* a pixel under the title: no row sliver between them */
 canvas { width: 100%; display: block; }
 .mapcard { padding: 0; position: relative; height: calc(100vh - 220px); overflow: hidden; }
 .mapcard.sized #map { height: 100%; }
@@ -184,11 +187,12 @@ body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8
 /* ---------------- tables */
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.data th, table.data td { padding: var(--rowpad) 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-table.data th { position: sticky; top: 0; background: var(--panel2); color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+table.data th { position: sticky; top: 0; z-index: 2; background: var(--panel2); color: var(--muted); font-weight: 600; cursor: pointer; user-select: none; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
 table.data th.sorted::after { content: " ▾"; color: var(--accent); }
 table.data th.sorted.asc::after { content: " ▴"; }
-/* headers centred over their column, everything in the cells flush left (text, numbers, gauges) */
-table.data th { text-align: center; position: relative; }
+/* headers centred over their column, everything in the cells flush left (text, numbers, gauges). No position:
+   relative here: it would cancel the sticky above (and sticky already positions the absolute grip). */
+table.data th { text-align: center; }
 table.data th .thl { display: inline-block; }
 table.data td.num { text-align: left; font-variant-numeric: tabular-nums; }
 /* resizable columns: grip on the right edge of each header (drag; double-click resets the column) */
@@ -204,7 +208,7 @@ a.goto { color: var(--accent); cursor: pointer; text-decoration: none; border-bo
 a.goto:hover { border-bottom-style: solid; }
 /* action column: always visible even when the table is wider than its card (card scrolls horizontally) */
 table.data th.act, table.data td.act { position: sticky; right: 0; background: var(--panel); text-align: right; padding-left: 6px; padding-right: 8px; box-shadow: -8px 0 8px -8px rgba(0,0,0,.6); }
-table.data th.act { background: var(--panel2); z-index: 2; }
+table.data th.act { background: var(--panel2); z-index: 3; }
 table.data tbody tr:hover td.act { background: var(--panel2); }
 table.data tbody tr.sel td.act { background: #22303c; }
 /* columns pinned on the left (cols[].sticky); JS sets the left offsets from the rendered widths */

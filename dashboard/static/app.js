@@ -86,7 +86,15 @@
 
   // ------------------------------------------------------------ panel layout (layout.js)
   const closeSettings = () => { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); };
-  $("#layout-btn").addEventListener("click", () => { closeSettings(); Layout.toggleEdit(); });
+  $("#layout-btn").addEventListener("click", () => { closeSettings(); hideLayoutHint(); Layout.toggleEdit(); });
+  // first visit: a small bubble under the Arrange button, gone on click or after 12 s, never shown again
+  const HINT_KEY = "tf3.hint.layout";
+  const hideLayoutHint = () => { const h = $("#layout-hint"); if (!h.hidden) { h.hidden = true; localStorage.setItem(HINT_KEY, "1"); } };
+  if (!localStorage.getItem(HINT_KEY)) {
+    const h = $("#layout-hint"); h.hidden = false;
+    h.addEventListener("click", hideLayoutHint);
+    setTimeout(hideLayoutHint, 12000);
+  }
   $("#set-layout-edit").addEventListener("click", () => { closeSettings(); Layout.enterEdit(); });
   $("#set-layout-reset").addEventListener("click", () => { Layout.resetAll(); refresh(true); });
   $("#layout-done").addEventListener("click", () => Layout.exitEdit());

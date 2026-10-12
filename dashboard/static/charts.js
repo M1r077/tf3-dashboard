@@ -12,7 +12,8 @@
       otherwise use data-h, or the default chart height of the settings (CSS --charth, 200 px shipped). */
   const defaultH = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue("--charth"), 10) || 200;
   function targetHeight(canvas) {
-    const card = canvas.closest && canvas.closest(".card.sized");
+    // a detail pane (.card.sticky) scrolls as a whole: its charts keep their own data-h, they do not fill the card
+    const card = canvas.closest && canvas.closest(".card.sized:not(.sticky)");
     if (card) {
       const cs = getComputedStyle(card);
       let avail = card.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
@@ -23,7 +24,9 @@
       // several charts in one card: share the space proportionally to their data-h
       const want = (c) => parseInt((c.tagName === "CANVAS" ? c : c.previousElementSibling).dataset.h, 10) || defaultH();
       if (canvases.length > 1) avail = avail * want(canvas) / canvases.reduce((a, c) => a + want(c), 0);
-      if (avail >= 80) return Math.floor(avail);
+      // the card's height is the player's choice: a tiny card gets a tiny plot (fitHost floors it at 60 px of plot),
+      // never the data-h fallback, which pushed the chart out of the card
+      return Math.max(40, Math.floor(avail));
     }
     return parseInt(canvas.dataset.h || canvas.getAttribute("height"), 10) || defaultH();
   }
@@ -108,18 +111,22 @@
   /** In a user-sized card, uPlot's `height` covers the plot only: the legend and the x axis labels come on top.
       setSize applies on the next frame, so measure the chrome from the current (stable) render and size once. */
   function fitHost(canvas, host, u, w) {
-    if (!canvas.closest(".card.sized")) return false;
-    // chrome = everything the host shows besides the plot (legend row(s), axis labels). Measured from the children: a
-    // flex host may be stretched beyond its content (room freed by a folded section), so its own height says nothing.
-    // The plot area is .u-over (uPlot's `height` covers the plot only); everything else (legend, x axis labels)
-    // is chrome. Measured from the rendered boxes, not from u.height: a setSize applies on the next frame, so right
-    // after one u.height is already the new value while the boxes still show the old one, and the difference
-    // under-counted the axis - the chart then stood ~18 px taller than its card.
-    const over = host.querySelector(".u-over");
-    const chrome = Array.from(host.children).reduce((a, ch) => a + ch.getBoundingClientRect().height, 0) - (over ? over.getBoundingClientRect().height : u.height);
-    if (!(chrome >= 0 && chrome < 200)) return false;
-    const want = Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2));
-    if (Math.abs(want - u.height) > 1 || Math.abs(w - u.width) > 1) u.setSize({ width: w, height: want });
+    if (!canvas.closest(".card.sized:not(.sticky)")) return false;
+    // uPlot's `height` covers plot + axes + padding (= its .u-wrap box); the chrome is the legend (the only thing uPlot renders outside .u-wrap) plus any host child that
+    // is not the plot itself. The legend's height does not depend on the plot size, so this never chases its tail -
+    // but it does depend on the width: right after `new uPlot` the legend has not been laid out at its final width
+    // and measures several wrapped rows (102 px for 18), so the plot came out ~85 px too short. The measure is taken
+    // once the browser has laid the host out (next frame), and again on every later call.
+    const fit = () => {
+      if (!host.isConnected) return;
+      let chrome = 0;
+      Array.from(host.children).forEach(ch => { if (!ch.classList.contains("uplot")) chrome += ch.getBoundingClientRect().height; });
+      const legend = host.querySelector(".u-legend"); if (legend) chrome += legend.getBoundingClientRect().height;
+      if (!(chrome >= 0 && chrome < 200)) return;
+      const want = Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2));
+      if (Math.abs(want - u.height) > 1 || Math.abs(w - u.width) > 1) u.setSize({ width: w, height: want });
+    };
+    requestAnimationFrame(fit);
     return true;
   }
   const chartKey = (canvas) => canvas.id || canvas.dataset.key || "c" + Math.random().toString(36).slice(2);

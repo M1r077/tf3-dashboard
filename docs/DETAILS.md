@@ -14,8 +14,11 @@ Then http://127.0.0.1:8765/ opens in the browser; on a second monitor: full scre
 All the logic is in `launch.py` (shared): first-start icon extraction (when `dashboard/static/icons/_manifest.json`
 is missing), port check (waits while the port is taken, so an old instance never keeps serving stale code), restart
 of a stopped collector / server (2, 5, 10, then every 30 s; back to 2 s after a minute of normal running), browser
-once the server answers, clean stop on Ctrl+C / SIGTERM / SIGHUP (Linux: children also stop if the launcher is
-killed). `launch.py --only collector|server` runs one part without prefixes (the Windows Terminal panes,
+once the server answers, clean stop on Ctrl+C / SIGTERM / SIGHUP. Children also stop if the launcher itself is
+killed (window closed): Linux `PR_SET_PDEATHSIG`, Windows a job object with kill-on-close - without it the server
+survived the closed pane and kept the port. A collector that exits 2 (another one holds the database lock,
+`db/tf3_dashboard.db.lock`) is not a crash: the launcher says so once and retries every 5 s until the other window
+is closed. `launch.py --only collector|server` runs one part without prefixes (the Windows Terminal panes,
 `_collector.cmd` / `_server.cmd [--port N] [--db PATH] [--no-cmd] [--no-browser]`).
 Python: Windows: `python_embedded\python.exe` from the release zip if present, otherwise `py -3` / `python`
 (`_python.cmd`); Linux: `python3` / `python` (`_python.sh`). 3.10+, stdlib only, nothing to install.

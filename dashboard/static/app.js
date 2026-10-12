@@ -65,7 +65,7 @@
   document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear, #offline-pick")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
   // offline bar: "choose a save" opens the settings at the savegames list
   $("#offline-pick").addEventListener("click", async () => { $("#settings").classList.add("open"); $("#gear").classList.add("open"); await renderSaves(); const s = $("#saves"); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); });
-  $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); }));
+  $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); presetRecordSoon(); }));
   $("#set-refresh").addEventListener("input", e => { settings.refresh = +e.target.value; applySettings(); });
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
@@ -86,6 +86,97 @@
   let layoutTimer = null;
   Layout.onChange(() => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => { Charts.resizeAll(); if (state.tab === "map" && map.init) drawMap($("#map")); refresh(true); }, 60); });
   window.addEventListener("resize", () => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => Charts.resizeAll(), 120); });
+
+  // ------------------------------------------------------------ layout presets
+  // A preset = the whole panel layout (every tab + the cards pinned to Operations) and the display sizes (icons,
+  // text, density), so a preset made for a portrait screen brings its smaller sizes along. Two built-ins (the shipped
+  // layout, a vertical one) cannot be overwritten; "Personal 1" is kept current automatically: whatever the player
+  // arranges is saved there, so nothing is ever lost by trying a built-in. localStorage "tf3.presets":
+  // { current: "p1", items: [{ id, name, layout, pinned, sizes: { ico, fs, rowpad } }] }. The same object, as JSON
+  // text, is what Copy puts on the clipboard and what Paste accepts (header "tf3-layout/1").
+  const PRESETS_KEY = "tf3.presets", PRESET_TAG = "tf3-layout/1";
+  const BUILTIN = [{ id: "default", builtin: true }, { id: "vertical", builtin: true, sizes: { ico: 22, fs: 12, rowpad: 3 } }];
+  const presets = (() => { try { return Object.assign({ current: "p1", items: [] }, JSON.parse(localStorage.getItem(PRESETS_KEY) || "{}")); } catch (e) { return { current: "p1", items: [] }; } })();
+  if (!presets.items.some(p => p.id === "p1")) presets.items.unshift({ id: "p1", name: t("preset_personal", { n: 1 }), layout: {}, pinned: [] });
+  const sizesNow = () => ({ ico: settings.ico, fs: settings.fs, rowpad: settings.rowpad });
+  const presetName = (p) => p.builtin ? t("preset_" + p.id) : p.name;
+  const savePresets = () => localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+  let presetSync = true;  // false while a preset is being applied (the layout change it causes must not be written back)
+  let presetTimer = null;
+  /** The player's arrangement follows them into the current personal preset (a built-in is read-only: edits fork into Personal 1). */
+  function presetRecord() {
+    if (!presetSync) return;
+    let p = presets.items.find(x => x.id === presets.current);
+    if (!p) { p = presets.items.find(x => x.id === "p1"); presets.current = "p1"; }
+    Object.assign(p, Layout.exportState(), { sizes: sizesNow() });
+    savePresets(); renderPresets();
+  }
+  function presetRecordSoon() { if (!presetSync) return; clearTimeout(presetTimer); presetTimer = setTimeout(presetRecord, 300); }
+  function presetApply(id) {
+    const b = BUILTIN.find(x => x.id === id), p = b || presets.items.find(x => x.id === id); if (!p) return;
+    presetSync = false;
+    Layout.importState(b ? Layout.builtinState(id) : p);
+    const sz = p.sizes || (b ? { ico: DEFAULTS.ico, fs: DEFAULTS.fs, rowpad: DEFAULTS.rowpad } : null);
+    if (sz) { Object.assign(settings, sz); applySettings(); }
+    presets.current = id; savePresets(); renderPresets();
+    // the layout events of the import are debounced: let them pass before recording again
+    setTimeout(() => { clearTimeout(presetTimer); presetSync = true; }, 600);
+    refresh(true);
+  }
+  async function presetSaveAs() {
+    const n = presets.items.length + 1;
+    const name = await modal.prompt(t("preset_name"), { title: t("preset_save"), value: t("preset_personal", { n }), ok: t("preset_save") }); if (!name) return;
+    const p = Object.assign({ id: "p" + Date.now().toString(36), name }, Layout.exportState(), { sizes: sizesNow() });
+    presets.items.push(p); presets.current = p.id; savePresets(); renderPresets();
+  }
+  async function presetRename(id) {
+    const p = presets.items.find(x => x.id === id); if (!p) return;
+    const name = await modal.prompt(t("new_name"), { title: t("rename"), value: p.name, ok: t("rename") }); if (!name) return;
+    p.name = name; savePresets(); renderPresets();
+  }
+  async function presetDelete(id) {
+    const p = presets.items.find(x => x.id === id); if (!p || id === "p1") return;
+    if (!await modal.confirm(t("preset_delete_q", { name: p.name }), { title: t("preset_delete"), ok: t("preset_delete"), danger: true })) return;
+    presets.items = presets.items.filter(x => x.id !== id);
+    if (presets.current === id) presets.current = "p1";
+    savePresets(); renderPresets();
+  }
+  async function presetCopy() {
+    const cur = BUILTIN.find(x => x.id === presets.current) ? Object.assign({}, Layout.exportState(), { sizes: sizesNow(), name: t("preset_" + presets.current) }) : presets.items.find(x => x.id === presets.current);
+    const text = JSON.stringify({ tag: PRESET_TAG, name: cur.name, layout: cur.layout, pinned: cur.pinned, sizes: cur.sizes });
+    try { await navigator.clipboard.writeText(text); flashPresets(t("preset_copied")); }
+    catch (e) { await modal.prompt(t("preset_copy_manual"), { title: t("preset_copy"), value: text, multiline: true, ok: "OK" }); }
+  }
+  async function presetPaste() {
+    let text = "";
+    try { text = await navigator.clipboard.readText(); } catch (e) { /* Firefox: no read permission, ask */ }
+    if (!text || !text.includes(PRESET_TAG)) { text = await modal.prompt(t("preset_paste_hint"), { title: t("preset_paste"), value: "", multiline: true, ok: t("preset_paste") }); if (!text) return; }
+    let s = null; try { s = JSON.parse(text); } catch (e) { /* below */ }
+    if (!s || s.tag !== PRESET_TAG || !s.layout) { flashPresets(t("preset_paste_bad")); return; }
+    // a pasted layout keeps its name unless one is already taken (two players' "Personal 1"): then it is numbered
+    let name = String(s.name || t("preset_personal", { n: presets.items.length + 1 })).slice(0, 40);
+    if (presets.items.some(x => x.name === name)) { let k = 2; while (presets.items.some(x => x.name === `${name} (${k})`)) k++; name = `${name} (${k})`; }
+    const p = { id: "p" + Date.now().toString(36), name, layout: s.layout, pinned: s.pinned || [], sizes: s.sizes };
+    presets.items.push(p); savePresets(); presetApply(p.id);
+  }
+  function flashPresets(msg) { $$(".presets .pmsg").forEach(el => { el.textContent = msg; el.classList.add("on"); setTimeout(() => el.classList.remove("on"), 1800); }); }
+  function renderPresets() {
+    const all = BUILTIN.concat(presets.items);
+    const cur = all.find(p => p.id === presets.current) || presets.items[0];
+    const html = `<span class="seg plist">${all.map(p => `<button data-preset="${esc(p.id)}" class="${p.id === cur.id ? "active" : ""} ${p.builtin ? "builtin" : ""}" title="${esc(p.builtin ? t("preset_builtin_tip") : t("preset_personal_tip"))}">${esc(presetName(p))}</button>`).join("")}</span>
+      <button class="btn sm" data-pact="save" title="${esc(t("preset_save_tip"))}">${ico("preset_save", "sm")}<span>${esc(t("preset_save"))}</span></button>
+      ${!cur.builtin && cur.id !== "p1" ? `<button class="btn sm" data-pact="rename" title="${esc(t("rename"))}">${ico("ct_edit", "sm")}</button><button class="btn sm" data-pact="delete" title="${esc(t("preset_delete"))}">${ico("ct_trash", "sm")}</button>` : ""}
+      <button class="btn sm" data-pact="copy" title="${esc(t("preset_copy_tip"))}">${ico("copy", "sm")}<span>${esc(t("preset_copy"))}</span></button>
+      <button class="btn sm" data-pact="paste" title="${esc(t("preset_paste_tip"))}">${ico("preset_load", "sm")}<span>${esc(t("preset_paste"))}</span></button>
+      <span class="pmsg"></span>`;
+    $$("#layout-presets, #set-presets").forEach(box => {
+      box.innerHTML = html;
+      $$("[data-preset]", box).forEach(b => b.addEventListener("click", () => presetApply(b.dataset.preset)));
+      $$("[data-pact]", box).forEach(b => b.addEventListener("click", () => ({ save: presetSaveAs, rename: () => presetRename(cur.id), delete: () => presetDelete(cur.id), copy: presetCopy, paste: presetPaste })[b.dataset.pact]()));
+    });
+  }
+  Layout.onChange(presetRecordSoon);
+  setTimeout(renderPresets, 0);  // after the helpers below (ico, esc) exist
 
   // ------------------------------------------------------------ time range (shared by all time charts)
   const rangeLabel = () => t("range." + settings.range);
@@ -246,13 +337,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       },
       prompt(text, o = {}) {
         return open(`${head(o.title || text)}${o.title ? `<p class="md-text">${esc(text)}</p>` : ""}
-          <input class="md-input" type="text" maxlength="${o.maxlength || 40}" value="${esc(o.value || "")}" spellcheck="false">
+          ${o.multiline ? `<textarea class="md-input md-area" rows="6" spellcheck="false">${esc(o.value || "")}</textarea>` : `<input class="md-input" type="text" maxlength="${o.maxlength || 40}" value="${esc(o.value || "")}" spellcheck="false">`}
           <div class="md-foot"><button class="btn md-cancel">${t("cancel")}</button><button class="btn primary md-ok">${ico("check", "sm")}${esc(o.ok || "OK")}</button></div>`,
           (finish) => {
             const inp = $(".md-input", dlg), ok = $(".md-ok", dlg);
             const submit = () => { const v = inp.value.trim(); if (v) finish(v); else inp.focus(); };
             ok.addEventListener("click", submit);
-            inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+            inp.addEventListener("keydown", e => { if (e.key === "Enter" && !o.multiline) { e.preventDefault(); submit(); } });
             setTimeout(() => { inp.focus(); inp.select(); }, 0);
           });
       },
@@ -2312,9 +2403,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const k = isz();
     const fixed = () => 16 * k;
     const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
-    // grey where nothing happens yet, full when the need is met (or production runs at its maximum); squared so a
-    // first third of the way still reads as "far from done" (0 -> .2, 30 % -> .27, 60 % -> .49, 100 % -> 1)
-    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return 0.2 + 0.8 * r * r; };
+    // grey where nothing happens yet, full when the need is met (or production runs at its maximum). Two regimes: a
+    // served cargo lives in a bright band (50 % at the first delivery, 100 % when the need is met - in practice a
+    // town's need is rarely fully covered, and what matters is "something arrives" vs "nothing"), an untouched one
+    // stays grey (0 -> .2); a tiny rate goes straight to the band so a trickle is already visibly active
+    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return r <= 0 ? 0.2 : 0.5 + 0.5 * r; };
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
     const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {

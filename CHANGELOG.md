@@ -4,7 +4,9 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased
 
-Served / not served filter on the towns, industries and stations tables (a three-way switch, remembered per browser), with a name filter on towns and stations. A town counts as served when a line calls at one of its stations - the game's "stations" figure includes stations nothing stops at, so the column now reads calling/built. The industries checkbox becomes "closing only". One look for every toolbar switch: the map layer toggles (three groups: terrain, objects, data layers) and the table checkboxes (worn, problems, closing) are drawn like the segmented controls, a lit segment meaning "shown".
+Layout presets (arrange-mode bar and Settings > Layouts): a preset is the layout of every tab, the pinned cards and the display sizes (icons, text, density). Two built-ins, Default and Vertical screen (full-width tables with the detail below, smaller sizes, for a 1080 x 1920 portrait monitor); Personal 1 always holds what the player arranges, so trying a built-in loses nothing; Save as / rename / delete for more. Copy puts a layout on the clipboard as text, Paste adds and applies one received from someone else. A narrow window (under 1100 px) no longer forces every placed card to full width: the vertical preset keeps its two-column rows.
+
+Served / not served filter on the towns, industries and stations tables (a three-way switch, remembered per browser), with a name filter on towns and stations and, for stations, a passengers only / cargo only / both switch. A town counts as served when a line calls at one of its stations - the game's "stations" figure includes stations nothing stops at, so the column now reads calling/built. The industries checkbox becomes "closing only". One look for every toolbar switch: the map layer toggles (three groups: terrain, objects, data layers) and the table checkboxes (worn, problems, closing) are drawn like the segmented controls, a lit segment meaning "shown".
 
 ## Revision 16 + companion 0.7.1 - 12 October 2026
 
@@ -79,7 +81,7 @@ Revision 9 + companion program 0.3.2 (8 October 2026): required after the game's
 
 ## Mod 8 / companion 0.3.1 - October 2026
 
-Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); PortuguÃªs (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
+Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); Português (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 ## Earlier
 

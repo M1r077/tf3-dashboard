@@ -280,7 +280,9 @@ table.data tr.emptyrow td { white-space: normal; border-bottom: 0; }
 .legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
 pre { font-family: var(--mono); font-size: 12px; color: var(--warn); white-space: pre-wrap; margin: 0; }
 
-@media (max-width: 1100px) { .panels > .card { grid-column: span 12 !important; } }
+/* a narrow window stacks the cards that have no explicit place; a placed layout (a vertical preset on a 1080 px
+   portrait screen) keeps the widths the player chose */
+@media (max-width: 1100px) { .panels > .card:not(.sized) { grid-column: span 12 !important; } }
 
 /* ---------------- layout edit mode */
 body.layout-edit main { padding-bottom: 70px; }
@@ -322,6 +324,20 @@ body.layout-edit #layout-bar { display: flex; }
 #layout-bar .ico { color: var(--accent); }
 #layout-bar .btn { display: inline-flex; align-items: center; gap: 6px; }
 #layout-bar .btn .ico { margin: 0; color: var(--text); }
+/* layout presets (bottom bar in edit mode, and the Panels row of the settings) */
+.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.presets .seg.plist button { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.presets .seg.plist button.builtin { font-style: italic; }
+.presets .btn.sm { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 12px; }
+.presets .btn.sm .ico { margin: 0; }
+.presets .pmsg { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }
+.presets .pmsg.on { opacity: 1; }
+#layout-bar .presets { margin-right: 12px; flex-wrap: nowrap; }
+#layout-bar .hintt { flex: 0 1 auto; max-width: 34vw; }
+#layout-bar > .btn { white-space: nowrap; }
+#layout-bar .presets .btn.sm span { display: none; }           /* icons only in the bar: the tooltip says what they do */
+#layout-bar .presets .btn.sm { padding: 5px 7px; }
+#set-presets .seg.plist { flex-wrap: wrap; }
 .btn.sm { padding: 2px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.primary .ico { color: #fff; }
@@ -576,6 +592,7 @@ dialog#modal .md-head .md-x { margin-left: auto; }
 dialog#modal .md-text { margin: 0 0 12px; font-size: 13px; color: var(--text); line-height: 1.4; }
 dialog#modal .md-input { width: 100%; box-sizing: border-box; background: var(--panel2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px; margin-bottom: 12px; }
 dialog#modal .md-input:focus { outline: none; border-color: var(--accent); }
+dialog#modal .md-area { resize: vertical; font-family: var(--mono); font-size: 11px; word-break: break-all; }
 dialog#modal .md-foot { display: flex; gap: 6px; justify-content: flex-end; }
 dialog#modal .md-foot .btn { display: inline-flex; align-items: center; gap: 4px; }
 dialog#modal .md-ok.danger { background: var(--bad); border-color: var(--bad); }

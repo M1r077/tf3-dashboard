@@ -444,10 +444,19 @@ Three independent parts:
      database stays small (a test save with 62 reloads went from 310 MB to 63 MB when the rule was applied once at
      start-up, `PRAGMA user_version 3`, followed by a VACUUM). Dimension rows (vehicles, lines bought in an abandoned
      branch) are not touched: they age out with the usual retention. Snapshots without a clock keep a real-time axis.
-   - **Panel layout** (pencil top right, or Settings > Panels): in each tab, drag a panel by its handle to reorder,
-     pull the right edge (width, in 12ths of the grid) or the bottom edge (fixed height: charts and lists fill the card),
-     -/+ buttons and auto height, hide a panel (it comes back through the "Hidden panels" bar). Esc or Done to leave.
-     Stored per tab in the browser (localStorage `tf3.layout`); "Reset this tab" / "all tabs".
+   - **Panel layout** (pencil top right, or Settings > Panels): in each tab, drag a panel by its title bar and drop it
+     anywhere on the 12-column grid (it snaps to its neighbours, the others make room), pull any edge to resize,
+     -/+ buttons and auto height, hide a panel (it comes back through the "Hidden panels" bar), pin a card to Operations.
+     Esc or Done to leave. Stored per tab in the browser (localStorage `tf3.layout`); "Reset this tab" / "all tabs".
+   - **Layout presets** (bottom bar in arrange mode, and Settings > Layouts): a preset is the whole layout (every tab,
+     the pinned cards) plus the display sizes (icons, text, table density), so a layout made for another screen brings
+     its sizes along. Two built-ins: *Default* (the shipped layout) and *Vertical screen* (full-width tables with the
+     detail below, small cards two by two, smaller sizes; made for a 1080 x 1920 portrait monitor). Built-ins are
+     read-only: arranging panels while one is selected saves into *Personal 1*, which always holds the player's current
+     arrangement, so trying a built-in never loses anything. "Save as…" keeps the current state under a new name
+     (rename / delete on the personal ones). **Copy** puts the preset on the clipboard as JSON (`tf3-layout/1` header);
+     **Paste** adds a copied one and applies it (names already taken are numbered). A pasted layout from another version
+     survives: unknown panels are dropped, missing ones appended below. Stored in localStorage `tf3.presets`.
    - **Operations** (home page): vital header (date/speed, vehicles by state, overall load, average condition, alerts,
      transported, balance de-emphasised), fleet in service over time (stacked en route / terminal / depot), per-carrier
      table (load, condition, average speed, idle), alerts with age, load & average speed over time, idle / no-line

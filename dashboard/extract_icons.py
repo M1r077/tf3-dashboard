@@ -303,6 +303,10 @@ ICONS: dict[str, tuple[str, str]] = {
     "star_outline": (GUI, "gui/menu/icons/symbol_star_outline@2x.tga"),
     "terminal": (GUI, "gui/line_vehicle_mgmt/icons/indicator_terminal_20@2x.tga"),
     "plus": (GUI, "gui/camera_tool/icons/plus19.tga"),
+    # layout presets (the game's graphics-presets icons) and copy
+    "preset_save": (GUI, "gui/menu/icons/preset_save@2x.tga"),
+    "preset_load": (GUI, "gui/menu/icons/preset_load@2x.tga"),
+    "copy": (GUI, "gui/entity_window/icons/symbol_square_copy@2x.tga"),
     # notifications (alerts)
     "no_path": (GM, "game_mechanics/notifications/gui/icons/no_road_connection@2x.tga"),
     "stock_full": (GM, "game_mechanics/notifications/gui/icons/cargo_full_stock@2x.tga"),

@@ -1437,11 +1437,11 @@ def main(argv: list[str] | None = None) -> int:
                             # written band by band (every 3, and at the end): a new map's relief grows on the dashboard
                             # instead of appearing all at once after a minute
                             bands_in = 0
-                            revs_before = height_asm.revs
+                            export_before = height_asm.export_no
                             for band in slow_files.height_bands():
                                 height_asm.add(band)
                                 bands_in += 1
-                            if bands_in and height_asm.revs != revs_before:
+                            if bands_in and height_asm.export_no != export_before:
                                 # a new terrain export began: whatever picture sits under this game's name is from
                                 # another map (same player id reused by the game) - drop it, the bands replace it
                                 gid = store.game_id(snap, iso())

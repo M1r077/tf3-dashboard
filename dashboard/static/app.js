@@ -926,6 +926,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const d = await api("/api/lines"); const lines = d.lines || []; state.cache.lines = lines;
     state.cache.cargoTypes = d.cargo_types || [];
     if (!state.selLine) { const u = +new URLSearchParams(location.search).get("line"); if (u && lines.some(l => l.line_id === u)) state.selLine = u; }  // deep link ?tab=lines&line=<id>
+    // the selected line was deleted in game: drop the selection and the detail panel instead of keeping the last picture
+    if (state.selLine && !lines.some(l => l.line_id === state.selLine)) { state.selLine = null; $("#line-detail").innerHTML = `<h2>${t("detail")}</h2><p class="muted">${t("select_line")}</p>`; }
     renderLineTypeBar(lines);
     const q = $("#lines-filter").value.toLowerCase(), onlyP = $("#lines-problems-only").checked;
     const rows = lines.filter(l => (!q || (l.name || "").toLowerCase().includes(q) || l.stop_names.join(" ").toLowerCase().includes(q)) && (!onlyP || hasLineProblem(l)) && (!state.lineTypes.size || state.lineTypes.has(lineType(l))));
@@ -2111,8 +2113,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
-    if (sel.options.length - 1 !== (map.data.lines || []).length || sel.dataset.lang !== i18n.lang) { sel.innerHTML = `<option value="">${t("all_lines")}</option>` + (map.data.lines || []).slice().sort((a, b) => String(a.name).localeCompare(b.name)).map(l => `<option value="${l.line_id}">${esc(l.name)}</option>`).join(""); sel.dataset.lang = i18n.lang; }
-    if (map.lineFilter != null) { sel.value = String(map.lineFilter); }
+    // rebuilt when the set of lines OR a name changed (a rename keeps the count), not on every refresh (an open list would close)
+    const mapLines = (map.data.lines || []).slice().sort((a, b) => String(a.name).localeCompare(b.name));
+    const sig = i18n.lang + "|" + mapLines.map(l => l.line_id + ":" + l.name).join("|");
+    if (sel.dataset.sig !== sig) { sel.innerHTML = `<option value="">${t("all_lines")}</option>` + mapLines.map(l => `<option value="${l.line_id}">${esc(l.name)}</option>`).join(""); sel.dataset.sig = sig; }
+    if (map.lineFilter != null && !mapLines.some(l => l.line_id === map.lineFilter)) map.lineFilter = null;  // filtered line deleted in game: back to all
+    sel.value = map.lineFilter != null ? String(map.lineFilter) : "";
     drawMap(canvas);
   }
   function initMap(canvas) {

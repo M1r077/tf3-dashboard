@@ -191,6 +191,8 @@ CREATE TABLE IF NOT EXISTS line (
     transport_modes TEXT,                         -- JSON array of mode ids
     custom_filters INTEGER,                       -- line uses per-stop cargo filters
     reservation_priority REAL,                    -- 1 standard, 2 high, 3 very high
+    gone       INTEGER,                           -- snapshot in which the line was no longer exported (deleted in game); NULL = alive.
+                                                  -- The row stays so the history (vehicles, alerts, towns) keeps the name
     PRIMARY KEY (game_id, line_id)
 );
 

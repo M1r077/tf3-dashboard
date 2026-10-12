@@ -49,10 +49,61 @@ def ingest(db: Path) -> dict[str, int]:
     return rows, cols, store.added_columns
 
 
+def line_lifecycle(db: Path) -> list[str]:
+    """Lines renamed or deleted in game: the recorded export ingested again with one line renamed and one missing
+    must update the name and mark the missing line gone (hidden from the lists, kept for the history's names). A
+    cycle whose lines section failed in the mod, or whose file is missing, must not mark anything."""
+    import copy
+    store = collector.Store(db)
+    slow = collector.SlowFiles(EXPORT)
+    slow.refresh()
+    base = slow.merge(collector.read_live(EXPORT))
+    store.ingest(base)
+    gid = store.con.execute("SELECT game_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1").fetchone()[0]
+    lines = [l for l in base["lines"] if isinstance(l, dict)]
+    assert len(lines) >= 2, "the recorded export needs two lines"
+    renamed, deleted = lines[0]["id"], lines[1]["id"]
+
+    def cycle(prev: dict) -> dict:  # the next slow cycle (a snapshot with the same seq/real_time is skipped as a duplicate)
+        n = copy.deepcopy(base)
+        n["slow_seq"] = (prev.get("slow_seq") or 0) + 1
+        n["seq"] = (prev.get("seq") or 0) + 1
+        n["real_time"] = (prev.get("real_time") or 0) + 60
+        return n
+
+    nxt = cycle(base)
+    nxt["lines"] = [dict(l, name="Express") if l["id"] == renamed else l for l in lines if l["id"] != deleted]
+    store.ingest(nxt)
+    bad = []
+    row = store.con.execute("SELECT name, gone FROM line WHERE game_id=? AND line_id=?", (gid, renamed)).fetchone()
+    if row["name"] != "Express" or row["gone"] is not None:
+        bad.append(f"renamed line: {dict(row)}")
+    row = store.con.execute("SELECT name, gone FROM line WHERE game_id=? AND line_id=?", (gid, deleted)).fetchone()
+    if row is None or row["gone"] is None:
+        bad.append(f"deleted line not marked gone: {row and dict(row)}")
+    if store.con.execute("SELECT COUNT(*) FROM line_stop WHERE game_id=? AND line_id=?", (gid, deleted)).fetchone()[0]:
+        bad.append("deleted line still has stops")
+    # a failed section must not touch the marks; the line comes back when exported again
+    broken = cycle(nxt)
+    broken["lines"], broken["errors"] = [], [{"section": "lines", "error": "boom"}]
+    store.ingest(broken)
+    if store.con.execute("SELECT COUNT(*) FROM line WHERE game_id=? AND gone IS NULL", (gid,)).fetchone()[0] != len(lines) - 1:
+        bad.append("a failed lines section marked lines gone")
+    back = cycle(broken)
+    store.ingest(back)
+    if store.con.execute("SELECT gone FROM line WHERE game_id=? AND line_id=?", (gid, deleted)).fetchone()[0] is not None:
+        bad.append("re-exported line still gone")
+    store.con.close()
+    return bad
+
+
 def main() -> int:
     failed = 0
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+        bad = line_lifecycle(tmp / "lines.db")
+        print("line lifecycle (rename, delete, failed section, back):", "FAIL " + "; ".join(bad) if bad else "ok")
+        failed += bool(bad)
         fresh_rows, fresh_cols, _ = ingest(tmp / "fresh.db")
         print(f"fresh database: {sum(fresh_rows.values())} rows in {len(MUST_FILL)} tables")
         empty = [t for t, n in fresh_rows.items() if n == 0]

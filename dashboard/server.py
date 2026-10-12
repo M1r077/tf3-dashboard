@@ -370,18 +370,23 @@ def api_alerts(q: dict) -> dict:
 
 def api_lines(q: dict) -> dict:
     gid = _gid()
+    # lines deleted in game stay in `line` (gone = snapshot of disappearance) for the history's names: hidden here.
+    # The per-line MAX is scoped to this game's snapshots: the game reuses small entity ids across saves
     lines = rows("""SELECT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes, l.custom_filters, l.reservation_priority, ls.*
                     FROM line l JOIN line_state ls ON ls.line_id=l.line_id
-                    WHERE l.game_id=? AND ls.snapshot_id=(SELECT MAX(snapshot_id) FROM line_state x WHERE x.line_id=l.line_id)
+                    WHERE l.game_id=? AND l.gone IS NULL
+                      AND ls.snapshot_id=(SELECT MAX(x.snapshot_id) FROM line_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id
+                                          WHERE x.line_id=l.line_id AND sx.game_id=l.game_id)
                     ORDER BY l.name""", (gid,))
     sid_by_line = {l["line_id"]: l["snapshot_id"] for l in lines}
     # Correlated MAX per line (uses the (snapshot_id, line_id, cargo_id) primary key) instead of
     # "IN (SELECT MAX ... GROUP BY line_id)", which scanned the whole table through a temp b-tree.
     caps = rows("""SELECT lc.line_id, lc.cargo_id, ct.name AS cargo, ct.key AS cargo_key, lc.used, lc.capacity
                    FROM line l JOIN line_capacity lc ON lc.line_id=l.line_id
-                        AND lc.snapshot_id=(SELECT MAX(snapshot_id) FROM line_capacity x WHERE x.line_id=l.line_id)
+                        AND lc.snapshot_id=(SELECT MAX(x.snapshot_id) FROM line_capacity x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id
+                                            WHERE x.line_id=l.line_id AND sx.game_id=l.game_id)
                    LEFT JOIN cargo_type ct ON ct.game_id=l.game_id AND ct.cargo_id=lc.cargo_id
-                   WHERE l.game_id=?""", (gid,))
+                   WHERE l.game_id=? AND l.gone IS NULL""", (gid,))
     # speed = average of the vehicles currently en route (a vehicle waiting at a terminal would drag the line to 0)
     veh = rows(f"""SELECT vs.line_id, COUNT(*) n, SUM(vs.load) load, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) speed, SUM(vs.state='EN_ROUTE') en_route,
                          GROUP_CONCAT(DISTINCT v.carrier) carriers, GROUP_CONCAT(DISTINCT v.icon_type) icon_types
@@ -701,7 +706,7 @@ def api_station_history(q: dict) -> dict:
     # resolved by the mod, it is 0), so match on the group the station belongs to
     lines = rows("""SELECT DISTINCT l.line_id, l.name, l.color_r, l.color_g, l.color_b, l.transport_modes
                     FROM station st JOIN line_stop ls ON ls.game_id=st.game_id AND ls.station_group=st.station_group
-                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id AND l.gone IS NULL
                     WHERE st.game_id=? AND st.station_id=? ORDER BY l.name""", (gid, sid))
     return {"history": hist, "lines": lines}
 
@@ -753,7 +758,7 @@ def api_map(q: dict) -> dict:
     paths = rows("""SELECT ls.line_id, ls.stop_index, l.name, l.color_r, l.color_g, l.color_b,
                            COALESCE(s1.x, s2.x, i.x) AS x, COALESCE(s1.y, s2.y, i.y) AS y
                     FROM line_stop ls
-                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id AND l.gone IS NULL
                     LEFT JOIN station s1 ON s1.game_id=ls.game_id AND s1.station_id=ls.station_group
                     LEFT JOIN station s2 ON s2.game_id=ls.game_id AND s2.station_group=ls.station_group
                         AND s2.station_id=(SELECT MIN(station_id) FROM station x WHERE x.game_id=ls.game_id AND x.station_group=ls.station_group AND x.x IS NOT NULL)
@@ -1173,7 +1178,7 @@ def predicted_routes(gid: int) -> dict:
     if not grow:
         return {}
     stops = rows("""SELECT ls.line_id, ls.stop_index, l.transport_modes, COALESCE(s1.x, s2.x, i.x) AS x, COALESCE(s1.y, s2.y, i.y) AS y
-                    FROM line_stop ls JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id
+                    FROM line_stop ls JOIN line l ON l.game_id=ls.game_id AND l.line_id=ls.line_id AND l.gone IS NULL
                     LEFT JOIN station s1 ON s1.game_id=ls.game_id AND s1.station_id=ls.station_group
                     LEFT JOIN station s2 ON s2.game_id=ls.game_id AND s2.station_group=ls.station_group
                         AND s2.station_id=(SELECT MIN(station_id) FROM station x WHERE x.game_id=ls.game_id AND x.station_group=ls.station_group AND x.x IS NOT NULL)
@@ -1672,7 +1677,7 @@ def api_games(q: dict) -> dict:
                                    (SELECT COUNT(*) FROM snapshot s WHERE s.game_id=g.game_id) snapshots,
                                    (SELECT MIN(real_time) FROM snapshot s WHERE s.game_id=g.game_id) oldest,
                                    (SELECT COUNT(*) FROM vehicle v WHERE v.game_id=g.game_id) vehicles,
-                                   (SELECT COUNT(*) FROM line l WHERE l.game_id=g.game_id) lines
+                                   (SELECT COUNT(*) FROM line l WHERE l.game_id=g.game_id AND l.gone IS NULL) lines
                             FROM game g ORDER BY g.last_seen DESC""")
         except sqlite3.Error:
             games = []

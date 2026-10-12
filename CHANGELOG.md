@@ -2,6 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Lines deleted in game stayed in the Lines tab, on the map, in the map's line filter and in a station's "lines calling here" forever, each under its last name (typically the default "Line 1"). The mod exports every line each cycle; the collector now marks a line that is no longer exported as gone (the row stays so the history of vehicles, alerts and towns keeps the name) and drops its stops. Hidden everywhere the live network is shown. A cycle whose lines section failed in the mod marks nothing.
+- Map line filter: a renamed line kept its old name in the list (rebuilt only when the number of lines changed). A filtered or selected line that disappears now falls back to all lines / an empty detail panel.
+
 ## Companion 0.8.2 - 12 October 2026
 
 Companion program 0.8.2 (12 October 2026, mod revision 16 unchanged): one fix. When the companion was restarted while the game was still writing the terrain of a new map of the same size as the previous one, the last bands were lost and the bottom of the map stayed coarse. https://github.com/M1r077/tf3-dashboard/releases/latest

@@ -34,6 +34,7 @@ ICON_MANIFEST = ROOT / "dashboard" / "static" / "icons" / "_manifest.json"
 ICON_EXTRACTOR = ROOT / "dashboard" / "extract_icons.py"
 BACKOFF_S = (2, 5, 10, 30)   # delay before restart number 1, 2, 3, 4+ in a row
 HEALTHY_S = 60               # a child that ran this long counts as healthy again (back to the first delay)
+BUSY_RC = 2                  # collector.py: another collector holds the database lock (see acquire_instance_lock)
 _print_lock = threading.Lock()
 
 
@@ -54,7 +55,7 @@ def port_answers(port: int) -> bool:
 
 
 def _child_env() -> dict:
-    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1", PYTHONDONTWRITEBYTECODE="1", TF3_SUPERVISED="1")
     if console.enabled():
         env["TF3_COLOR"] = "1"
     return env
@@ -73,6 +74,60 @@ def _die_with_parent_hook():
     return lambda: prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
 
 
+_job = None  # Windows job object handle, kept for the life of the launcher
+
+
+def _windows_job():
+    """Windows counterpart of PR_SET_PDEATHSIG: a job object with KILL_ON_JOB_CLOSE. Children are assigned to it
+    right after they start; when the launcher dies (window closed, taskkill, crash) the system closes the job's last
+    handle and kills every process in it. Without this the server kept running and holding the port after the
+    Windows Terminal pane was closed. Returns the handle, or None when unavailable (then children are simply not
+    assigned)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateJobObjectW.restype = wintypes.HANDLE
+        k32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+
+        class IoCounters(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_ulonglong) for n in ("ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                                                          "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class BasicLimit(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+        class ExtendedLimit(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", BasicLimit), ("IoInfo", IoCounters), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = ExtendedLimit()
+        info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)):  # JobObjectExtendedLimitInformation
+            return None
+        return job
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _assign_to_job(proc: subprocess.Popen) -> None:
+    if _job is None or sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.WinDLL("kernel32").AssignProcessToJobObject(_job, int(proc._handle))  # noqa: SLF001 - the Win32 handle Popen holds
+    except (OSError, AttributeError):
+        pass
+
+
 class Child:
     def __init__(self, name: str, argv: list[str], prefixed: bool):
         self.name = name
@@ -82,6 +137,7 @@ class Child:
         self.started = 0.0
         self.failures = 0
         self.next_start = 0.0
+        self.busy_warned = False
 
     def ready(self) -> bool:
         """Checks before (re)starting; False = try again on a later tick."""
@@ -94,6 +150,7 @@ class Child:
         if self.prefixed:
             kw.update(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.proc = subprocess.Popen([sys.executable, *self.argv], **kw)
+        _assign_to_job(self.proc)
         self.started = time.monotonic()
         if self.prefixed:
             threading.Thread(target=self._pump, args=(self.proc,), daemon=True).start()
@@ -147,6 +204,8 @@ def supervise(children: list[Child], url: str | None, server: Server | None) -> 
         if hasattr(signal, name):
             signal.signal(getattr(signal, name), on_signal)
     preexec = _die_with_parent_hook()
+    global _job
+    _job = _windows_job()
     opened = url is None
     try:
         while True:
@@ -159,10 +218,20 @@ def supervise(children: list[Child], url: str | None, server: Server | None) -> 
                 rc = c.proc.poll()
                 if rc is None:
                     continue
+                c.proc = None
+                if rc == BUSY_RC:
+                    # the collector found another one on the same database (its own message said so): not a failure,
+                    # poll until that window is closed, like the server does for a taken port
+                    if not c.busy_warned:
+                        say(f"another TF3 Dashboard is already recording into this database: close that window first. "
+                            f"The {c.name} starts here as soon as it is gone (checks every 5 s).", "warn")
+                        c.busy_warned = True
+                    c.next_start = now + 5
+                    continue
+                c.busy_warned = False
                 c.failures = 1 if now - c.started > HEALTHY_S else c.failures + 1
                 delay = BACKOFF_S[min(c.failures, len(BACKOFF_S)) - 1]
                 say(f"{c.name} stopped (exit code {rc}), restarting in {delay} s", "warn")
-                c.proc = None
                 c.next_start = now + delay
             if not opened and server is not None and server.running() and port_answers(server.port):
                 webbrowser.open(url)

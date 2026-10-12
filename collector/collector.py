@@ -1222,15 +1222,17 @@ def main(argv: list[str] | None = None) -> int:
         if not args.quiet:
             console.say(msg, level)
 
-    if not args.quiet:
-        console.banner(f"TF3 Dashboard collector {VERSION}", f"database: {args.db}")
-    # one collector per database: a second run_dashboard.cmd (a new map started without closing the first window)
-    # would make both write the same file and one of them hit "database is locked" every few snapshots
+    # one collector per database: a second launcher (a new map started without closing the first window) would make
+    # both write the same file and one of them hit "database is locked" every few snapshots. Exit code 2 = "busy":
+    # launch.py retries every 5 s without counting it as a crash
     other = acquire_instance_lock(args.db)
     if other is not None:
-        say(f"another collector is already running on this database (PID {other}): close the other TF3 Dashboard "
-            f"window first, then press a key here to retry.", "error")
+        if not os.environ.get("TF3_SUPERVISED"):  # under launch.py the launcher says it once instead of us every 5 s
+            say(f"another collector is already running on this database (PID {other}): close the other TF3 Dashboard "
+                f"window first.", "error")
         return 2
+    if not args.quiet:
+        console.banner(f"TF3 Dashboard collector {VERSION}", f"database: {args.db}")
     for w in tf3paths.sync_warning(args.db):
         say(w, "warn")
     if store.added_columns:

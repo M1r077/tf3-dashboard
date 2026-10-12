@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.7.3 - 12 October 2026
+
+Companion program 0.7.3 (12 October 2026, mod revision 16 unchanged): two small things after 0.7.2. Charts fill their card down to the padding. A one-time bubble under the Arrange button on the first visit. README: blank page when an ad blocker, VPN or firewall cuts 127.0.0.1. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 - Charts fill their card down to the padding (the legend was measured before the layout settled, tiny cards fell back to the default height).
 - First visit: a one-time bubble under the Arrange button says what it does; gone on click or after 12 s.

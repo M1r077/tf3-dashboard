@@ -79,7 +79,7 @@ Revision 9 + companion program 0.3.2 (8 October 2026): required after the game's
 
 ## Mod 8 / companion 0.3.1 - October 2026
 
-Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); PortuguÃªs (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
+Revision 8 + companion program 0.3.1 (October 2026): cargo on board, horn, Brazilian Portuguese. Vehicles show what they carry (the cargo icons the game draws above the wagons, with counts) and what they were bought for; H or a button sounds the horn of a vehicle or of a whole line; new detail cards for industries and stations with their history; network and company value charts; the headquarters on the map (Guilherme Seibert Zulian); Português (Brasil) thanks to Guilherme Seibert Zulian. The mod exports the cargo per vehicle, the headquarters and the horn command; everything else is in the companion. Revision 8 needs companion 0.3.1 for the new vehicle columns; older companions keep working without them. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 ## Earlier
 

@@ -1,4 +1,4 @@
-"""Migration check, run by build_release.cmd (no zip if it fails):
+"""Migration check, run by build_release.py (no archive if it fails):
 
   python test\\migrate_check.py
 

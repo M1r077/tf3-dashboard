@@ -5,7 +5,7 @@ Grayscale TGA icons (the game tints them at runtime) are converted to white-on-t
 copied as RGBA PNG.
 
 Usage: python extract_icons.py [--game "C:\\...\\Transport Fever 3"] [--out static/icons]
-The game folder is auto-detected from the Steam library folders when --game is omitted.
+The game folder is auto-detected (Steam, Epic, GOG, Heroic, Wine prefixes; see find_game) when --game is omitted.
 Stdlib only (own TGA decoder + PNG writer): the icons are read from YOUR game installation at first start,
 they are not distributed with the dashboard.
 """
@@ -94,74 +94,106 @@ class Image:
         Path(path).write_bytes(png)
 
 
-def _is_game(g: Path) -> bool:
-    return (g / "base" / "content" / "gui.zip").exists()
+def _game_root(g: Path) -> Path | None:
+    """The game folder (the one holding base/content/gui.zip) for a candidate install folder: the folder itself, or
+    its game/ subfolder (GOG Linux installers and Heroic's GOG Linux builds put the game there)."""
+    for c in (g, g / "game"):
+        try:
+            if (c / "base" / "content" / "gui.zip").is_file():
+                return c
+        except OSError:
+            pass
+    return None
+
+
+def _windows_candidates():
+    # Epic Games Launcher: one JSON manifest per installed game
+    manifests = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests"
+    try:
+        for item in manifests.glob("*.item"):
+            try:
+                m = json.loads(item.read_text(encoding="utf-8", errors="replace"))
+            except ValueError:
+                continue
+            loc = m.get("InstallLocation")
+            if loc and "transport fever 3" in (m.get("DisplayName") or loc).lower():
+                yield Path(loc)
+    except OSError:
+        pass
+    # GOG Galaxy: HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\<id>\path
+    try:
+        import winreg
+        for hive, key in ((winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\GOG.com\Games"),
+                          (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GOG.com\Games")):
+            try:
+                with winreg.OpenKey(hive, key) as games:
+                    i = 0
+                    while True:
+                        try:
+                            sub = winreg.EnumKey(games, i)
+                        except OSError:
+                            break
+                        i += 1
+                        try:
+                            with winreg.OpenKey(games, sub) as k:
+                                p, _ = winreg.QueryValueEx(k, "path")
+                            if p:
+                                yield Path(p)
+                        except OSError:
+                            continue
+            except OSError:
+                pass
+    except ImportError:
+        pass
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if base:
+            yield from _usual_folders(Path(base))
+
+
+def _usual_folders(base: Path):
+    """<base>/{Epic Games, GOG Galaxy/Games, GOG Games}/<game folder name>: the launchers' default install folders
+    (base = Program Files, or a Wine prefix's drive_c/Program Files*)."""
+    for store in ("Epic Games", "GOG Galaxy/Games", "GOG Games"):
+        for name in tf3paths.GAME_FOLDER_NAMES:
+            yield base / store / name
+
+
+def _linux_candidates():
+    # Heroic: install_path of every installed game (Linux paths, also for Windows builds run through Wine)
+    yield from tf3paths.heroic_install_paths()
+    # standalone GOG installers, Heroic/Lutris default folders
+    home = Path.home()
+    for base in (home / "GOG Games", home / "Games", home / "Games" / "Heroic"):
+        for name in (*tf3paths.GAME_FOLDER_NAMES, "transport-fever-3"):
+            yield base / name
+    # Windows build installed inside a Wine prefix (GOG Galaxy / Epic / standalone installer run under Wine)
+    for _, pfx in tf3paths.wine_prefixes():
+        drive_c = pfx / "drive_c"
+        for pf in ("Program Files", "Program Files (x86)"):
+            yield from _usual_folders(drive_c / pf)
+        for name in tf3paths.GAME_FOLDER_NAMES:
+            yield drive_c / "GOG Games" / name
 
 
 def find_game() -> Path | None:
-    """Transport Fever 3 install folder: config.json game_dir, every Steam library (libraryfolders.vdf), the Epic
-    launcher manifests, the GOG registry keys, then a few usual folders."""
-    import re
-    cfg = tf3paths.load_config().get("game_dir")
-    if cfg and _is_game(Path(cfg)):
-        return Path(cfg)
-    for root in tf3paths.steam_roots():
-        libs = [root]
-        vdf = root / "steamapps" / "libraryfolders.vdf"
-        try:
-            libs += [Path(p.replace("\\\\", "\\")) for p in re.findall(r'"path"\s+"([^"]+)"', vdf.read_text(encoding="utf-8", errors="replace"))]
-        except OSError:
-            pass
-        for lib in libs:
-            g = lib / "steamapps" / "common" / "Transport Fever 3"
-            if _is_game(g):
-                return g
-    if sys.platform == "win32":
-        # Epic Games Launcher: one JSON manifest per installed game
-        manifests = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Epic" / "EpicGamesLauncher" / "Data" / "Manifests"
-        try:
-            for item in manifests.glob("*.item"):
-                try:
-                    m = json.loads(item.read_text(encoding="utf-8", errors="replace"))
-                except ValueError:
-                    continue
-                loc = m.get("InstallLocation")
-                if loc and "transport fever 3" in (m.get("DisplayName") or loc).lower() and _is_game(Path(loc)):
-                    return Path(loc)
-        except OSError:
-            pass
-        # GOG Galaxy: HKLM\SOFTWARE\WOW6432Node\GOG.com\Games\<id>\path
-        try:
-            import winreg
-            for hive, key in ((winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\GOG.com\Games"),
-                              (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\GOG.com\Games")):
-                try:
-                    with winreg.OpenKey(hive, key) as games:
-                        i = 0
-                        while True:
-                            try:
-                                sub = winreg.EnumKey(games, i)
-                            except OSError:
-                                break
-                            i += 1
-                            try:
-                                with winreg.OpenKey(games, sub) as k:
-                                    p, _ = winreg.QueryValueEx(k, "path")
-                                if p and _is_game(Path(p)):
-                                    return Path(p)
-                            except OSError:
-                                continue
-                except OSError:
-                    pass
-        except ImportError:
-            pass
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
-            if not base:
-                continue
-            for g in (Path(base) / "Epic Games" / "TransportFever3", Path(base) / "Epic Games" / "Transport Fever 3",
-                      Path(base) / "GOG Galaxy" / "Games" / "Transport Fever 3", Path(base) / "GOG Games" / "Transport Fever 3"):
-                if _is_game(g):
-                    return g
+    """Transport Fever 3 install folder: config.json game_dir, every Steam library (libraryfolders.vdf), then
+    Windows: the Epic launcher manifests, the GOG registry keys, the usual folders; Linux: Heroic's installed games,
+    the usual folders, Wine prefixes."""
+    def candidates():
+        cfg = tf3paths.load_config().get("game_dir")
+        if cfg:
+            yield Path(str(cfg)).expanduser()
+        for lib in tf3paths.steam_libraries():
+            yield lib / "steamapps" / "common" / "Transport Fever 3"
+        if sys.platform == "win32":
+            yield from _windows_candidates()
+        elif sys.platform != "darwin":
+            yield from _linux_candidates()
+
+    for c in candidates():
+        g = _game_root(c)
+        if g is not None:
+            return g
     return None
 
 # output name -> (zip relative to base/content, path inside zip)
@@ -460,12 +492,13 @@ def extract_vehicles(game: Path, out: Path) -> int:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--game", default=None, help="Transport Fever 3 install folder (default: auto-detect from Steam)")
+    ap.add_argument("--game", default=None, help="Transport Fever 3 install folder (default: auto-detect)")
     ap.add_argument("--out", default=str(Path(__file__).parent / "static" / "icons"))
     a = ap.parse_args()
-    game = Path(a.game) if a.game else find_game()
-    if game is None or not (game / "base" / "content" / "gui.zip").exists():
-        print("Transport Fever 3 installation not found. Pass --game \"<folder containing base\\content\\gui.zip>\"\n"
+    game = _game_root(Path(a.game).expanduser()) if a.game else find_game()
+    if game is None:
+        gui = os.path.join("base", "content", "gui.zip")
+        print(f"Transport Fever 3 installation not found. Pass --game \"<folder containing {gui}>\"\n"
               "or add  \"game_dir\": \"...\"  to config.json. The dashboard works without icons (text fallback).",
               file=sys.stderr)
         return 1

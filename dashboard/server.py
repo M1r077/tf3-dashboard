@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.7.4"  # companion version (semver); build_release.cmd reads this line
+VERSION = "0.7.4"  # companion version (semver); build_release.py reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -1772,7 +1772,7 @@ def restore_backup(body: dict) -> dict:
             with z.open("tf3_dashboard.db") as src, open(target, "wb") as dst:
                 shutil.copyfileobj(src, dst)
             res["db_staged"] = True
-            console.say(f"database from {p.name} staged: the collector swaps it in at its next start (restart run_dashboard.cmd)", "warn")
+            console.say(f"database from {p.name} staged: the collector swaps it in at its next start (restart {tf3paths.launcher_name()})", "warn")
     return res
 
 

@@ -29,7 +29,7 @@ import tf3paths  # noqa: E402
 
 VERSION = tf3paths.version()
 SCHEMA_SQL = Path(__file__).resolve().parent / "schema.sql"
-ERROR_LOG = tf3paths.ROOT / "db" / "collector_errors.log"
+ERROR_LOG = tf3paths.DATA_DIR / "db" / "collector_errors.log"
 
 
 def iso(ts: float | None = None) -> str:

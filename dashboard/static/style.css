@@ -218,10 +218,13 @@ table.data tbody tr:hover td.stick { background: var(--panel2); }
 table.data tbody tr.sel td.stick { background: #22303c; }
 table.data .stick-last { box-shadow: 8px 0 8px -8px rgba(0,0,0,.6); }
 table.data td.wrap { white-space: normal; }
-/* industries: one line per industry, cargo flows inline */
-#ind-table .indcargo { display: inline-flex; align-items: center; gap: 5px; margin-right: 16px; vertical-align: middle; }
+/* industries: inputs and outputs stack one cargo per line inside their cell (a cargo is icon + bar + figures), so the
+   two columns stay one cargo wide and the row grows down instead of pushing the outputs off-screen */
+#ind-table .indcargo { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+#ind-table .indcargo + .indcargo { margin-top: 3px; }
 #ind-table .indcargo .chip { margin-right: 0; }
 #ind-table .indcargo .bar { width: 60px; }
+#ind-table td:has(> .indcargo) { vertical-align: middle; }
 /* stations: per-cargo waiting chips after the total, one line, muted next to the figure */
 #st-table .wchips { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; white-space: nowrap; }
 #st-table .wchips .chip { margin: 0; padding: 0 5px; line-height: 1.5; }

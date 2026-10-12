@@ -1292,7 +1292,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const cargoCell = (i, dir) => i.cargo.filter(c => c.direction === dir).map(c => {
       const a = dir === "out" ? c.produced_year : c.consumed_year, m = dir === "out" ? c.max_prod_year : c.max_cons_year;
       const shipped = dir === "out" ? c.shipped_year : c.delivered_year;
-      return `<span class="indcargo">${cargoChip(c)}${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)}<small class="muted" title="${esc(dir === "out" ? t("shipped") : t("delivered"))}">${ico(dir === "out" ? "cargo_supplied" : "cargo_received", "sm")}${int(shipped)}</small></span>`;
+      // icon only (the name is its tooltip): a cargo line stays narrow enough for inputs and outputs side by side
+      return `<span class="indcargo">${cargoIcon(c)}${bar(a || 0, m || 0, "", `${int(a)}/${int(m)}`)}<small class="muted" title="${esc(dir === "out" ? t("shipped") : t("delivered"))}">${ico(dir === "out" ? "cargo_supplied" : "cargo_received", "sm")}${int(shipped)}</small></span>`;
     }).join("") || '<span class="muted">–</span>';
     const cols = [
       { key: "name", label: t("th_industry"), icon: "industry", sticky: true, render: i => `${esc(i.name)} <small class="muted">${esc((i.construction || "").replace(/^.*\//, "").replace(/\.con$/, ""))}</small>` },

@@ -2411,7 +2411,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const hb = hmap.data && hmap.meta && !partial ? hmap.meta.bounds : g.bounds;  // the HD picture covers its own bounds
       const [ax, ay] = P(hb[0], hb[3]), [bx, by] = P(hb[2], hb[1]);
       const bmKey = showW ? "bmW" : "bmL";
-      if (!geo[bmKey] || geo.bmSeq !== geo.seq) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = geo.seq; }
+      // rebuilt when the geography or the picture changed (a partial becoming complete must drop the coarse bitmap)
+      const bmStamp = geo.seq + "|" + (partial ? "grid" : hmap.revs);
+      if (!geo[bmKey] || geo.bmSeq !== bmStamp) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = bmStamp; }
       if (geo[bmKey]) { ctx.imageSmoothingEnabled = true; ctx.drawImage(geo[bmKey], ax, ay, bx - ax, by - ay); }
       else { ctx.fillStyle = `rgb(${th.land.join(",")})`; ctx.fillRect(ax, ay, bx - ax, by - ay); }
       if (partial) {

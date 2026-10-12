@@ -827,7 +827,11 @@ def api_heightmap(q: dict) -> dict:
         v = f"{int(st.st_mtime)}-{st.st_size}"
     except OSError:
         return {"available": False}
-    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={v}"})
+    # the sidecar describes which rows of the picture are real: when the two files disagree (a partial being
+    # replaced right now - the collector writes the PNG first, then the JSON), the picture's byte size tells
+    if meta.get("bytes") not in (None, st.st_size):
+        return {"available": False}
+    meta.update({"available": True, "game_id": gid, "url": f"/height/{gid}.png?v={v}-{meta.get('bands_done', 'x')}"})
     return meta
 
 

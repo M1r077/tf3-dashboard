@@ -1140,8 +1140,12 @@ class SlowFiles:
 
     def height_bands(self) -> list[dict]:
         """tf3dash_height_<k>.lua: the bands of the full-resolution heightmap that changed since last read."""
+        # in writing order, not by name: after a collector restart every file is "changed", and the folder still holds
+        # the bands of the previous map (more bands than the new one has) - the newest export must come last so the
+        # assembler keeps it, not the leftovers
         out = []
-        for p in sorted(self.dir.glob(f"{self.prefix}height_*.lua")):
+        paths = list(self.dir.glob(f"{self.prefix}height_*.lua"))
+        for p in sorted(paths, key=lambda q: (os.path.getmtime(q) if q.exists() else 0, q.name)):
             name = p.stem[len(self.prefix):]
             d = self._changed_file(name, "tiles")
             if d is not None:
@@ -1430,12 +1434,22 @@ def main(argv: list[str] | None = None) -> int:
                             say(f"journal ingest failed: {e!r}", "error")
                         # full-resolution heightmap: band files -> db/height_<game>.png once complete
                         try:
-                            # written band by band (every 4, and at the end): a new map's relief grows on the dashboard
+                            # written band by band (every 3, and at the end): a new map's relief grows on the dashboard
                             # instead of appearing all at once after a minute
                             bands_in = 0
+                            revs_before = height_asm.revs
                             for band in slow_files.height_bands():
                                 height_asm.add(band)
                                 bands_in += 1
+                            if bands_in and height_asm.revs != revs_before:
+                                # a new terrain export began: whatever picture sits under this game's name is from
+                                # another map (same player id reused by the game) - drop it, the bands replace it
+                                gid = store.game_id(snap, iso())
+                                for suf in (".png", ".json"):
+                                    try:
+                                        (args.db.parent / f"height_{gid}{suf}").unlink()
+                                    except OSError:
+                                        pass
                             if bands_in and height_asm.should_write():
                                 gid = store.game_id(snap, iso())
                                 meta = height_asm.write_png(args.db.parent / f"height_{gid}.png")

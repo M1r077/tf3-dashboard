@@ -654,7 +654,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
-    renderOffline(o); renderCollectorErrors(o);
+    renderOffline(o); renderCollectorErrors(o); renderNewMap(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
     if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
     return o;
@@ -2058,6 +2058,28 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const session = g.first_seen && g.last_seen ? ` <span class="muted">${t("offline_session", { a: realDate(g.first_seen), b: realDate(g.last_seen), n: int(g.snapshots || 0) })}</span>` : "";
     $("#offline-text").innerHTML = t("offline_text", { save: `<b>${esc(label)}</b>`, date: `<b>${esc(date(s))}</b>`, ago: ago(s.real_time || s.received_at) }) + session;
     const pick = $("#offline-pick"); pick.style.display = (o.live.selected || o.live.has_other) ? "" : "none";
+  }
+
+  // a new savegame (recorded for less than 10 min) whose map is still being produced: one line under the KPIs saying
+  // what is on its way, until geography and terrain are both in. Checked from the overview poll, on every tab;
+  // the map tab's own loads fill geo / hmap, elsewhere a light probe of the two endpoints does
+  const newMap = { probedAt: 0, geo: null, hm: null };
+  async function renderNewMap(o) {
+    const bar = $("#newmap-bar"); if (!bar) return;
+    const young = youngGame();
+    if (!young) { bar.style.display = "none"; return; }
+    if (state.tab !== "map" && Date.now() - newMap.probedAt > 4000) {
+      newMap.probedAt = Date.now();
+      try { const [g, m] = await Promise.all([api("/api/geo?have=-1&game=-1"), api("/api/heightmap")]); newMap.geo = !!g.available; newMap.hm = m; } catch (e) { /* older server */ }
+    }
+    const hasGeo = state.tab === "map" ? !!geo.data : newMap.geo, hm = state.tab === "map" ? hmap.meta : (newMap.hm && newMap.hm.available ? newMap.hm : null);
+    const done = hasGeo && hm && hm.complete !== false;
+    bar.style.display = done ? "none" : "";
+    if (done) return;
+    const parts = [];
+    parts.push(hasGeo ? t("newmap_geo_ok") : t("newmap_geo"));
+    parts.push(hm && hm.complete === false ? t("newmap_terrain_bands", { a: hm.bands_done, b: hm.bands_total }) : hm ? t("newmap_terrain_ok") : t("newmap_terrain"));
+    $("#newmap-text").innerHTML = `<b>${t("newmap_title")}</b> · ${parts.join(" · ")}`;
   }
 
   // the collector failed to record something in the last 24 h (db/collector_errors.log): a red bar nobody can miss.

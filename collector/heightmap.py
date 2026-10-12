@@ -153,7 +153,7 @@ class HeightAssembler:
                 out.append([y0, y1])
         return out
 
-    def should_write(self, every: int = 6) -> bool:
+    def should_write(self, every: int = 3) -> bool:
         """A partial picture is worth writing every `every` bands, the complete one always."""
         return self.complete or (self.n_done - max(self.written_bands, 0)) >= every or self.written_bands < 0
 

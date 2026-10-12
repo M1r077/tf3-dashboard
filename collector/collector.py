@@ -1435,6 +1435,8 @@ def main(argv: list[str] | None = None) -> int:
                                     gid = store.game_id(snap, iso())
                                     meta = height_asm.write_png(args.db.parent / f"height_{gid}.png")
                                     say(f"heightmap: {meta['width']}x{meta['height']} px at {meta['step']:.0f} m, {meta['bytes'] / 1e6:.1f} MB", "ok")
+                                elif len(height_asm.bands) in (1, 10, 20, 30):  # a new map: say the terrain is on its way
+                                    say(f"heightmap: {len(height_asm.bands)}/{band.get('bands')} bands received", "info")
                         except Exception as e:  # noqa: BLE001
                             say(f"heightmap failed: {e!r}", "error")
                     if sid is not None:

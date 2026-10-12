@@ -585,6 +585,10 @@ table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertic
 .errorsbar .ico { color: var(--bad); }
 .errorsbar code { font-size: 11px; opacity: .85; }
 body.offline #k-date { color: var(--warn); }
+/* the game has not written for a while (menu, loading another map, closed): the figures are the last known ones -
+   the page steps back a little, nothing is hidden. Lifted the moment a fresh snapshot arrives. */
+body.quiet main { opacity: .72; transition: opacity 1.5s; }
+main { transition: opacity .3s; }
 /* stacked gauges in a cell (quality pax + cargo, one gauge per cargo type): one compact row each, shorter bars */
 .qstack { display: inline-flex; flex-direction: column; gap: 2px; vertical-align: middle; }
 .qstack > span { display: inline-flex; align-items: center; white-space: nowrap; line-height: calc(var(--isz) * 0.75); }

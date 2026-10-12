@@ -2,6 +2,12 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- New map while the page stays open: the dashboard notices the new savegame at its first snapshot, drops everything it cached from the previous one and lands on the map, where the new world builds up in front of the player (towns and industries at once, water and network a few seconds later, relief after a minute or two - the legend says what is still on its way). Before, the previous map stayed on screen and the current tab emptied itself.
+- The page dims a little when the game has not written for 20 s (menu, loading screen, closed) with "game quiet" in the status; back to normal with the next snapshot.
+- Collector: logs the terrain bands as they arrive (1, 10, 20, 30 of N).
+
 ## Companion 0.8.0 - 12 October 2026
 
 Companion program 0.8.0 (12 October 2026, mod revision 16 unchanged): the companion runs on Linux, thanks to t-heuser (#98). Native build or Windows build under Wine / Proton (Heroic, Steam Proton, Lutris, Bottles), `run_dashboard.sh`, a `-linux.tar.gz` archive next to the `-windows.zip`. One shared launcher handles icons, port, restarts and the browser on both systems. Also: one collector per database (a second window waits instead of corrupting the history), and closing the Windows window reliably stops both parts. https://github.com/M1r077/tf3-dashboard/releases/latest

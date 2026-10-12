@@ -601,8 +601,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const o = await api("/api/overview");
     const dot = $("#st-dot"), txt = $("#st-text");
     if (o.version) $("#brand-ver").textContent = o.version;
-    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); updateCmdUi(null); renderOffline(null); renderCollectorErrors(o); await renderSetup(); return null; }
+    if (o.empty) { dot.className = "dot dead"; txt.textContent = t("empty_db"); document.body.classList.remove("quiet"); updateCmdUi(null); renderOffline(null); renderCollectorErrors(o); await renderSetup(); return null; }
     $("#setup-card").style.display = "none";
+    // another savegame started writing (new map, or an older save loaded) while the page stayed open: everything
+    // cached belongs to the previous one. Start over and land on the map, where the new world builds up in front
+    // of the player (towns at once, water and network a few seconds later, relief when the terrain is assembled)
+    const gk = o.game && o.game.key;
+    if (gk && state.gameKey && gk !== state.gameKey && !o.live.selected) { resetGameState(); map.userView = false; showTab("map"); }
+    if (gk) { state.gameKey = gk; state.gameFirstSeen = o.game.first_seen || null; }
     if (o.lang && o.lang !== i18n.gameLang) {
       i18n.gameLang = o.lang;
       // follow the game language unless the user picked one explicitly
@@ -615,7 +621,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const written = s.real_time || s.received_at;
     const age = (Date.now() - new Date(written).getTime()) / 1000;
     dot.className = "dot " + (age < 15 ? "live" : age < 120 ? "stale" : "dead");
-    txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(written) }) + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
+    // quiet for 20 s: menu, pause screen, a map being loaded, game closed - the page dims a little while it waits
+    const quiet = age > 20;
+    document.body.classList.toggle("quiet", quiet);
+    txt.textContent = t("snapshot_status", { id: s.snapshot_id, ago: ago(written) }) + (quiet && age < 120 ? " · " + t("game_quiet") : "") + (s.n_errors ? " · " + t("errors_n", { n: s.n_errors }) : "");
     // optional game clock (snapshot.time_of_day_s, seconds since midnight in game time)
     const clock = settings.clock && s.time_of_day_s != null ? ` ${String(Math.floor(s.time_of_day_s / 3600) % 24).padStart(2, "0")}:${String(Math.floor(s.time_of_day_s / 60) % 60).padStart(2, "0")}` : "";
     $("#k-date").textContent = date(s) + clock;
@@ -2025,10 +2034,18 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const r = await fetch("/api/select_game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key }) });
     const j = await r.json();
     if (!j.ok) { $("#cmd-status").textContent = t("act_failed", { msg: j.error || r.status }); $("#cmd-status").className = "cmdstatus bad"; return; }
-    // a different save = different map, views, lines: start the caches over
-    state.cache = {}; state.selLine = state.selTown = state.selVeh = state.selInd = state.selSt = null; camViews.loaded = false; geo.data = null; geo.seq = null; geo.game = null; linePaths.stamp = null; linePaths.lines = null; linePaths.poly = {}; linePaths.builtFor = ""; map.data = null; map.fitted = false;
+    resetGameState();
     await refresh();
     renderSaves();
+  }
+  // a different save = different map, views, lines, terrain: start every cache over (manual pick, or detected in renderTop)
+  function resetGameState() {
+    state.cache = {}; state.selLine = state.selTown = state.selVeh = state.selInd = state.selSt = null; camViews.loaded = false;
+    geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; geo.key = ""; geo.bmSeq = null; geo.edgeById = null; geo.firstFit = false;
+    linePaths.stamp = null; linePaths.lines = null; linePaths.poly = {}; linePaths.builtFor = "";
+    hmap.meta = null; hmap.data = null; hmap.revs = null;
+    mapCargo.data = null; mapCargo.at = 0;
+    map.data = null; map.fitted = false;
   }
   function renderOffline(o) {
     const bar = $("#offline-bar"); if (!bar) return;
@@ -2651,8 +2668,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
     drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
-    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")} · <span style="color:#9aa7b4">${ico("depot", "sm")}</span>${t("legend_depot")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t("legend_no_geo")}</span>`}`;
+    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")} · <span style="color:#9aa7b4">${ico("depot", "sm")}</span>${t("legend_depot")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t(youngGame() ? "legend_building_geo" : "legend_no_geo")}</span>`}${geo.data && !hmap.meta && youngGame() ? `<span class="muted">${t("legend_building_terrain")}</span>` : ""}`;
   }
+  // a savegame recorded for less than 10 minutes: what the map lacks is still being produced by the mod (water and
+  // network a few seconds after the first snapshot, the full-resolution terrain after a minute or two), not missing
+  const youngGame = () => state.gameFirstSeen && Date.now() - new Date(state.gameFirstSeen).getTime() < 600e3;
   function pickMap(canvas, e) {
     const d = map.data; if (!d) return null;
     const r = canvas.getBoundingClientRect(); const mx = e.clientX - r.left, my = e.clientY - r.top;

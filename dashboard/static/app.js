@@ -1297,8 +1297,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
     // served = at least one line calls there (the game's own count)
     const sq = $("#st-filter").value.toLowerCase();
-    const kind = state.served.stations_kind || "all";  // all | pax | cargo (a mixed station passes both)
-    const stRows = stations.filter(x => (!sq || (x.name || "").toLowerCase().includes(sq) || (x.town_name || "").toLowerCase().includes(sq)) && servedPass("stations", (x.lines || 0) > 0) && (kind === "all" || stKind(x)[kind]));
+    // all | pax (passengers only) | cargo (cargo only) | both (a station that handles both): exclusive positions
+    const kind = state.served.stations_kind || "all";
+    const kindPass = (x) => { if (kind === "all") return true; const k = stKind(x); return kind === "both" ? k.pax && k.cargo : kind === "pax" ? k.pax && !k.cargo : k.cargo && !k.pax; };
+    const stRows = stations.filter(x => (!sq || (x.name || "").toLowerCase().includes(sq) || (x.town_name || "").toLowerCase().includes(sq)) && servedPass("stations", (x.lines || 0) > 0) && kindPass(x));
     renderTable($("#st-table"), [
       { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },

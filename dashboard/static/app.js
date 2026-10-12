@@ -2543,9 +2543,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const o = oc.getContext("2d"); o.clearRect(0, 0, size, size); o.drawImage(im, 0, 0, size, size); o.globalCompositeOperation = "source-in"; o.fillStyle = color; o.fillRect(0, 0, size, size); o.globalCompositeOperation = "source-over";
     ctx.drawImage(oc, x - size / 2, y - size / 2); return true;
   }
-  // Heading convention of api.gui.camera.getCameraData().angle: assumed 0 = looking towards +y (north), turning
-  // counter-clockwise. If the cone points the wrong way in the game, fix CAM_ANGLE_OFFSET / CAM_ANGLE_SIGN here.
-  const CAM_ANGLE_OFFSET = 0, CAM_ANGLE_SIGN = 1, CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
+  // Heading convention of api.gui.camera.getCameraData().angle, checked in game with the compass: the camera turns
+  // clockwise with the angle (sign -1), and looking north / east the cone came out west / south with offset 0, i.e.
+  // our picture was a quarter turn counter-clockwise -> a -90 deg offset
+  const CAM_ANGLE_OFFSET = -Math.PI / 2, CAM_ANGLE_SIGN = -1, CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
   function drawViewCone(ctx, c, color) {
     const a = CAM_ANGLE_SIGN * c.angle + CAM_ANGLE_OFFSET;
     const dx = -Math.sin(a), dy = Math.cos(a);                            // unit vector eye -> target (game coords)

@@ -2195,12 +2195,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // map style (gear next to the layer checkboxes): a few looks, each a palette + relief / network strength. Kept in
   // localStorage; changing one invalidates the terrain bitmap and the geo layer.
   const MAP_THEMES = {
-    dark:  { land: [30, 40, 48],   water: [16, 41, 74],   street: "#34424f", track: "#8a98a8", bridge: "#b8c4d0", frame: "#2c3a4a", page: "#0b1015" },
-    night: { land: [20, 24, 30],   water: [10, 22, 44],   street: "#2a323c", track: "#6a7684", bridge: "#98a4b0", frame: "#1e262e", page: "#07090c" },
-    atlas: { land: [96, 112, 92],  water: [58, 110, 160], street: "#c8c2b0", track: "#2e2e2e", bridge: "#111111", frame: "#3a4a3a", page: "#1a2024", ink: "#101418", halo: "rgba(255,255,255,.55)" },
-    paper: { land: [214, 206, 188], water: [150, 184, 210], street: "#ffffff", track: "#5a5248", bridge: "#2a2622", frame: "#a09888", page: "#2a2a2a", ink: "#1a1612", halo: "rgba(255,255,255,.7)" },
-    // the look of the game's own map preview: forest green by altitude, grey rock where the ground is steep, blue-grey water
-    satellite: { land: [96, 116, 66], water: [86, 112, 128], street: "#e6dcb8", track: "#262626", bridge: "#0e0e0e", frame: "#3a4a34", page: "#0b1015", ink: "#f4f6f8", halo: "rgba(0,0,0,.65)", sat: true },
+    // water = deep water; shallow = the first metres along the shore (the HD terrain knows the depth, see terrainBitmapHD)
+    dark:  { land: [30, 40, 48],   water: [16, 41, 74],   shallow: [30, 70, 112],  street: "#34424f", track: "#8a98a8", bridge: "#b8c4d0", frame: "#2c3a4a", page: "#0b1015" },
+    night: { land: [20, 24, 30],   water: [10, 22, 44],   shallow: [18, 40, 72],   street: "#2a323c", track: "#6a7684", bridge: "#98a4b0", frame: "#1e262e", page: "#07090c" },
+    atlas: { land: [96, 112, 92],  water: [58, 110, 160], shallow: [100, 156, 196], street: "#c8c2b0", track: "#2e2e2e", bridge: "#111111", frame: "#3a4a3a", page: "#1a2024", ink: "#101418", halo: "rgba(255,255,255,.55)" },
+    paper: { land: [214, 206, 188], water: [150, 184, 210], shallow: [186, 210, 228], street: "#ffffff", track: "#5a5248", bridge: "#2a2622", frame: "#a09888", page: "#2a2a2a", ink: "#1a1612", halo: "rgba(255,255,255,.7)" },
+    // the look of the game's own map preview: forest green by altitude, grey rock where the ground is steep, the game's
+    // teal water with its lighter turquoise rim along the shore
+    satellite: { land: [96, 116, 66], water: [22, 96, 94], shallow: [100, 190, 176], street: "#e6dcb8", track: "#262626", bridge: "#0e0e0e", frame: "#3a4a34", page: "#0b1015", ink: "#f4f6f8", halo: "rgba(0,0,0,.65)", sat: true },
   };
   const MAP_DEFAULTS = { theme: "dark", relief: 1, net: 1, lines: 1 };
   const mapPrefs = () => { try { const p = Object.assign({}, MAP_DEFAULTS, JSON.parse(localStorage.getItem("tf3.map") || "{}")); const q = new URLSearchParams(location.search).get("mapstyle"); if (q && MAP_THEMES[q]) p.theme = q; return p; } catch (e) { return { ...MAP_DEFAULTS }; } };  // ?mapstyle= for screenshots
@@ -2274,20 +2276,23 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       ? [[0, 92, 116, 60], [0.2, 112, 132, 70], [0.45, 138, 148, 84], [0.7, 160, 150, 104], [0.9, 176, 168, 150], [1, 236, 238, 240]]
       : [[0, 92, 118, 86], [0.35, 118, 134, 88], [0.6, 150, 136, 100], [0.8, 140, 134, 128], [0.9, 236, 238, 240], [1, 255, 255, 255]];
     const rampAt = (t) => { let i = 1; while (i < ramp.length - 1 && ramp[i][0] < t) i++; const a = ramp[i - 1], b = ramp[i], u = (t - a[0]) / Math.max(1e-6, b[0] - a[0]); return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u]; };
-    const rock = [132, 128, 122], water = th.water, zx = (th.sat ? 1.4 : 1.0) * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    const rock = [132, 128, 122], water = th.water, shallow = th.shallow || water, zx = (th.sat ? 1.4 : 1.0) * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
+    // two-tone water like the game: the sea bed within SHALLOW_M of the surface shows the lighter rim, deeper is the
+    // flat water colour. Lakes flagged by the grid above the water level have no depth: shallow tone
+    const SHALLOW_M = 6, wlRaw = waterRaw;
     const hAt = (x, y) => H[Math.max(0, Math.min(Hh - 1, y)) * W + Math.max(0, Math.min(W - 1, x))];
     const bw = m.bounds, gw = g && g.bounds ? g.bounds : bw;
     const ready = hmap.ready;
+    // pass 1: which pixels are water (below the level, or a grid/shore cell says so: lakes and rivers above the level)
+    const wetMap = new Uint8Array(W * Hh);
     for (let y = 0; y < Hh; y++) {
-      if (ready && !ready[y]) continue;  // band not received yet: transparent, the coarse terrain shows through
-      // the picture runs north (row 0) to south like the grid; world y of this row
+      if (ready && !ready[y]) continue;
       const wy = bw[3] - (y + 0.5) / Hh * (bw[3] - bw[1]);
       for (let x = 0; x < W; x++) {
-        const i = y * W + x, o = i * 4, raw = H[i];
-        const wx = bw[0] + (x + 0.5) / W * (bw[2] - bw[0]);
-        // water: below the level, or a grid/shore cell says so (lakes above the level)
+        const i = y * W + x, raw = H[i];
         let isW = raw <= waterRaw + 0.5;
         if (!isW && wat) {
+          const wx = bw[0] + (x + 0.5) / W * (bw[2] - bw[0]);
           const col = Math.floor((wx - gw[0]) / (gw[2] - gw[0]) * nx), row = Math.floor((gw[3] - wy) / (gw[3] - gw[1]) * ny);
           if (col >= 0 && col < nx && row >= 0 && row < ny) {
             const mask = shore.get(row * nx + col);
@@ -2295,7 +2300,19 @@ const rgbLit = (r, g, b, minY = 0.42) => {
             else isW = wat[row * nx + col] === 1;
           }
         }
-        if (isW && withWater) { px[o] = water[0]; px[o + 1] = water[1]; px[o + 2] = water[2]; px[o + 3] = 255; continue; }
+        if (isW) wetMap[i] = 1;
+      }
+    }
+    // pass 2: distance to the shore in pixels (two-sweep chamfer, capped), the "depth" of lakes and rivers whose bed
+    // the heightmap does not place under the sea level. The sea uses the real depth where it is larger
+    const RIM_PX = Math.max(2, Math.round(SHALLOW_M * 6 / step)), BIG = 255, dist = new Uint8Array(W * Hh).fill(BIG);
+    for (let y = 0; y < Hh; y++) for (let x = 0; x < W; x++) { const i = y * W + x; if (!wetMap[i]) { dist[i] = 0; continue; } let d = BIG; if (x) d = Math.min(d, dist[i - 1] + 1); if (y) d = Math.min(d, dist[i - W] + 1); dist[i] = Math.min(RIM_PX, d); }
+    for (let y = Hh - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x; if (!wetMap[i]) continue; let d = dist[i]; if (x < W - 1) d = Math.min(d, dist[i + 1] + 1); if (y < Hh - 1) d = Math.min(d, dist[i + W] + 1); dist[i] = Math.min(RIM_PX, d); }
+    for (let y = 0; y < Hh; y++) {
+      if (ready && !ready[y]) continue;  // band not received yet: transparent, the coarse terrain shows through
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x, o = i * 4, raw = H[i];
+        const wet = wetMap[i] === 1 && withWater;
         // slope from the neighbours (metres per metre) and a west-north-west light
         const dzdx = (hAt(x + 1, y) - hAt(x - 1, y)) * m.res_z / (2 * step), dzdy = (hAt(x, y + 1) - hAt(x, y - 1)) * m.res_z / (2 * step);
         const slope = Math.sqrt(dzdx * dzdx + dzdy * dzdy);
@@ -2314,6 +2331,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           const k = th.sat ? 0.85 + 0.9 * (f - 0.6) : 0.75 + 0.5 * (f - 0.6); r = base[0] * k; gg = base[1] * k; b = base[2] * k;
         } else { const t = relief ? tH * 0.25 : 0; r = th.land[0] * (f + t); gg = th.land[1] * (f + t); b = th.land[2] * (f + t); }
         if (!light && tH > 0.9) { const u = (tH - 0.9) / 0.1; r = r + (200 - r) * u * 0.8; gg = gg + (205 - gg) * u * 0.8; b = b + (215 - b) * u * 0.8; }
+        if (wet) {
+          // the water is a veil over the shaded sea bed: thin and light at the shore (the bed's relief shows through),
+          // opaque deep water a few metres down. Lakes flagged by the grid above the level have no depth: shore tone
+          const depth = Math.max(0, (wlRaw - raw) * m.res_z), u = Math.max(Math.min(1, depth / SHALLOW_M), Math.min(1, dist[i] / RIM_PX)), uu = u * u;
+          const wr = shallow[0] + (water[0] - shallow[0]) * uu, wg = shallow[1] + (water[1] - shallow[1]) * uu, wb = shallow[2] + (water[2] - shallow[2]) * uu, a = 0.55 + 0.45 * uu;
+          r = r + (wr - r) * a; gg = gg + (wg - gg) * a; b = b + (wb - b) * a;
+        }
         px[o] = Math.min(255, Math.round(r)); px[o + 1] = Math.min(255, Math.round(gg)); px[o + 2] = Math.min(255, Math.round(b)); px[o + 3] = 255;
       }
     }

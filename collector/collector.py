@@ -209,6 +209,7 @@ class Store:
         ("industry_state", "boosters", "TEXT"),  # 0.6.1 added it to the schema but not here: pre-0.6.1 databases lost every slow cycle since
         ("station_state", "waiting", "TEXT"),  # JSON [{cargo_type, cargo, total, bad}] what waits at the station (mod rev 15+)
         ("station", "catch", "TEXT"),  # JSON [{entity, stock_list}] stock lists in the station's catchment area (mod rev 16+)
+        ("line", "gone", "INTEGER"),  # snapshot in which a line stopped being exported (deleted in game); NULL = alive
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -544,7 +545,8 @@ class Store:
             self._last_slow_seq[gid] = slow_seq
             self._cargo_types(gid, snap.get("cargo_types"))
             self._company(sid, snap.get("company"))
-            self._lines(sid, gid, now, slow_seq, snap.get("lines"))
+            lines_ok = not any(g(e, "section") == "lines" for e in as_list(snap.get("errors")))
+            self._lines(sid, gid, now, slow_seq, snap.get("lines"), lines_ok)
             self._stations(sid, gid, now, snap.get("stations"))
             self._towns(sid, gid, now, snap.get("towns"))
             self._label_game(gid, snap.get("towns"))
@@ -646,17 +648,20 @@ class Store:
                  json.dumps(cargo, separators=(",", ":")) if isinstance(cargo, dict) and cargo else None),
             )
 
-    def _lines(self, sid: int, gid: int, now: str, slow_seq: int, ls: Any):
+    def _lines(self, sid: int, gid: int, now: str, slow_seq: int, ls: Any, section_ok: bool = True):
+        seen: list[int] = []
         for l in as_list(ls):
             if not isinstance(l, dict) or l.get("id") is None:
                 continue
             lid = l["id"]
+            seen.append(lid)
             c = l.get("color") or {}
+            # gone=NULL on every pass: a line comes back alive when an older save is reloaded
             self.con.execute(
                 """INSERT INTO line(game_id, line_id, name, color_r, color_g, color_b, transport_modes)
                    VALUES (?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, line_id) DO UPDATE SET name=excluded.name, color_r=excluded.color_r, color_g=excluded.color_g,
-                   color_b=excluded.color_b, transport_modes=excluded.transport_modes""",
+                   color_b=excluded.color_b, transport_modes=excluded.transport_modes, gone=NULL""",
                 (gid, lid, l.get("name"), c.get("x"), c.get("y"), c.get("z"), json.dumps(as_list(l.get("transport_modes")))),
             )
             q = l.get("quality") or {}
@@ -696,6 +701,16 @@ class Store:
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))
+        # the mod exports every line of the player each cycle: one that is missing was deleted in game (the lists kept
+        # them forever, each under its default name "Line 1"). Marked, not deleted: the history keeps the name.
+        # Not when the section failed in the mod or its file is missing for this cycle (ls is None)
+        if section_ok and ls is not None:
+            marks = ",".join("?" * len(seen))
+            where = f"game_id=? AND gone IS NULL{' AND line_id NOT IN (' + marks + ')' if seen else ''}"
+            gone = [r[0] for r in self.con.execute(f"SELECT line_id FROM line WHERE {where}", (gid, *seen))]
+            if gone:
+                self.con.execute(f"UPDATE line SET gone=? WHERE game_id=? AND line_id IN ({','.join('?' * len(gone))})", (sid, gid, *gone))
+                self.con.execute(f"DELETE FROM line_stop WHERE game_id=? AND line_id IN ({','.join('?' * len(gone))})", (gid, *gone))
 
     def _stations(self, sid: int, gid: int, now: str, ss: Any):
         for s in as_list(ss):
@@ -963,7 +978,7 @@ class Store:
     def games(self) -> list[sqlite3.Row]:
         return self.con.execute("""SELECT g.game_id, g.key, g.first_seen, g.last_seen, g.lang,
                                           (SELECT COUNT(*) FROM snapshot s WHERE s.game_id=g.game_id) snapshots,
-                                          (SELECT COUNT(*) FROM line l WHERE l.game_id=g.game_id) lines,
+                                          (SELECT COUNT(*) FROM line l WHERE l.game_id=g.game_id AND l.gone IS NULL) lines,
                                           (SELECT COUNT(*) FROM vehicle v WHERE v.game_id=g.game_id) vehicles,
                                           (SELECT name FROM town t WHERE t.game_id=g.game_id ORDER BY town_id LIMIT 1) a_town
                                    FROM game g ORDER BY g.game_id""").fetchall()

@@ -9,7 +9,8 @@
   const FONT = () => css("--font") || "sans-serif";
 
   /** Height: if the canvas sits in a user-sized card (.card.sized), fill the space left under the title;
-      otherwise use data-h (default 200). */
+      otherwise use data-h, or the default chart height of the settings (CSS --charth, 200 px shipped). */
+  const defaultH = () => parseInt(getComputedStyle(document.documentElement).getPropertyValue("--charth"), 10) || 200;
   function targetHeight(canvas) {
     const card = canvas.closest && canvas.closest(".card.sized");
     if (card) {
@@ -20,11 +21,11 @@
       // skip the canvases, the uPlot hosts that stand in for them, and the layout chrome (tools, resize handles)
       Array.from(card.children).forEach(ch => { if (ch.tagName !== "CANVAS" && !ch.classList.contains("uchart") && !ch.classList.contains("panel-tools") && !ch.classList.contains("rz") && getComputedStyle(ch).position !== "absolute") avail -= ch.getBoundingClientRect().height + (parseFloat(getComputedStyle(ch).marginTop) || 0) + (parseFloat(getComputedStyle(ch).marginBottom) || 0); });
       // several charts in one card: share the space proportionally to their data-h
-      const want = (c) => parseInt((c.tagName === "CANVAS" ? c : c.previousElementSibling).dataset.h, 10) || 200;
+      const want = (c) => parseInt((c.tagName === "CANVAS" ? c : c.previousElementSibling).dataset.h, 10) || defaultH();
       if (canvases.length > 1) avail = avail * want(canvas) / canvases.reduce((a, c) => a + want(c), 0);
       if (avail >= 80) return Math.floor(avail);
     }
-    return parseInt(canvas.dataset.h || canvas.getAttribute("height") || 200, 10);
+    return parseInt(canvas.dataset.h || canvas.getAttribute("height"), 10) || defaultH();
   }
 
   function setup(canvas) {
@@ -110,9 +111,15 @@
     if (!canvas.closest(".card.sized")) return false;
     // chrome = everything the host shows besides the plot (legend row(s), axis labels). Measured from the children: a
     // flex host may be stretched beyond its content (room freed by a folded section), so its own height says nothing.
-    const chrome = Array.from(host.children).reduce((a, ch) => a + ch.getBoundingClientRect().height, 0) - u.height;
+    // The plot area is .u-over (uPlot's `height` covers the plot only); everything else (legend, x axis labels)
+    // is chrome. Measured from the rendered boxes, not from u.height: a setSize applies on the next frame, so right
+    // after one u.height is already the new value while the boxes still show the old one, and the difference
+    // under-counted the axis - the chart then stood ~18 px taller than its card.
+    const over = host.querySelector(".u-over");
+    const chrome = Array.from(host.children).reduce((a, ch) => a + ch.getBoundingClientRect().height, 0) - (over ? over.getBoundingClientRect().height : u.height);
     if (!(chrome >= 0 && chrome < 200)) return false;
-    u.setSize({ width: w, height: Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2)) });
+    const want = Math.max(60, Math.floor(targetHeight(canvas) - chrome - 2));
+    if (Math.abs(want - u.height) > 1 || Math.abs(w - u.width) > 1) u.setSize({ width: w, height: want });
     return true;
   }
   const chartKey = (canvas) => canvas.id || canvas.dataset.key || "c" + Math.random().toString(36).slice(2);

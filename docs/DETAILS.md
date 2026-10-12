@@ -420,8 +420,13 @@ Three independent parts:
      Lines and Vehicles tabs: vehicle type icon in front of the name and a filter bar by type (several types can be
      combined, cross to clear).
      Deep links: `?tab=lines&line=<id>`; `?tab=vehicles&veh=<id>`.
-   - **Settings** (gear top right, stored in the browser): language, icon size (S/M/L/XL), text size, table density,
-     refresh interval, chart history length, hide Finances, keyboard shortcuts on/off, start tab.
+   - **Settings** (gear top right, a centred two-column dialog, stored in the browser). Sizes as continuous sliders,
+     applied live as CSS variables: icons 12-48 px (`--isz`), text 10-20 (`--fs`), table density 1-14 (`--rowpad`),
+     space between cards 4-28 (`--gap`), corner radius 0-20 (`--radius`), default chart height 120-400 (`--charth`,
+     read by charts.js for charts without a fixed `data-h` and by the layout's first measure), gauge thickness 4-18
+     (`--barh`), map markers 12-48 (their own scale, 28 = 1; before 0.7.2 markers followed the icon size). General:
+     language, start tab, refresh interval, chart history length, hide Finances, keyboard shortcuts, game clock.
+     Panels: arrange / reset and the layout presets, which capture all the sizes. Then the savegames and backups.
    - **Charts** (uPlot): drag = zoom, double-click = reset, click on the legend = hide a series, cursor synchronised
      between the charts of one tab. Time range right of the tabs, one per question the player asks, all in simulation
      time (`game_time_ms`; one financial year = 1460 s whatever the calendar does, a paused game adds nothing):

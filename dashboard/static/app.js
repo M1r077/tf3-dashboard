@@ -38,17 +38,22 @@
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
 
   // ------------------------------------------------------------ settings (browser-local)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1gy" };
+  // sizes (px): icons, text, table row padding, gap between cards, card corner radius, default chart height, gauge bar
+  // height, map marker base size (marker was tied to the icon size before 0.7.2: a missing value falls back to it)
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1gy" };
+  const SIZE_KEYS = ["ico", "fs", "rowpad", "gap", "radius", "charth", "barh", "marker"];
   // one range per question: since the game was set running, the last month played, this year, the trend, everything
   const RANGES = ["run", "1gm", "1gy", "5gy", "all"];
   const RANGE_ALIASES = { "5m": "1gm", "10m": "1gm", "15m": "1gm", "20m": "1gm", "30m": "1gm", "45m": "1gm", "1h": "1gy", "6gm": "1gy" };  // earlier versions
   const settings = Object.assign({}, DEFAULTS, (() => { try { return JSON.parse(localStorage.getItem("tf3.settings") || "{}"); } catch (e) { return {}; } })());
   function applySettings() {
     const root = document.documentElement.style;
+    if (settings.marker == null) settings.marker = settings.ico;
     root.setProperty("--isz", settings.ico + "px"); root.setProperty("--fs", settings.fs + "px"); root.setProperty("--rowpad", settings.rowpad + "px");
+    root.setProperty("--gap", settings.gap + "px"); root.setProperty("--radius", settings.radius + "px"); root.setProperty("--charth", settings.charth + "px"); root.setProperty("--barh", settings.barh + "px");
     document.body.classList.toggle("hide-finance", !settings.finance);
-    if (typeof drawMap === "function" && $("#map") && state.tab === "map") drawMap($("#map"));  // canvas markers follow the icon size too
-    $$("#settings .seg").forEach(seg => $$("button", seg).forEach(b => b.classList.toggle("active", String(settings[seg.dataset.set]) === b.dataset.v)));
+    if (typeof drawMap === "function" && $("#map") && state.tab === "map") drawMap($("#map"));  // canvas markers follow the marker size
+    $$("#settings input[data-range]").forEach(r => { r.value = settings[r.dataset.range]; const v = r.nextElementSibling; if (v) v.textContent = settings[r.dataset.range] + " px"; });
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
@@ -65,7 +70,12 @@
   document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear, #offline-pick")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
   // offline bar: "choose a save" opens the settings at the savegames list
   $("#offline-pick").addEventListener("click", async () => { $("#settings").classList.add("open"); $("#gear").classList.add("open"); await renderSaves(); const s = $("#saves"); if (s) s.scrollIntoView({ block: "start", behavior: "smooth" }); });
-  $$("#settings .seg button").forEach(b => b.addEventListener("click", () => { settings[b.closest(".seg").dataset.set] = +b.dataset.v; applySettings(); presetRecordSoon(); }));
+  // size sliders: live while dragging (CSS variables), charts and layout re-measured once the value settles
+  let sizeTimer = null;
+  $$("#settings input[data-range]").forEach(r => r.addEventListener("input", () => {
+    settings[r.dataset.range] = +r.value; applySettings(); presetRecordSoon();
+    clearTimeout(sizeTimer); sizeTimer = setTimeout(() => { Charts.resizeAll(); if (["charth", "gap"].includes(r.dataset.range)) Layout.applyAll(); }, 150);
+  }));
   $("#set-refresh").addEventListener("input", e => { settings.refresh = +e.target.value; applySettings(); });
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
@@ -98,7 +108,7 @@
   const BUILTIN = [{ id: "default", builtin: true }, { id: "vertical", builtin: true, sizes: { ico: 22, fs: 12, rowpad: 3 } }];
   const presets = (() => { try { return Object.assign({ current: "p1", items: [] }, JSON.parse(localStorage.getItem(PRESETS_KEY) || "{}")); } catch (e) { return { current: "p1", items: [] }; } })();
   if (!presets.items.some(p => p.id === "p1")) presets.items.unshift({ id: "p1", name: t("preset_personal", { n: 1 }), layout: {}, pinned: [] });
-  const sizesNow = () => ({ ico: settings.ico, fs: settings.fs, rowpad: settings.rowpad });
+  const sizesNow = () => Object.fromEntries(SIZE_KEYS.map(k => [k, settings[k]]));
   const presetName = (p) => p.builtin ? t("preset_" + p.id) : p.name;
   const savePresets = () => localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
   let presetSync = true;  // false while a preset is being applied (the layout change it causes must not be written back)
@@ -116,8 +126,11 @@
     const b = BUILTIN.find(x => x.id === id), p = b || presets.items.find(x => x.id === id); if (!p) return;
     presetSync = false;
     Layout.importState(b ? Layout.builtinState(id) : p);
-    const sz = p.sizes || (b ? { ico: DEFAULTS.ico, fs: DEFAULTS.fs, rowpad: DEFAULTS.rowpad } : null);
-    if (sz) { Object.assign(settings, sz); applySettings(); }
+    // a built-in starts from the defaults and overrides a few; a personal preset saved by an older version lacks the
+    // newer size keys: those keep their current value
+    if (b) { SIZE_KEYS.forEach(k => { settings[k] = DEFAULTS[k]; }); settings.marker = DEFAULTS.ico; }
+    if (p.sizes) SIZE_KEYS.forEach(k => { if (p.sizes[k] != null) settings[k] = p.sizes[k]; });
+    applySettings(); Charts.resizeAll();
     presets.current = id; savePresets(); renderPresets();
     // the layout events of the import are debounced: let them pass before recording again
     setTimeout(() => { clearTimeout(presetTimer); presetSync = true; }, 600);
@@ -2032,7 +2045,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const map = { data: null, scale: 1, ox: 0, oy: 0, drag: null, init: false, fitted: false, lineFilter: null, icons: {} };
   // every marker on the canvas scales with the icon-size setting (S 16 / M 22 / L 28 / XL 36): factor 1 = the default L.
   // Markers whose size carries data (stock piles, town circles) keep their own growth: only their base follows.
-  const isz = () => (settings.ico || 28) / 28;
+  const isz = () => (settings.marker || settings.ico || 28) / 28;  // map marker scale: its own setting, 28 px = 1
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
   async function renderMap(o) {
     camViews.cur = (o && o.camera) || null;

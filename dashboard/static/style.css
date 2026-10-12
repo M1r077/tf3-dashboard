@@ -2,9 +2,13 @@
   --bg: #0f1419; --panel: #161c23; --panel2: #1c242d; --border: #273140; --text: #e6edf3; --muted: #8b98a8;
   --accent: #4f8a8a; --accent2: #d62560; --ok: #3fb950; --warn: #e8b04b; --bad: #f85149; --info: #58a6ff;
   --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, "Cascadia Mono", monospace;
-  --isz: 28px;          /* base icon size (settings: S 16 / M 22 / L 28 / XL 36) */
+  --isz: 28px;          /* base icon size (settings slider 12-48) */
   --fs: 14px;           /* base font size */
   --rowpad: 6px;        /* table density */
+  --gap: 14px;          /* space between cards */
+  --radius: 10px;       /* card corner radius */
+  --charth: 200px;      /* default chart height (charts.js reads it) */
+  --barh: 10px;         /* gauge bar height */
   color-scheme: dark;   /* native scrollbars, selects and checkboxes follow the dark theme (no white scrollbars) */
 }
 * { box-sizing: border-box; scrollbar-width: thin; scrollbar-color: #3a4656 transparent; }
@@ -74,7 +78,7 @@ small { color: var(--muted); font-weight: normal; }
   .maplegend { left: 8px; right: 8px; top: 8px; max-width: none; font-size: 11px; }
   .mapcard { height: calc(100vh - 150px); min-height: 360px; }
   .hint { margin-left: 0; flex: 1 1 100%; }
-  #settings { left: 8px; right: 8px; width: auto; top: 56px; }
+  #settings { left: 8px; right: 8px; width: auto; top: 56px; transform: none; max-height: calc(100vh - 70px); }
 }
 #tabs button { flex: none; white-space: nowrap; background: transparent; color: var(--muted); border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; border-radius: 6px 6px 0 0; font: inherit; }
 #tabs button:hover { color: var(--text); }
@@ -84,13 +88,13 @@ main { flex: 1; padding: 14px 16px; overflow: auto; }
 .tab.active { display: block; }
 
 /* ---------------- layout: 12-column panel grid (order / width / height / visibility are user-editable, see layout.js) */
-.panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; align-items: start; margin-bottom: 14px; }
+.panels { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap); align-items: start; margin-bottom: var(--gap); }
 /* placed (layout.js v2): explicit rows of 10 px, cards sit at {x, y, w, h}; the column gap stays 14 px, rows have none
    (a card's height is a whole number of rows, the visual gap below it comes from its own margin-bottom) */
 .panels.placed { grid-auto-rows: 10px; row-gap: 0; align-items: stretch; }
 .panels.placed > .card { margin-bottom: 14px; }
 .panels > .card { grid-column: span 12; min-width: 0; position: relative; display: flex; flex-direction: column; }
-.panels > .placeholder { background: rgba(79,138,138,.12); border: 2px dashed var(--accent); border-radius: 10px; margin-bottom: 14px; pointer-events: none; }
+.panels > .placeholder { background: rgba(79,138,138,.12); border: 2px dashed var(--accent); border-radius: var(--radius); margin-bottom: var(--gap); pointer-events: none; }
 body.layout-dragging { user-select: none; cursor: grabbing; }
 body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px 40px rgba(0,0,0,.6); pointer-events: none; }
 .panels > .card > h2 { flex: none; }
@@ -150,7 +154,7 @@ table.data.compact th, table.data.compact td { padding: 4px 8px; font-size: 12px
 .maplegend { position: absolute; right: 10px; top: 10px; background: rgba(15,20,25,.9); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
 .chart-tip { position: fixed; z-index: 50; pointer-events: none; background: rgba(15,20,25,.96); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; line-height: 1.5; display: none; }
 .chart-tip .t { color: var(--muted); margin-bottom: 2px; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; }
 .card h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); display: flex; gap: 8px; align-items: baseline; }
 .tablecard { padding: 0; overflow: auto; max-height: calc(100vh - 230px); }
 /* the card scrolls as a whole (so the table can also scroll sideways); title and column headers stay put: the title
@@ -241,7 +245,7 @@ table.kv td:first-child { color: var(--muted); width: 1%; white-space: nowrap; }
 table.kv td:last-child { text-align: left; font-variant-numeric: tabular-nums; }
 table.kv { width: 100%; border-collapse: collapse; }
 
-.bar { display: inline-block; height: 10px; background: var(--border); border-radius: 3px; width: 90px; position: relative; vertical-align: middle; overflow: hidden; }
+.bar { display: inline-block; height: var(--barh); background: var(--border); border-radius: 3px; width: 90px; position: relative; vertical-align: middle; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); }
 .bar.warn > i { background: var(--warn); } .bar.bad > i { background: var(--bad); } .bar.ok > i { background: var(--ok); }
 /* cargo on board: icon + count per type, after the load bar */
@@ -449,8 +453,18 @@ td .ico, .row .ico { color: var(--muted); }
 .gearbtn { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; color: var(--muted); width: calc(var(--isz) * 1.7); height: calc(var(--isz) * 1.5); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .gearbtn .ico { margin: 0; width: calc(var(--isz) * 0.9); height: calc(var(--isz) * 0.9); }
 .gearbtn:hover, .gearbtn.open { color: var(--text); border-color: var(--accent); }
-#settings { position: fixed; top: 60px; right: 16px; width: 360px; max-height: calc(100vh - 80px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; box-shadow: 0 10px 40px rgba(0,0,0,.6); z-index: 50; display: none; }
+/* settings: a centred two-column dialog (opened rarely, so it may take the room), dimmed page behind */
+#settings { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 920px; max-width: calc(100vw - 32px); max-height: calc(100vh - 60px); overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px 16px; box-shadow: 0 10px 40px rgba(0,0,0,.6); z-index: 50; display: none; }
 #settings.open { display: block; }
+body:has(#settings.open)::before { content: ""; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 49; }
+.setcols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+@media (max-width: 760px) { .setcols { grid-template-columns: 1fr; } }
+.setsec { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
+.setsec .ico { margin: 0; }
+.setcol > .setsec:first-child { margin-top: 2px; }
+.setrow .rng { display: flex; align-items: center; gap: 8px; }
+.setrow .rng input[type=range] { flex: 1 1 auto; min-width: 0; }
+.setrow .rng .val { margin: 0; min-width: 52px; text-align: right; }
 #settings h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); display: flex; align-items: center; }
 #settings h2 .close { margin-left: auto; cursor: pointer; color: var(--muted); }
 #settings h2 .close:hover { color: var(--text); }
@@ -480,7 +494,11 @@ td .ico, .row .ico { color: var(--muted); }
 body.hide-finance #tabs button[data-tab="finance"], body.hide-finance .kpi.dim { display: none; }
 body.no-anim .sbtn.pending { animation: none; opacity: .6; }
 /* ---------------- uPlot charts */
-.uchart { position: relative; width: 100%; display: flex; flex-direction: column-reverse; }  /* legend on top */
+/* legend on top of the plot (uPlot puts .u-legend after .u-wrap inside .uplot: a reversed column there puts it first).
+   The host itself is a plain column: with column-reverse it laid out from the bottom, so a plot taller than its box
+   poked out above the card (and the sticky title) instead of being clipped at the bottom */
+.uchart { position: relative; width: 100%; display: flex; flex-direction: column; }
+.uchart > .uplot { display: flex; flex-direction: column-reverse; }
 .uchart .u-legend { font: 12px var(--font); color: var(--muted); text-align: left; padding: 0 0 2px 54px; display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 0; }
 .uchart .u-legend tbody, .uchart .u-legend tr { display: contents; }
 .uchart .u-legend .u-series th { display: inline-flex; align-items: center; font-weight: normal; padding: 0; cursor: pointer; }

@@ -6,7 +6,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 - New map while the page stays open: the dashboard notices the new savegame at its first snapshot, drops everything it cached from the previous one and lands on the map, where the new world builds up in front of the player (towns and industries at once, water and network a few seconds later, relief after a minute or two - the legend says what is still on its way). Before, the previous map stayed on screen and the current tab emptied itself.
 - The page dims a little when the game has not written for 20 s (menu, loading screen, closed) with "game quiet" in the status; back to normal with the next snapshot.
-- Collector: logs the terrain bands as they arrive (1, 10, 20, 30 of N).
+- Terrain relief of a new map appears band by band (full resolution over the coarse grid terrain, the legend counts the bands) instead of all at once after a minute: the collector decodes each band as it comes and writes the picture every 6 bands and at the end; the sidecar JSON says which rows are real (`rows_ready`, `complete`, `bands_done` / `bands_total`).
 
 ## Companion 0.8.0 - 12 October 2026
 

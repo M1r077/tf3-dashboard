@@ -419,9 +419,9 @@ local function modelKey(modelId)
 	return k or nil
 end
 
--- Vehicles are exported in two parts. Fast (every snapshot, live.lua): what moves â€” state, line, stop,
+-- Vehicles are exported in two parts. Fast (every snapshot, live.lua): what moves — state, line, stop,
 -- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
--- what the game only changes when the player edits the vehicle â€” name, consist, model, capacity, icon, costs. The
+-- what the game only changes when the player edits the vehicle — name, consist, model, capacity, icon, costs. The
 -- collector merges both on vehicle id. Before rev 6 all of it was fetched and written every second.
 local function collectVehicles()
 	local out = {}

@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Collector: one instance per database. A second `run_dashboard.cmd` (new map, first window still open) made both collectors write the same file and one of them lost a snapshot every few seconds with "database is locked". The second one now stops with a message naming the other's PID; the pane retries on a key press once the other window is closed. OS file lock on `db/tf3_dashboard.db.lock`, released by the system if the process dies. Also a 30 s busy timeout on the collector's connection (a backup from the dashboard or a VACUUM can hold the file for a few seconds).
+
 ## Companion 0.7.4 - 12 October 2026
 
 Companion program 0.7.4 (12 October 2026, mod revision 16 unchanged): fixes 0.7.3's first-visit bubble. It reused the class of the muted help texts in the map / lines / vehicles toolbars, which turned them into floating bubbles; it now has its own class and sits centred under the Arrange button with the arrow on its axis. https://github.com/M1r077/tf3-dashboard/releases/latest

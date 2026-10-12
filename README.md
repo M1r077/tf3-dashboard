@@ -74,6 +74,9 @@ game folder found → `tf3dash_live.lua` written by the mod → snapshots stored
 - the game writes to another userdata folder than the one the companion watches (another Steam account, moved
   profile): the checklist reads the game's own log (`crash_dump\stdout.txt`) and shows the folder it uses (0.2.3+);
 - the companion runs from OneDrive/Dropbox: see Install, move it;
+- two companion windows are open (a second `run_dashboard.cmd` for a new map): the collector refuses to start
+  twice on the same database and says so (0.7.5+; before, both wrote and the history got holes). Close the
+  older window;
 - the game is installed in an unusual place: create `config.json` (see Configuration).
 
 If the browser shows a **blank page or an error** instead of the checklist: the companion window must be open

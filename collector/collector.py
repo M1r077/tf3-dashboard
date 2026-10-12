@@ -36,6 +36,37 @@ def iso(ts: float | None = None) -> str:
     return dt.datetime.fromtimestamp(ts if ts is not None else time.time()).isoformat(timespec="seconds")
 
 
+_instance_lock_fh = None  # kept open for the life of the process: the OS releases the lock when it dies
+
+
+def acquire_instance_lock(db_path: Path) -> int | None:
+    """One collector per database. Locks <db>.lock (an OS file lock, so a killed process never leaves a stale
+    lock behind) and writes our PID in it. Returns None when acquired, else the PID written by the holder
+    (0 when unreadable)."""
+    global _instance_lock_fh
+    path = db_path.with_name(db_path.name + ".lock")
+    fh = open(path, "a+", encoding="utf-8")
+    try:
+        if os.name == "nt":
+            import msvcrt  # byte-range lock, mandatory on Windows: lock one byte far past the PID so the holder's
+            fh.seek(4096)  # PID stays readable by the process that lost
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        try:
+            fh.seek(0)
+            other = int((fh.read() or "0").strip() or 0)
+        except (OSError, ValueError):
+            other = 0
+        fh.close()
+        return other
+    fh.seek(0); fh.truncate(); fh.write(str(os.getpid())); fh.flush()
+    _instance_lock_fh = fh
+    return None
+
+
 def g(d: Any, *keys: str, default: Any = None) -> Any:
     """Safe nested get on dict/list parsed from Lua."""
     cur = d
@@ -125,7 +156,8 @@ class Store:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
-        self.con = sqlite3.connect(str(db_path))
+        # 30 s busy timeout: a backup from the dashboard or a VACUUM may hold the file for a few seconds
+        self.con = sqlite3.connect(str(db_path), timeout=30)
         self.con.row_factory = sqlite3.Row
         self.con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
         self._migrate()
@@ -1192,6 +1224,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.quiet:
         console.banner(f"TF3 Dashboard collector {VERSION}", f"database: {args.db}")
+    # one collector per database: a second run_dashboard.cmd (a new map started without closing the first window)
+    # would make both write the same file and one of them hit "database is locked" every few snapshots
+    other = acquire_instance_lock(args.db)
+    if other is not None:
+        say(f"another collector is already running on this database (PID {other}): close the other TF3 Dashboard "
+            f"window first, then press a key here to retry.", "error")
+        return 2
     for w in tf3paths.sync_warning(args.db):
         say(w, "warn")
     if store.added_columns:

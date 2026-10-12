@@ -839,8 +839,7 @@ class Store:
             thin_from = meta["thin_until"] if meta and meta["thin_until"] else None
             if thin_from is None or thin_from < thin_cut:
                 # the game day straddling thin_until got a newer point since: re-scan the window's last day
-                # too (cheap, it holds at most a handful of rows). Also catches a database thinned by the
-                # 0.6.4 pre-release on a real-time grid.
+                # too (cheap, it holds at most a handful of rows).
                 lo = iso(_epoch(thin_from) - 86400) if thin_from else None
                 lo_clause, lo_args = ("AND real_time >= ?", (lo,)) if lo else ("", ())
                 cur = c.execute(f"""DELETE FROM snapshot WHERE snapshot_id IN (

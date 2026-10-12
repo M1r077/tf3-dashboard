@@ -2391,9 +2391,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const k = isz();
     const fixed = () => 16 * k;
     const grow = (it) => 12 * k + Math.min(16, Math.sqrt(it.amount || 0) * 1.1);  // base follows the setting, the pile does not
-    // grey where nothing happens yet, full when the need is met (or production runs at its maximum); squared so a
-    // first third of the way still reads as "far from done" (0 -> .2, 30 % -> .27, 60 % -> .49, 100 % -> 1)
-    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return 0.2 + 0.8 * r * r; };
+    // grey where nothing happens yet, full when the need is met (or production runs at its maximum). Two regimes: a
+    // served cargo lives in a bright band (50 % at the first delivery, 100 % when the need is met - in practice a
+    // town's need is rarely fully covered, and what matters is "something arrives" vs "nothing"), an untouched one
+    // stays grey (0 -> .2); a tiny rate goes straight to the band so a trickle is already visibly active
+    const rateAlpha = (it) => { if (it.rate == null) return 0.9; const r = Math.max(0, Math.min(1, it.rate)); return r <= 0 ? 0.2 : 0.5 + 0.5 * r; };
     const stockAlpha = (it) => (it.amount || 0) > 0 ? 1 : 0.3;
     const stroke = (cx, cy, side) => { /* a short tie from the owner to the row, so ownership stays obvious when rows are close */ ctx.strokeStyle = "rgba(188,140,255,.8)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx, cy); if (side === "above") ctx.lineTo(cx, cy - 15 * k); else if (side === "below") ctx.lineTo(cx, cy + 15 * k); else ctx.lineTo(cx + 15 * k, cy); ctx.stroke(); };
     const draw = (kind, list, idKey, offset) => list.forEach(o => {

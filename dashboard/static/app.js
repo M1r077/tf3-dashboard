@@ -2043,7 +2043,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     state.cache = {}; state.selLine = state.selTown = state.selVeh = state.selInd = state.selSt = null; camViews.loaded = false;
     geo.data = null; geo.seq = null; geo.game = null; geo.layer = null; geo.key = ""; geo.bmSeq = null; geo.edgeById = null; geo.firstFit = false;
     linePaths.stamp = null; linePaths.lines = null; linePaths.poly = {}; linePaths.builtFor = "";
-    hmap.meta = null; hmap.data = null; hmap.revs = null;
+    hmap.meta = null; hmap.data = null; hmap.revs = null; hmap.ready = null; geo.hdW = geo.hdL = null; geo.hdRevs = null; geo.bmW = geo.bmL = null;
     mapCargo.data = null; mapCargo.at = 0;
     map.data = null; map.fitted = false;
   }
@@ -2182,7 +2182,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   };
   const MAP_DEFAULTS = { theme: "dark", relief: 1, net: 1, lines: 1 };
   const mapPrefs = () => { try { const p = Object.assign({}, MAP_DEFAULTS, JSON.parse(localStorage.getItem("tf3.map") || "{}")); const q = new URLSearchParams(location.search).get("mapstyle"); if (q && MAP_THEMES[q]) p.theme = q; return p; } catch (e) { return { ...MAP_DEFAULTS }; } };  // ?mapstyle= for screenshots
-  const saveMapPrefs = (p) => { localStorage.setItem("tf3.map", JSON.stringify(p)); geo.layer = null; geo.key = ""; geo.bmSeq = null; };
+  const saveMapPrefs = (p) => { localStorage.setItem("tf3.map", JSON.stringify(p)); geo.layer = null; geo.key = ""; geo.bmSeq = null; geo.hdRevs = null; };
   const mapTheme = () => MAP_THEMES[mapPrefs().theme] || MAP_THEMES.dark;
   function renderMapStyle() {
     const box = $("#map-style"); if (!box) return;
@@ -2222,8 +2222,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const raw = new Uint8Array(await new Response(z).arrayBuffer());
       const n = w * h, out = new Float32Array(n), stride = 1 + w * 2;
       for (let y = 0; y < h; y++) { const ro = y * stride + 1, oo = y * w; for (let x = 0; x < w; x++) { const q = ro + x * 2; out[oo + x] = (raw[q] << 8) | raw[q + 1]; } }
-      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.url;
-      geo.bmSeq = null; geo.layer = null; geo.key = "";
+      // a partial picture (the collector writes every few bands while a new map's terrain comes in): only the rows
+      // listed in rows_ready hold terrain, the rest stays transparent over the coarse grid terrain
+      let ready = null;
+      if (m.complete === false && Array.isArray(m.rows_ready)) { ready = new Uint8Array(h); m.rows_ready.forEach(([a, b]) => { for (let y = Math.max(0, a); y < Math.min(h, b); y++) ready[y] = 1; }); }
+      hmap.meta = m; hmap.data = out; hmap.w = w; hmap.h = h; hmap.revs = m.url; hmap.ready = ready;
+      geo.bmSeq = null; geo.hdRevs = null; geo.layer = null; geo.key = "";
       if (state.tab === "map") drawMap($("#map"));
     } catch (e) { /* no heightmap yet */ } finally { hmap.loading = false; }
   }
@@ -2251,7 +2255,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const rock = [132, 128, 122], water = th.water, zx = (th.sat ? 1.4 : 1.0) * relief, lx = -0.5, ly = -0.5, lz = 0.7071;
     const hAt = (x, y) => H[Math.max(0, Math.min(Hh - 1, y)) * W + Math.max(0, Math.min(W - 1, x))];
     const bw = m.bounds, gw = g && g.bounds ? g.bounds : bw;
+    const ready = hmap.ready;
     for (let y = 0; y < Hh; y++) {
+      if (ready && !ready[y]) continue;  // band not received yet: transparent, the coarse terrain shows through
       // the picture runs north (row 0) to south like the grid; world y of this row
       const wy = bw[3] - (y + 0.5) / Hh * (bw[3] - bw[1]);
       for (let x = 0; x < W; x++) {
@@ -2293,7 +2299,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     return c;
   }
   function terrainBitmap(g, withWater) {
-    if (hmap.data) { const hd = terrainBitmapHD(g, withWater); if (hd) return hd; }
+    if (hmap.data && !hmap.ready) { const hd = terrainBitmapHD(g, withWater); if (hd) return hd; }  // partial HD: drawn on top of this one by geoLayer
+    return terrainBitmapGrid(g, withWater);
+  }
+  function terrainBitmapGrid(g, withWater) {
     if (!g.grid || !g.water_rows || !g.water_rows.length) return null;
     const [nx, ny] = g.grid, sub = g.shore_sub || 1, W = nx * sub, Hh = ny * sub;
     const c = document.createElement("canvas"); c.width = W; c.height = Hh;
@@ -2345,19 +2354,27 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const g = geo.data; if (!g) return null;
     const showW = $("#map-water").checked, showN = $("#map-net").checked, mp = mapPrefs(), th = mapTheme();
     const EDGE_STREET = th.street, EDGE_TRACK = th.track, EDGE_BRIDGE = th.bridge, WATER_FILL = `rgb(${th.water.join(",")})`, WATER_EDGE = th.track;
-    const key = [w, h, dpr, map.scale.toFixed(5), Math.round(map.ox), Math.round(map.oy), showW, showN, geo.seq, mp.theme, mp.relief, mp.net].join("|");
+    const key = [w, h, dpr, map.scale.toFixed(5), Math.round(map.ox), Math.round(map.oy), showW, showN, geo.seq, hmap.revs, mp.theme, mp.relief, mp.net].join("|");
     if (geo.layer && geo.key === key) return geo.layer;
     const oc = geo.layer || document.createElement("canvas"); oc.width = w * dpr; oc.height = h * dpr;
     const ctx = oc.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
     // the terrain: the sampled land/water bitmap stretched over the bounds (smoothed by the browser), else a plain
     // slightly lighter rectangle so the map's edge is visible
     if (g.bounds) {
-      const hb = hmap.data && hmap.meta ? hmap.meta.bounds : g.bounds;  // the HD picture covers its own bounds
+      const partial = !!(hmap.data && hmap.ready);  // terrain still coming in band by band
+      const hb = hmap.data && hmap.meta && !partial ? hmap.meta.bounds : g.bounds;  // the HD picture covers its own bounds
       const [ax, ay] = P(hb[0], hb[3]), [bx, by] = P(hb[2], hb[1]);
       const bmKey = showW ? "bmW" : "bmL";
       if (!geo[bmKey] || geo.bmSeq !== geo.seq) { geo.bmW = terrainBitmap(g, true); geo.bmL = terrainBitmap(g, false); geo.bmSeq = geo.seq; }
       if (geo[bmKey]) { ctx.imageSmoothingEnabled = true; ctx.drawImage(geo[bmKey], ax, ay, bx - ax, by - ay); }
       else { ctx.fillStyle = `rgb(${th.land.join(",")})`; ctx.fillRect(ax, ay, bx - ax, by - ay); }
+      if (partial) {
+        // the bands received so far in full resolution over the coarse terrain (transparent where nothing came yet)
+        const hdKey = showW ? "hdW" : "hdL";
+        if (!geo[hdKey] || geo.hdRevs !== hmap.revs) { geo.hdW = terrainBitmapHD(g, true); geo.hdL = terrainBitmapHD(g, false); geo.hdRevs = hmap.revs; }
+        const mb = hmap.meta.bounds, [hx0, hy0] = P(mb[0], mb[3]), [hx1, hy1] = P(mb[2], mb[1]);
+        if (geo[hdKey]) ctx.drawImage(geo[hdKey], hx0, hy0, hx1 - hx0, hy1 - hy0);
+      }
       ctx.strokeStyle = th.frame; ctx.lineWidth = 1; ctx.strokeRect(ax + .5, ay + .5, bx - ax - 1, by - ay - 1);
     }
     // river / lake meshes: only where the grid has no shore detail (no refined cells yet = older mod); with the
@@ -2668,7 +2685,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (ruler.on) { ctx.save(); ctx.globalCompositeOperation = "saturation"; ctx.fillStyle = "#808080"; ctx.fillRect(0, 0, w, h); ctx.globalCompositeOperation = "source-over"; ctx.fillStyle = "rgba(11,16,21,.35)"; ctx.fillRect(0, 0, w, h); ctx.restore(); }  // measuring: the map steps back in grey, only the ruler is in colour
     drawRuler(ctx, w, h, font, ink, halo);
     const px = 1000 * map.scale; ctx.strokeStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(16, h - 16); ctx.lineTo(16 + px, h - 16); ctx.stroke(); ctx.fillStyle = th.ink ? "#3a4048" : "#8b98a8"; ctx.textAlign = "left"; ctx.fillText("1 km", 16, h - 22);
-    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")} · <span style="color:#9aa7b4">${ico("depot", "sm")}</span>${t("legend_depot")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t(youngGame() ? "legend_building_geo" : "legend_no_geo")}</span>`}${geo.data && !hmap.meta && youngGame() ? `<span class="muted">${t("legend_building_terrain")}</span>` : ""}`;
+    $("#map-legend").innerHTML = `<span>${ico("veh_bus", "sm")}${t("legend_vehicle")} · <span style="color:#f85149">○</span> ${t("legend_stopped")}</span><span><span style="color:#58a6ff">◆</span> ${t("legend_pax_station")} · <span style="color:#e8b04b">◆</span> ${t("legend_cargo_station")} · <span style="color:#bc8cff">${ico("industry", "sm")}</span>${t("legend_industry")} · <span style="color:#9aa7b4">${ico("depot", "sm")}</span>${t("legend_depot")}</span><span>${t("legend_counts", { v: d.vehicles.length, s: d.stations.length, i: d.industries.length })}</span>${geo.data ? `<span><span style="color:${th.track}">━</span> ${t("legend_track")} · <span style="color:${th.street}">━</span> ${t("legend_street")} · <span style="color:rgb(${th.water.join(",")})">▇</span> ${t("legend_water")}</span>` : `<span class="muted">${t(youngGame() ? "legend_building_geo" : "legend_no_geo")}</span>`}${geo.data && hmap.meta && hmap.meta.complete === false ? `<span class="muted">${t("legend_terrain_bands", { a: hmap.meta.bands_done, b: hmap.meta.bands_total })}</span>` : geo.data && !hmap.meta && youngGame() ? `<span class="muted">${t("legend_building_terrain")}</span>` : ""}`;
   }
   // a savegame recorded for less than 10 minutes: what the map lacks is still being produced by the mod (water and
   // network a few seconds after the first snapshot, the full-resolution terrain after a minute or two), not missing

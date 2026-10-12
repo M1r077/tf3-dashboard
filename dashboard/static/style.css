@@ -180,7 +180,9 @@ body.layout-edit .mapcard .panel-tools { position: absolute; left: 8px; right: 8
 .tipcargo .tc b { font-weight: 600; color: var(--text); }
 
 /* ---------------- toolbar */
-.toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+/* the filters of a tab stay put while the page scrolls (sticky to the top of main, above the cards and their own
+   sticky headers); the background hides what slides under, the negative margins let it cover main's padding */
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; position: sticky; top: -14px; z-index: 6; margin: -14px -16px 10px; padding: 14px 16px 8px; background: var(--bg); }
 .toolbar input[type=text], .toolbar input:not([type]), .toolbar select { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font: inherit; min-width: 220px; }
 .toolbar label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
 

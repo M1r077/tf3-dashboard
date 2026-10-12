@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.8.1 - 12 October 2026
+
+Companion program 0.8.1 (12 October 2026, mod revision 16 unchanged): starting a new map while the dashboard is open now works as it should. The page notices the new savegame, lands on the map and the new world builds up in front of the player (towns at once, water and network in seconds, relief band by band with a progress bar). Two bugs that showed the previous map's relief on the new one are gone (same-size maps shared the terrain signature; the coarse terrain cached under the picture). Also: two-tone water with a translucent shore rim like the game, the camera cone finally points where the player looks, and the page dims when the game is quiet. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 - New map while the page stays open: the dashboard notices the new savegame at its first snapshot, drops everything it cached from the previous one and lands on the map, where the new world builds up in front of the player (towns and industries at once, water and network a few seconds later, relief after a minute or two - the legend says what is still on its way). Before, the previous map stayed on screen and the current tab emptied itself.
 - A bar under the KPIs on every tab while a new map is being built: "New map detected · collecting water and network... · terrain 9/22 bands", gone when both are in.

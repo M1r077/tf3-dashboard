@@ -584,6 +584,9 @@ table#lines-table .vehicon, #line-detail h2 .vehicon { margin-right: 6px; vertic
 .errorsbar { background: color-mix(in srgb, var(--bad) 16%, var(--panel)); border-bottom-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
 .errorsbar .ico { color: var(--bad); }
 .errorsbar code { font-size: 11px; opacity: .85; }
+.newmapbar { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border-bottom-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.newmapbar .ico { color: var(--accent); }
+.newmapbar b { color: var(--text); font-weight: 600; }
 body.offline #k-date { color: var(--warn); }
 /* the game has not written for a while (menu, loading another map, closed): the figures are the last known ones -
    the page steps back a little, nothing is hidden. Lifted the moment a fresh snapshot arrives. */

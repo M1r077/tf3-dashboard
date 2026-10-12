@@ -76,6 +76,12 @@ game folder found → `tf3dash_live.lua` written by the mod → snapshots stored
 - the companion runs from OneDrive/Dropbox: see Install, move it;
 - the game is installed in an unusual place: create `config.json` (see Configuration).
 
+If the browser shows a **blank page or an error** instead of the checklist: the companion window must be open
+(the server pane says `Dashboard: http://127.0.0.1:8765/`), and something on your PC may be blocking local
+addresses. Ad blockers with "block local network requests" (uBlock Origin's `block-lan` list, Brave Shields),
+some VPN clients (Mullvad, NordVPN "Threat Protection") and Windows Firewall rules can cut `127.0.0.1`. Allow
+`127.0.0.1:8765` in the blocker or disable it on that tab; if port 8765 is taken, set `"port"` in `config.json` (see Configuration).
+
 The "TF3 Dashboard Collector" pane says the same thing in text, colour-coded: green = fine, yellow = waiting or
 warning, red = something to fix. Once snapshots flow it prints one summary line per minute (errors are always
 shown). When reporting a problem, copy the checklist or that pane, and the lines

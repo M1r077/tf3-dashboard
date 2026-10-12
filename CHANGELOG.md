@@ -2,6 +2,12 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Charts fill their card down to the padding (the legend was measured before the layout settled, tiny cards fell back to the default height).
+- First visit: a one-time bubble under the Arrange button says what it does; gone on click or after 12 s.
+- README: blank page / local address blocked by ad blocker, VPN or firewall.
+
 ## Companion 0.7.2 - 12 October 2026
 
 Companion program 0.7.2 (12 October 2026, mod revision 16 unchanged): layouts you can save and share, settings you can actually tune, filters for what your network serves. Layout presets: the arrangement of every tab plus the display sizes, with two built-ins (Default, Vertical screen for a portrait monitor) and your own; Personal 1 always follows what you arrange; copy a layout to the clipboard to hand it to someone, paste one you were given. Settings became a centred dialog with continuous sliders: icons, text, table density, space between cards, corner radius, chart height, gauge thickness, map marker size. Served / not served switch on towns, industries and stations (plus passengers / cargo / both for stations). Also: industries table with one cargo per line so the outputs stay on screen, toolbars that stay put while the page scrolls, demand layer where any served cargo reads clearly, charts that no longer poke out of their card, fixed accents in the French / German / Portuguese travellings strings. https://github.com/M1r077/tf3-dashboard/releases/latest

@@ -62,9 +62,11 @@ class HeightAssembler:
         self.lo, self.hi = 1 << 30, -(1 << 30)
         self.total = 0
         self.written_bands = -1              # how many bands the last PNG on disk had
+        self.export_no = 0                   # bumped on every new export (new map or new terrain revisions)
 
     def _reset(self, revs: str, band: dict) -> None:
         self.revs, self.bands, self.meta = revs, {}, band
+        self.export_no += 1
         nx, ny = int(band["grid"][0]), int(band["grid"][1])
         side = int(band.get("side") or 65)
         w, h = nx * (side - 1) + 1, ny * (side - 1) + 1
@@ -77,10 +79,14 @@ class HeightAssembler:
     def add(self, band: dict) -> bool:
         """Feed one band file (decoded at once). Returns True when the map is complete (all bands present)."""
         revs = str(band.get("revs"))
-        if revs != self.revs:
-            self._reset(revs, band)
         k = int(band.get("band", -1))
-        if k < 0 or k in self.bands:
+        # the mod's `revs` only counts the terrain tiles and their edit revisions: two untouched maps of the same size
+        # share it. A band that was already received and comes back with other tiles is therefore a new export
+        # (new map, or the terrain rebuilt): start over, else the old picture would silently stay
+        same_shape = self.meta is not None and self.meta.get("grid") == band.get("grid") and self.meta.get("bands") == band.get("bands")
+        if revs != self.revs or not same_shape or (k in self.bands and self.bands[k].get("tiles") != band.get("tiles")):
+            self._reset(revs, band)
+        if k < 0 or k >= self.total or k in self.bands:  # leftover files of a bigger map keep band numbers past the end
             return self.complete
         self.bands[k] = band
         self.meta = band

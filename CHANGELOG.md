@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Companion 0.7.4 - 12 October 2026
+
+Companion program 0.7.4 (12 October 2026, mod revision 16 unchanged): fixes 0.7.3's first-visit bubble. It reused the class of the muted help texts in the map / lines / vehicles toolbars, which turned them into floating bubbles; it now has its own class and sits centred under the Arrange button with the arrow on its axis. https://github.com/M1r077/tf3-dashboard/releases/latest
+
 ## Companion 0.7.3 - 12 October 2026
 
 Companion program 0.7.3 (12 October 2026, mod revision 16 unchanged): two small things after 0.7.2. Charts fill their card down to the padding. A one-time bubble under the Arrange button on the first visit. README: blank page when an ad blocker, VPN or firewall cuts 127.0.0.1. https://github.com/M1r077/tf3-dashboard/releases/latest

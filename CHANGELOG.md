@@ -2,13 +2,17 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Revision 16 + companion 0.7.1 - 12 October 2026
+
+Revision 16 + companion program 0.7.1 (12 October 2026): what a freight station can load, a ruler that finds the road, tables that keep their headers. In TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0: the mod now exports the industries in each station's catchment area and the dashboard shows what can be loaded there (cargo icons with the pile amounts, in the table and per industry in the detail with a link). The ruler no longer answers "not linked" for towns the road does join: it routes over one connected piece of network, the one reached with the least building. Tables keep their title and column headers while the rows scroll. Also: vehicle icons in dark line colours made readable on the map, a "views" toggle for the camera pins, a steeper dimming of the cargo layers, camera panels that keep their scroll across refreshes, per-cargo waiting chips in the stations table. Revision 16 needs companion 0.7.1 for the "can load" chips; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 Stations table: the waiting column shows the per-cargo chips of the detail instead of the bare total.
 
 What a freight station can load (mod rev 16 + companion): in TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0. The mod now exports the stock lists in each station's catchment area; the table shows "can load" chips (cargo icon + amount in the piles) and the detail lists each industry in reach with its piles and a link. Passenger stations get a grey "in transit" chip when the station counts more people than wait (boarding, moving between platforms). Freight stations no longer show a 0 waiting, a dash occupancy or a 0 overflow: the game has no such notions for them.
 
-Map: a "views" toggle hides the saved camera pins and the travelling track. Cargo layers: steeper dimming ramp (grey = nothing happens yet, full = need met / production at its maximum; a need served at a third stays close to grey). Camera views, travellings and workshop keep their scroll across refreshes when the card is sized smaller than its content.
+Map: a "views" toggle hides the saved camera pins and the travelling track. Cargo layers: steeper dimming ramp (grey = nothing happens yet, full = need met / production at its maximum; a need served at a third stays close to grey). Camera views, travellings and workshop keep their scroll across refreshes when the card is sized smaller than its content. Vehicle icons on the map: a dark line colour (navy, forest green) is lifted to a readable brightness, the hue kept; swatches and tables keep the exact colour.
+
+Tables: the card title and the column headers stay put while the rows scroll (a later style rule had cancelled the sticky headers). The stations page no longer fails on a database the collector has not migrated yet (offline planning on an old copy).
 
 Ruler: the road and rail proposals no longer disappear into "not linked: build straight" when both points are in towns the network does join. A network is many islands (an industry's access road, a depot siding, a town only reached by rail); each end used to be projected on whatever segment was nearest, often such an island. Both ends are now projected on the same connected piece of network, the one they reach with the least building, and the route is drawn over it.
 

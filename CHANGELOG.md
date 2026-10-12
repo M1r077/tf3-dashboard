@@ -2,7 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.7.2 - 12 October 2026
+
+Companion program 0.7.2 (12 October 2026, mod revision 16 unchanged): layouts you can save and share, settings you can actually tune, filters for what your network serves. Layout presets: the arrangement of every tab plus the display sizes, with two built-ins (Default, Vertical screen for a portrait monitor) and your own; Personal 1 always follows what you arrange; copy a layout to the clipboard to hand it to someone, paste one you were given. Settings became a centred dialog with continuous sliders: icons, text, table density, space between cards, corner radius, chart height, gauge thickness, map marker size. Served / not served switch on towns, industries and stations (plus passengers / cargo / both for stations). Also: industries table with one cargo per line so the outputs stay on screen, toolbars that stay put while the page scrolls, demand layer where any served cargo reads clearly, charts that no longer poke out of their card, fixed accents in the French / German / Portuguese travellings strings. https://github.com/M1r077/tf3-dashboard/releases/latest
+
+Industries table: inputs and outputs stack one cargo per line (icon, bar, shipped), icon only with the name as tooltip, so a factory with three inputs no longer pushes the outputs column and the action buttons past the card. Toolbars (filters, served switches, the map's layer toggles, line pick, recenter, ruler, style) stay at the top while the page scrolls. Map cargo layers: a served cargo lives in a bright 50-100 % band, an untouched one stays grey - the question the layer answers is whether anything arrives. Double-encoded accents fixed in the travellings strings (FR/DE/PT).
 
 Settings reworked into a centred two-column dialog. Sizes are continuous sliders instead of S/M/L/XL: icons, text, table density, and new ones - space between cards, corner radius, default chart height, gauge thickness, map marker size (no longer tied to the icon size). Everything applies live and is captured by the layout presets. Charts no longer poke out above their card: the plot area was measured from a value uPlot had already updated while the boxes had not, so the axis was under-counted by ~18 px; the legend-on-top trick (a reversed column) also laid the plot out from the bottom, so any excess went up through the title.
 

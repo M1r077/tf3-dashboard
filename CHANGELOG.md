@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.8.0 - 12 October 2026
+
+Companion program 0.8.0 (12 October 2026, mod revision 16 unchanged): the companion runs on Linux, thanks to t-heuser (#98). Native build or Windows build under Wine / Proton (Heroic, Steam Proton, Lutris, Bottles), `run_dashboard.sh`, a `-linux.tar.gz` archive next to the `-windows.zip`. One shared launcher handles icons, port, restarts and the browser on both systems. Also: one collector per database (a second window waits instead of corrupting the history), and closing the Windows window reliably stops both parts. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 - Collector: one instance per database. A second `run_dashboard.cmd` (new map, first window still open) made both collectors write the same file and one of them lost a snapshot every few seconds with "database is locked". The second one now waits with a message ("another TF3 Dashboard is already recording into this database: close that window first") and starts by itself once the other window is closed. OS file lock on `db/tf3_dashboard.db.lock`, released by the system if the process dies. Also a 30 s busy timeout on the collector's connection (a backup from the dashboard or a VACUUM can hold the file for a few seconds).
 - **Linux support** (t-heuser, #98, closes #9): the companion runs on Linux with the native build or the Windows build under Wine / Proton (Heroic native or Flatpak, Steam Proton, Lutris, Bottles, plain Wine); userdata found inside the prefixes, icons read from the install Heroic or Steam reports. One launcher `launch.py` shared by `run_dashboard.cmd` and the new `run_dashboard.sh` (icons at first start, waits while the port is taken, restarts a stopped part, opens the browser when the server answers; `--install-desktop` adds a menu entry). Release archives: `TF3-Dashboard-<v>-windows.zip` (bundled Python) and `TF3-Dashboard-<v>-linux.tar.gz` (system Python 3.10+), built by `build_release.py` on any OS. Checklist texts no longer assume Windows.

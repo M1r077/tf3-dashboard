@@ -1149,6 +1149,7 @@ class SlowFiles:
             name = p.stem[len(self.prefix):]
             d = self._changed_file(name, "tiles")
             if d is not None:
+                d["_mtime"] = self.mtime.get(name) or 0  # the assembler tells the exports apart by their file times
                 out.append(d)
         return out
 

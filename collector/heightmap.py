@@ -24,6 +24,9 @@ from typing import Any
 
 B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 IDX = {c: i for i, c in enumerate(B64)}
+# two bands of one export are written within seconds of each other (the whole map in 20-30 s); files further apart
+# than this belong to different exports. Generous: a loaded machine, a huge map
+EXPORT_GAP_S = 120.0
 
 
 def decode_tile(s: str, n: int) -> list[int]:
@@ -63,10 +66,12 @@ class HeightAssembler:
         self.total = 0
         self.written_bands = -1              # how many bands the last PNG on disk had
         self.export_no = 0                   # bumped on every new export (new map or new terrain revisions)
+        self.t_last = 0.0                    # file time of the newest band of the current export
 
     def _reset(self, revs: str, band: dict) -> None:
         self.revs, self.bands, self.meta = revs, {}, band
         self.export_no += 1
+        self.t_last = float(band.get("_mtime") or 0)
         nx, ny = int(band["grid"][0]), int(band["grid"][1])
         side = int(band.get("side") or 65)
         w, h = nx * (side - 1) + 1, ny * (side - 1) + 1
@@ -84,8 +89,18 @@ class HeightAssembler:
         # share it. A band that was already received and comes back with other tiles is therefore a new export
         # (new map, or the terrain rebuilt): start over, else the old picture would silently stay
         same_shape = self.meta is not None and self.meta.get("grid") == band.get("grid") and self.meta.get("bands") == band.get("bands")
-        if revs != self.revs or not same_shape or (k in self.bands and self.bands[k].get("tiles") != band.get("tiles")):
+        # the file times tell the exports apart too: the mod writes its 22 bands within half a minute, so a band written
+        # long after the one that started this export is the start of the next one (collector restarted mid-export: the
+        # previous map's files of the same size come first in mtime order, then the fresh ones - without this the old
+        # bands and the new were mixed and the fresh ones already read never came back)
+        mt = float(band.get("_mtime") or 0)
+        later = self.t_last > 0 and mt > self.t_last + EXPORT_GAP_S
+        if revs != self.revs or not same_shape or later or (k in self.bands and self.bands[k].get("tiles") != band.get("tiles")):
             self._reset(revs, band)
+        if self.t_last > 0 and mt and mt < self.t_last - EXPORT_GAP_S:  # leftover of an older export, the fresh one is under way
+            return self.complete
+        if mt:
+            self.t_last = max(self.t_last, mt)
         if k < 0 or k >= self.total or k in self.bands:  # leftover files of a bigger map keep band numbers past the end
             return self.complete
         self.bands[k] = band

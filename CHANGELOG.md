@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Collector restarted while the mod was writing the terrain of a new map of the same size as the previous one: the last bands never arrived and the bottom of the map kept the coarse relief. At restart every band file is "new", the previous map's files (same size, same signature) came first, and the fresh bands already on disk were counted for that old export, so when the real last bands arrived the assembly restarted with just those. Band files are now told apart by their write time as well (bands of one export are written within seconds; a file more than two minutes younger starts a new export, older leftovers are skipped).
+
 ## Companion 0.8.1 - 12 October 2026
 
 Companion program 0.8.1 (12 October 2026, mod revision 16 unchanged): starting a new map while the dashboard is open now works as it should. The page notices the new savegame, lands on the map and the new world builds up in front of the player (towns at once, water and network in seconds, relief band by band with a progress bar). Two bugs that showed the previous map's relief on the new one are gone (same-size maps shared the terrain signature; the coarse terrain cached under the picture). Also: two-tone water with a translucent shore rim like the game, the camera cone finally points where the player looks, and the page dims when the game is quiet. https://github.com/M1r077/tf3-dashboard/releases/latest

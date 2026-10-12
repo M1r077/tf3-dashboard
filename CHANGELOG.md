@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.8.2 - 12 October 2026
+
+Companion program 0.8.2 (12 October 2026, mod revision 16 unchanged): one fix. When the companion was restarted while the game was still writing the terrain of a new map of the same size as the previous one, the last bands were lost and the bottom of the map stayed coarse. https://github.com/M1r077/tf3-dashboard/releases/latest
 
 - Collector restarted while the mod was writing the terrain of a new map of the same size as the previous one: the last bands never arrived and the bottom of the map kept the coarse relief. At restart every band file is "new", the previous map's files (same size, same signature) came first, and the fresh bands already on disk were counted for that old export, so when the real last bands arrived the assembly restarted with just those. Band files are now told apart by their write time as well (bands of one export are written within seconds; a file more than two minutes younger starts a new export, older leftovers are skipped).
 

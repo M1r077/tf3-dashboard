@@ -124,6 +124,9 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
   finance journal** (mod revision 13): the same table as the game's Finances window, by financial year, with every
   line (running costs and maintenance by carrier, upkeep of roads, tracks, buildings, income, construction and
   vehicle purchases), kept for the whole savegame. Cards can be dragged and resized; the layout is saved per browser.
+- **Layouts** — the arrangement of every tab plus the display sizes, as presets: *Default*, *Vertical screen* (for a
+  portrait monitor) and your own; *Personal 1* always follows what you arrange. Copy a layout to the clipboard to share
+  it, paste one you were given.
 - **Settings ▸ Savegames and backups** — one backup = database + camera views for the current savegame; restore
   the views, or the whole database at the next start.
 - **Settings ▸ Savegames** also shows the database size and lets you **forget** a save you no longer play (its

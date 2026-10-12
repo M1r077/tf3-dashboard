@@ -472,8 +472,12 @@ Three independent parts:
      `townBuildingSystem.getCargoSupplyAndLimit`), with the warehouse stock/capacity (`getTownStockCargo`) as a
      secondary figure; with an older mod only the warehouse stock is available, which is not what the game shows.
    - **Industries**: level, status (producing, closing, boost, manual, discarding), production rating, inputs/outputs
-     per year with max and shipped/delivered; filter "unserved / closing"
+     per year with max and shipped/delivered; "closing only" checkbox
    - **Stations & depots**: waiting, occupancy, overflow, lines; parked vehicles, approaching, maintenance pool
+   - **Served / not served** (towns, industries, stations): a three-way switch in each toolbar, remembered per
+     browser (`tf3.served`). Served means your network does something there: a town has a station where a line calls
+     (the game's own "stations" count includes the ones nothing stops at, so the table shows `calling/built`), a line
+     calls at the station, an industry shipped an output this year (or, with no outputs, received an input).
    - **Map**: towns (size), stations (pax/cargo), industries, line routes, live vehicles (line color, red outline =
      stopped en route), geolocated alerts; filter by line, vehicle names, zoom, pan, hover, recenter. Every marker
      follows the icon-size setting (S/M/L/XL); only the part of a size carried by data (town circle, stock amount)

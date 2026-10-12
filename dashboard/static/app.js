@@ -491,7 +491,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const scrollRestore = (box, tops) => { [...box.querySelectorAll(".cv-list, .cv-travel")].forEach((el, i) => keepScroll(el, tops[i])); };
 
   // ------------------------------------------------------------ tabs
-  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {} };
+  const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {}, served: (() => { try { return JSON.parse(localStorage.getItem("tf3.served") || "{}") || {}; } catch (e) { return {}; } })() };
+  /** Three-way "served" filter of a table: "all" passes everything, "yes" only what your network serves, "no" the rest. */
+  const servedPass = (table, isServed) => { const m = state.served[table] || "all"; return m === "all" || (m === "yes") === !!isServed; };
   function showTab(name, push = true) {
     const b = $(`#tabs button[data-tab="${name}"]`); if (!b) return;
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
@@ -1233,12 +1235,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "traffic_speed", label: t("th_traffic"), icon: "veh_car", num: true, render: x => x.traffic_speed == null ? "–" : kmh(x.traffic_speed) },
       { key: "noise_db", label: t("th_noise"), icon: "noise", num: true, render: x => x.noise_db == null ? "–" : num(x.noise_db, 0) + " dB" },
       { key: "pollution_db", label: t("th_pollution"), icon: "pollution", num: true, title: t("th_pollution_title"), render: x => x.pollution_db == null ? "–" : num(x.pollution_db, 0) },
-      { key: "stations", label: t("th_stations"), icon: "station", num: true },
+      // built / with a line calling: a town full of stations nothing stops at is not served
+      { key: "stations", label: t("th_stations"), icon: "station", num: true, title: t("th_stations_tip"), render: x => x.stations_served == null ? int(x.stations) : `${int(x.stations_served)}<span class="muted">/${int(x.stations)}</span>`, sortValue: x => x.stations_served ?? x.stations },
       { key: "development_active", label: t("th_growth"), icon: "town_growth", render: x => x.development_active ? `<span class="chip ok">${t("growth_active")}</span>` : `<span class="chip warn">${t("growth_frozen")}</span>` },
       { key: "act", label: "", render: x => entBtns(x.town_id) },
     ];
     if (!state.selTown) { const u = +new URLSearchParams(location.search).get("town"); if (u && towns.some(x => x.town_id === u)) state.selTown = u; }  // deep link ?tab=towns&town=<id>
-    renderTable($("#towns-table"), cols, towns, { empty: { icon: "town", text: t("empty_towns") }, id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
+    // served = a station in the town where a line calls (the game's "stations" count includes unused ones)
+    const q = $("#towns-filter").value.toLowerCase();
+    const rows = towns.filter(x => (!q || (x.name || "").toLowerCase().includes(q)) && servedPass("towns", (x.stations_served || 0) > 0));
+    renderTable($("#towns-table"), cols, rows, { total: towns.length, empty: { icon: "town", text: t("empty_towns") }, id: "town_id", defaultSort: "size", defaultAsc: false, onRow: (id, tr) => { state.selTown = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderTownDetail(+id); }, rowClass: x => (x.town_id === state.selTown ? "sel" : "") });
     if (state.selTown) renderTownDetail(state.selTown);
   }
 
@@ -1278,10 +1284,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   async function renderIndustries() {
     const d = await api("/api/industries"); const inds = d.industries || []; state.cache.industries = inds;
     if (!state.selInd) { const u = +new URLSearchParams(location.search).get("ind"); if (u && inds.some(i => i.industry_id === u)) state.selInd = u; }  // deep link ?tab=industries&ind=<id>
-    const q = $("#ind-filter").value.toLowerCase(), only = $("#ind-unserved").checked;
+    const q = $("#ind-filter").value.toLowerCase(), closing = $("#ind-closing").checked;
     // "served" = something of yours moves there: an output shipped this year, or (no outputs) an input delivered
     const served = (i) => { const outs = i.cargo.filter(c => c.direction === "out"); return outs.length ? outs.some(c => c.shipped_year > 0) : i.cargo.some(c => c.direction === "in" && c.delivered_year > 0); };
-    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && (!only || !served(i) || i.closure_time > 0));
+    const rows = inds.filter(i => (!q || (i.name || "").toLowerCase().includes(q) || (i.construction || "").toLowerCase().includes(q)) && servedPass("industries", served(i)) && (!closing || i.closure_time > 0));
     // one line per industry: the 4 first columns stay pinned on the left, inputs / outputs flow inline after them
     const cargoCell = (i, dir) => i.cargo.filter(c => c.direction === dir).map(c => {
       const a = dir === "out" ? c.produced_year : c.consumed_year, m = dir === "out" ? c.max_prod_year : c.max_cons_year;
@@ -1380,6 +1386,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       if (hit) state.selSt = hit.station_id;
     }
     if (!state.selSt) { const u = +new URLSearchParams(location.search).get("st"); if (u && stations.some(x => x.station_id === u)) state.selSt = u; }  // deep link ?tab=stations&st=<id>
+    // served = at least one line calls there (the game's own count)
+    const sq = $("#st-filter").value.toLowerCase();
+    // all | pax (passengers only) | cargo (cargo only) | both (a station that handles both): exclusive positions
+    const kind = state.served.stations_kind || "all";
+    const kindPass = (x) => { if (kind === "all") return true; const k = stKind(x); return kind === "both" ? k.pax && k.cargo : kind === "pax" ? k.pax && !k.cargo : k.cargo && !k.pax; };
+    const stRows = stations.filter(x => (!sq || (x.name || "").toLowerCase().includes(sq) || (x.town_name || "").toLowerCase().includes(sq)) && servedPass("stations", (x.lines || 0) > 0) && kindPass(x));
     renderTable($("#st-table"), [
       { key: "name", label: t("th_station"), render: x => `${stKind(x).icons("sm")}${esc(x.name)}` },
       { key: "town_name", label: t("th_town"), render: x => esc(x.town_name || "–") },
@@ -1394,7 +1406,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : ((x.terminal_capacity || 0) + (x.pool_capacity || 0) ? "0" : "") },
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
-    ], stations, { empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
+    ], stRows, { total: stations.length, empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
     if (state.selSt) renderStationDetail(state.selSt);
     const DEPOT_ICON = { RAIL: "depot_rail", ROAD: "depot_road", TRAM: "depot_tram", WATER: "depot_water", AIR: "depot_air" };
     renderTable($("#dep-table"), [
@@ -2683,7 +2695,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     busy = false;
     if (again) { again = false; refresh(); }
   }
-  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-unserved"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
+  ["#lines-filter", "#lines-problems-only", "#veh-filter", "#veh-worn", "#veh-problem", "#ind-filter", "#ind-closing", "#towns-filter", "#st-filter"].forEach(s => { const el = $(s); if (!el) return; el.addEventListener("input", () => refresh()); el.addEventListener("change", () => refresh()); });
+  // served / not served: one three-way switch per table (all | served | not served), remembered per browser
+  $$(".seg.served").forEach(seg => {
+    const paint = () => $$("button", seg).forEach(b => b.classList.toggle("active", b.dataset.v === (state.served[seg.dataset.served] || "all")));
+    $$("button", seg).forEach(b => b.addEventListener("click", () => { state.served[seg.dataset.served] = b.dataset.v; localStorage.setItem("tf3.served", JSON.stringify(state.served)); paint(); refresh(); }));
+    paint();
+  });
   let timer = null;
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);

@@ -147,8 +147,7 @@
       <input id="veh-filter" data-i18n-ph="filter_vehicles">
       <span id="veh-types" class="typebar"></span>
       <span id="veh-states" class="typebar"></span>
-      <label><input type="checkbox" id="veh-worn"> <span data-i18n="worn_filter"></span></label>
-      <label><input type="checkbox" id="veh-problem"> <span data-i18n="problems"></span></label>
+      <span class="seg toggles"><label><input type="checkbox" id="veh-worn"><span data-i18n="worn_filter"></span></label><label><input type="checkbox" id="veh-problem"><span data-i18n="problems"></span></label></span>
       <span class="hint" id="veh-count"></span>
     </div>
     <div class="panels" data-layout="vehicles">
@@ -162,7 +161,7 @@
     <div class="toolbar">
       <input id="lines-filter" data-i18n-ph="filter">
       <span id="lines-types" class="typebar"></span>
-      <label><input type="checkbox" id="lines-problems-only"> <span data-i18n="problems_only"></span></label>
+      <span class="seg toggles"><label><input type="checkbox" id="lines-problems-only"><span data-i18n="problems_only"></span></label></span>
       <span class="hint" data-i18n="click_line_hint"></span>
     </div>
     <div class="panels" data-layout="lines">
@@ -174,21 +173,28 @@
   <!-- ------------------------------------------------ map -->
   <section id="tab-map" class="tab">
     <div class="toolbar">
-      <label><input type="checkbox" id="map-water" checked> <span data-i18n="map_water"></span></label>
-<label><input type="checkbox" id="map-net" checked> <span data-i18n="map_network"></span></label>
-<label><input type="checkbox" id="map-lines" checked> <span data-i18n="map_lines"></span></label>
-      <label><input type="checkbox" id="map-veh" checked> <span data-i18n="map_vehicles"></span></label>
-      <label><input type="checkbox" id="map-st" checked> <span data-i18n="map_stations"></span></label>
-      <label><input type="checkbox" id="map-ind" checked> <span data-i18n="map_industries"></span></label>
-      <label><input type="checkbox" id="map-dep" checked> <span data-i18n="map_depots"></span></label>
-      <label><input type="checkbox" id="map-towns" checked> <span data-i18n="map_towns"></span></label>
-      <label><input type="checkbox" id="map-hq" checked> <span data-i18n="map_hq"></span></label>
-      <label><input type="checkbox" id="map-alerts" checked> <span data-i18n="map_alerts"></span></label>
-      <label><input type="checkbox" id="map-views" checked> <span data-i18n="map_views"></span></label>
-      <label><input type="checkbox" id="map-prod"> <span data-i18n="map_prod"></span></label>
-      <label><input type="checkbox" id="map-need"> <span data-i18n="map_need"></span></label>
-      <label><input type="checkbox" id="map-stock"> <span data-i18n="map_stock"></span></label>
-      <label><input type="checkbox" id="map-labels"> <span data-i18n="map_labels"></span></label>
+      <!-- map toggles: independent on/off switches, drawn like the segmented controls (a lit segment = shown) -->
+      <span class="seg toggles">
+        <label><input type="checkbox" id="map-water" checked><span data-i18n="map_water"></span></label>
+        <label><input type="checkbox" id="map-net" checked><span data-i18n="map_network"></span></label>
+      </span>
+      <span class="seg toggles">
+        <label><input type="checkbox" id="map-lines" checked><span data-i18n="map_lines"></span></label>
+        <label><input type="checkbox" id="map-veh" checked><span data-i18n="map_vehicles"></span></label>
+        <label><input type="checkbox" id="map-st" checked><span data-i18n="map_stations"></span></label>
+        <label><input type="checkbox" id="map-ind" checked><span data-i18n="map_industries"></span></label>
+        <label><input type="checkbox" id="map-dep" checked><span data-i18n="map_depots"></span></label>
+        <label><input type="checkbox" id="map-towns" checked><span data-i18n="map_towns"></span></label>
+        <label><input type="checkbox" id="map-hq" checked><span data-i18n="map_hq"></span></label>
+        <label><input type="checkbox" id="map-alerts" checked><span data-i18n="map_alerts"></span></label>
+        <label><input type="checkbox" id="map-views" checked><span data-i18n="map_views"></span></label>
+      </span>
+      <span class="seg toggles">
+        <label><input type="checkbox" id="map-prod"><span data-i18n="map_prod"></span></label>
+        <label><input type="checkbox" id="map-need"><span data-i18n="map_need"></span></label>
+        <label><input type="checkbox" id="map-stock"><span data-i18n="map_stock"></span></label>
+        <label><input type="checkbox" id="map-labels"><span data-i18n="map_labels"></span></label>
+      </span>
       <select id="map-line-filter"><option value="" data-i18n="all_lines"></option></select>
       <button id="map-fit" class="btn"><i class="ico sm" data-ico="locate"></i><span data-i18n="recenter"></span></button>
       <button id="map-ruler-btn" class="btn" data-i18n-title="ruler"><i class="ico sm" data-ico="train_length"></i></button>
@@ -215,6 +221,10 @@
 
   <!-- ------------------------------------------------ towns -->
   <section id="tab-towns" class="tab">
+    <div class="toolbar">
+      <input id="towns-filter" data-i18n-ph="filter">
+      <span class="seg served" data-served="towns" data-i18n-title="served_tip"><button data-v="all" data-i18n="served_all"></button><button data-v="yes" data-i18n="served_yes"></button><button data-v="no" data-i18n="served_no"></button></span>
+    </div>
     <div class="panels" data-layout="towns">
       <div class="card tablecard" data-panel="towns-table" data-w="7"><table id="towns-table" class="data"></table></div>
       <div class="card sticky" id="town-detail" data-panel="town-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_town"></p></div>
@@ -225,7 +235,8 @@
   <section id="tab-industries" class="tab">
     <div class="toolbar">
       <input id="ind-filter" data-i18n-ph="filter">
-      <label><input type="checkbox" id="ind-unserved"> <span data-i18n="unserved"></span></label>
+      <span class="seg served" data-served="industries" data-i18n-title="served_tip"><button data-v="all" data-i18n="served_all"></button><button data-v="yes" data-i18n="served_yes"></button><button data-v="no" data-i18n="served_no"></button></span>
+      <span class="seg toggles"><label><input type="checkbox" id="ind-closing"><span data-i18n="closing_only"></span></label></span>
     </div>
     <div class="panels" data-layout="industries">
       <div class="card tablecard" data-panel="ind-table" data-w="7"><table id="ind-table" class="data"></table></div>
@@ -235,6 +246,11 @@
 
   <!-- ------------------------------------------------ stations -->
   <section id="tab-stations" class="tab">
+    <div class="toolbar">
+      <input id="st-filter" data-i18n-ph="filter">
+      <span class="seg served" data-served="stations" data-i18n-title="served_tip"><button data-v="all" data-i18n="served_all"></button><button data-v="yes" data-i18n="served_yes"></button><button data-v="no" data-i18n="served_no"></button></span>
+      <span class="seg served" data-served="stations_kind"><button data-v="all" data-i18n="served_all"></button><button data-v="pax"><i class="ico sm" data-ico="passengers"></i><span data-i18n="kind_pax"></span></button><button data-v="cargo"><i class="ico sm" data-ico="cargo"></i><span data-i18n="kind_cargo"></span></button><button data-v="both"><i class="ico sm" data-ico="passengers"></i><i class="ico sm" data-ico="cargo"></i><span data-i18n="kind_both"></span></button></span>
+    </div>
     <div class="panels" data-layout="stations">
       <div class="card tablecard" data-panel="st-table" data-w="7"><h2><i class="ico" data-ico="station"></i><span data-i18n="stations"></span></h2><table id="st-table" class="data"></table></div>
       <div class="card sticky" id="st-detail" data-panel="st-detail" data-w="5"><h2 data-i18n="detail"></h2><p class="muted" data-i18n="select_station"></p></div>

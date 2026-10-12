@@ -570,10 +570,17 @@ def api_towns(q: dict) -> dict:
         near = [t for t in towns if t.get("x") is not None and t.get("y") is not None]
         if near:
             hq_town = min(near, key=lambda t: (t["x"] - hq["x"]) ** 2 + (t["y"] - hq["y"]) ** 2)["town_id"]
+    # stations in the town where at least one line calls: the game's own "stations" figure counts every station
+    # built, including the ones nothing stops at, so it cannot say whether the town is served
+    served = rows(f"""SELECT s.town_id, COUNT(*) AS n FROM station s JOIN station_state ss ON ss.station_id=s.station_id
+                     WHERE s.game_id={int(gid)} AND ss.lines>0 AND ss.snapshot_id=(SELECT MAX(x.snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
+                     GROUP BY s.town_id""")
+    served_map = {s["town_id"]: s["n"] for s in served}
     for t in towns:
         t["cargo"] = cmap.get(t["town_id"], [])
         t["top_lines"] = tmap.get(t["town_id"], [])
         t["has_hq"] = t["town_id"] == hq_town
+        t["stations_served"] = served_map.get(t["town_id"], 0)
     return {"towns": towns}
 
 

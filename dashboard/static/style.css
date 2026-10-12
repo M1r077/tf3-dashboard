@@ -445,6 +445,12 @@ td .ico, .row .ico { color: var(--muted); }
 .seg button:last-child { border-right: 0; }
 .seg button.active { background: var(--accent); color: #fff; }
 .seg button:hover:not(.active) { color: var(--text); }
+/* on/off toggles in the same dress as a segmented control: each label is a segment, lit when its checkbox is on */
+.seg.toggles label { margin: 0; padding: 4px 9px; font-size: 12px; color: var(--muted); cursor: pointer; border-right: 1px solid var(--border); display: inline-flex; align-items: center; gap: 0; user-select: none; }
+.seg.toggles label:last-child { border-right: 0; }
+.seg.toggles label:hover { color: var(--text); }
+.seg.toggles label:has(> input:checked) { background: var(--accent); color: #fff; }
+.seg.toggles input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; pointer-events: none; }
 .seg .lm-btn { padding: 3px 8px; display: inline-flex; align-items: center; }
 .seg .lm-btn .ico { margin: 0; }
 .setrow input[type=range] { width: 100%; }

@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+Served / not served filter on the towns, industries and stations tables (a three-way switch, remembered per browser), with a name filter on towns and stations. A town counts as served when a line calls at one of its stations - the game's "stations" figure includes stations nothing stops at, so the column now reads calling/built. The industries checkbox becomes "closing only". One look for every toolbar switch: the map layer toggles (three groups: terrain, objects, data layers) and the table checkboxes (worn, problems, closing) are drawn like the segmented controls, a lit segment meaning "shown".
+
 ## Revision 16 + companion 0.7.1 - 12 October 2026
 
 Revision 16 + companion program 0.7.1 (12 October 2026): what a freight station can load, a ruler that finds the road, tables that keep their headers. In TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0: the mod now exports the industries in each station's catchment area and the dashboard shows what can be loaded there (cargo icons with the pile amounts, in the table and per industry in the detail with a link). The ruler no longer answers "not linked" for towns the road does join: it routes over one connected piece of network, the one reached with the least building. Tables keep their title and column headers while the rows scroll. Also: vehicle icons in dark line colours made readable on the map, a "views" toggle for the camera pins, a steeper dimming of the cargo layers, camera panels that keep their scroll across refreshes, per-cargo waiting chips in the stations table. Revision 16 needs companion 0.7.1 for the "can load" chips; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest

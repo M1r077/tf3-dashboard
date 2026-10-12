@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+Layout presets (arrange-mode bar and Settings > Layouts): a preset is the layout of every tab, the pinned cards and the display sizes (icons, text, density). Two built-ins, Default and Vertical screen (full-width tables with the detail below, smaller sizes, for a 1080 x 1920 portrait monitor); Personal 1 always holds what the player arranges, so trying a built-in loses nothing; Save as / rename / delete for more. Copy puts a layout on the clipboard as text, Paste adds and applies one received from someone else. A narrow window (under 1100 px) no longer forces every placed card to full width: the vertical preset keeps its two-column rows.
+
 ## Revision 16 + companion 0.7.1 - 12 October 2026
 
 Revision 16 + companion program 0.7.1 (12 October 2026): what a freight station can load, a ruler that finds the road, tables that keep their headers. In TF3 only passengers wait at a station - freight sits in the piles of the industries in reach until a vehicle calls, which is why freight stations always showed 0: the mod now exports the industries in each station's catchment area and the dashboard shows what can be loaded there (cargo icons with the pile amounts, in the table and per industry in the detail with a link). The ruler no longer answers "not linked" for towns the road does join: it routes over one connected piece of network, the one reached with the least building. Tables keep their title and column headers while the rows scroll. Also: vehicle icons in dark line colours made readable on the map, a "views" toggle for the camera pins, a steeper dimming of the cargo layers, camera panels that keep their scroll across refreshes, per-cargo waiting chips in the stations table. Revision 16 needs companion 0.7.1 for the "can load" chips; older companions keep working. https://github.com/M1r077/tf3-dashboard/releases/latest

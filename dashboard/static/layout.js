@@ -6,7 +6,8 @@
    its default height is measured from its content.
    State per tab in localStorage "tf3.layout" (v2): { tab: { v: 2, panels: { id: { x, y, w, h, hidden } } } }.
    A v1 state (order + width + optional height) is migrated by flowing the cards in order.
-   Exposes window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing, reset, resetAll, apply, applyAll, onChange, titleOf }. */
+   Exposes window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing, reset, resetAll, apply, applyAll, onChange, titleOf,
+   pin, pinnedHomes, isPinned, exportState, importState }. Presets (named snapshots, sharing) live in app.js. */
 (function () {
   "use strict";
   const $ = (s, el = document) => el.querySelector(s);
@@ -25,6 +26,25 @@
     stations: { "st-table": [0, 0, 7, 64], "st-detail": [7, 0, 5, 99], "dep-table": [0, 64, 7, 64] },
     finance: { "journal": [0, 0, 6, 83], "balance": [6, 0, 3, 32], "earnings": [0, 83, 6, 37], "transport": [6, 32, 3, 28], "network": [9, 32, 3, 28], "company-chart": [9, 0, 3, 32], "company": [8, 60, 4, 56], "costs": [6, 60, 2, 30] },
   };
+  /** Built-in layout for a portrait screen (a 1080 x 1920 third monitor): the tables take the full width, the detail
+      sits below them instead of beside, the small cards go two by two. Same shape as PRESET. */
+  const VERTICAL = {
+    overview: { "by-carrier": [0, 0, 12, 30], "alerts": [0, 30, 6, 40], "lines-bad": [6, 30, 6, 40], "fleet-state": [0, 70, 6, 35], "fleet-perf": [6, 70, 6, 35], "stuck": [0, 105, 6, 45], "worn": [6, 105, 6, 45], "idle": [0, 150, 6, 50], "lines-load": [6, 150, 6, 50] },
+    vehicles: { "veh-table": [0, 0, 12, 60], "veh-detail": [0, 60, 12, 70] },
+    lines: { "lines-table": [0, 0, 12, 70], "line-detail": [0, 70, 12, 90] },
+    map: { "map": [0, 0, 12, 90], "cam-views": [0, 90, 6, 40], "travellings": [6, 90, 6, 40], "trv-workshop": [0, 130, 12, 60] },
+    towns: { "towns-table": [0, 0, 12, 70], "town-detail": [0, 70, 12, 90] },
+    industries: { "ind-table": [0, 0, 12, 70], "ind-detail": [0, 70, 12, 90] },
+    stations: { "st-table": [0, 0, 12, 60], "st-detail": [0, 60, 12, 80], "dep-table": [0, 140, 12, 50] },
+    finance: { "balance": [0, 0, 6, 32], "company-chart": [6, 0, 6, 32], "journal": [0, 32, 12, 64], "earnings": [0, 96, 12, 37], "transport": [0, 133, 4, 28], "network": [4, 133, 4, 28], "costs": [8, 133, 4, 28], "company": [0, 161, 12, 50] },
+  };
+  /** A built-in layout as an importable state: "default" = the shipped PRESET (an empty store, seeded on demand). */
+  function builtinState(name) {
+    if (name !== "vertical") return { layout: {}, pinned: [] };
+    const layout = {};
+    for (const [tab, panels] of Object.entries(VERTICAL)) layout[tab] = { v: 2, panels: Object.fromEntries(Object.entries(panels).map(([id, g]) => [id, { x: g[0], y: g[1], w: g[2], h: g[3], hidden: false }])) };
+    return { layout, pinned: [] };
+  }
   let store = load();
   let editing = false;
   const listeners = [];
@@ -366,10 +386,26 @@
   function toggleEdit() { editing ? exitEdit() : enterEdit(); }
   function reset(tab) { delete store[tab]; save(); $$(`.panels[data-layout="${tab}"]`).forEach(cn => { apply(cn); emit(cn); }); }
   function resetAll() { store = {}; save(); $$(".panels[data-layout]").forEach(cn => { apply(cn); emit(cn); }); }
+  // ---------------------------------------------------------------- whole state in / out (layout presets, sharing)
+  /** Snapshot of everything the grid remembers: the per-tab geometry and the cards pinned to Operations. */
+  function exportState() { return { layout: JSON.parse(JSON.stringify(store)), pinned: [...pinned] }; }
+  /** Replace the whole state (a preset): unknown tabs / panels are pruned and missing ones appended by stateOf, so a
+      snapshot from another version or another browser still lands on its feet. {} = the shipped layout. */
+  function importState(s) {
+    const lay = s && s.layout && typeof s.layout === "object" ? s.layout : {};
+    store = {};
+    for (const [tab, st] of Object.entries(lay)) if (st && st.v === 2 && st.panels && typeof st.panels === "object") store[tab] = { v: 2, panels: Object.fromEntries(Object.entries(st.panels).filter(([, p]) => p && [p.x, p.y, p.w, p.h].every(Number.isFinite)).map(([id, p]) => [id, { x: +p.x, y: +p.y, w: +p.w, h: +p.h, hidden: !!p.hidden }])) };
+    pinned = new Set(Array.isArray(s && s.pinned) ? s.pinned.filter(id => typeof id === "string") : []);
+    save(); savePinned();
+    $$(".panels[data-layout]").forEach(cn => cn.classList.remove("placed"));
+    movePinned();
+    $$(".panels[data-layout]").forEach(cn => { apply(cn); if (editing) decorate(cn); });
+    $$(".panels[data-layout]").forEach(emit);
+  }
 
   document.addEventListener("DOMContentLoaded", applyAll);
   if (document.readyState !== "loading") applyAll();
   // a tab becoming visible: place its cards if that was deferred
   new MutationObserver(() => $$(".panels[data-layout]").forEach(cn => { if (!cn.classList.contains("placed") && cn.offsetParent) apply(cn); })).observe(document.body, { attributes: true, subtree: true, attributeFilter: ["class"] });
-  window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing: () => editing, reset, resetAll, apply, applyAll, onChange: (fn) => listeners.push(fn), titleOf, pin, pinnedHomes, isPinned: (id) => pinned.has(id) };
+  window.Layout = { enterEdit, exitEdit, toggleEdit, isEditing: () => editing, reset, resetAll, apply, applyAll, onChange: (fn) => listeners.push(fn), titleOf, pin, pinnedHomes, isPinned: (id) => pinned.has(id), exportState, importState, builtinState };
 })();

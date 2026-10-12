@@ -443,6 +443,7 @@ td .ico, .row .ico { color: var(--muted); }
 .seg { display: inline-flex; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .seg button { background: transparent; border: 0; color: var(--muted); padding: 4px 9px; cursor: pointer; font-size: 12px; border-right: 1px solid var(--border); white-space: nowrap; }
 .seg button:last-child { border-right: 0; }
+.seg button .ico { margin: 0 4px 0 0; vertical-align: -3px; }
 .seg button.active { background: var(--accent); color: #fff; }
 .seg button:hover:not(.active) { color: var(--text); }
 /* on/off toggles in the same dress as a segmented control: each label is a segment, lit when its checkbox is on */

@@ -44,6 +44,11 @@ CMD_DIR_FIXED = False          # True when --cmd-dir / config.json / env pins th
 _cmd_dir_checked = [0.0]
 CMD_DISABLED = False
 _cmd_lock = threading.Lock()
+# Requests are answered only when the Host header names this server. Without this check a page whose domain is made
+# to resolve to 127.0.0.1 (DNS rebinding) could read the whole API and post to it from the player's own browser.
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+ALLOWED_HOSTS: set[str] = set(LOCAL_HOSTS)   # + --host when it names one address; filled in main()
+SERVER_PORT = tf3paths.DEFAULT_PORT
 _cmd_seq = [int(__import__("time").time() * 1000) % 1_000_000_000]
 
 # commands the mod accepts (mirror of COMMANDS in dashboard_export.script.lua) -> required args
@@ -2007,7 +2012,28 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    @staticmethod
+    def _local_authority(netloc: str) -> bool:
+        """'host[:port]' names this server: an allowed host name and our port (80 when the port is left out)."""
+        try:
+            p = urlparse("//" + netloc)
+            host, port = (p.hostname or "").lower(), p.port or 80
+        except ValueError:
+            return False
+        return host in ALLOWED_HOSTS and port == SERVER_PORT
+
+    def _host_ok(self) -> bool:
+        """Refuse a request whose Host header names another site (DNS rebinding). Browsers always send it; a client
+        without one (HTTP/1.0 script) is not a browser and cannot be steered by a web page."""
+        host = self.headers.get("Host")
+        if host is None or self._local_authority(host):
+            return True
+        self._send(403, b"forbidden host", "text/plain")
+        return False
+
     def do_GET(self):
+        if not self._host_ok():
+            return
         u = urlparse(self.path)
         if u.path in ROUTES:
             try:
@@ -2075,6 +2101,8 @@ class Handler(BaseHTTPRequestHandler):
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             self._send(403, json.dumps({"error": "local only"}).encode(), "application/json")
             return
+        if not self._host_ok():
+            return
         if u.path == "/api/activity":
             try:
                 res = write_activity()
@@ -2106,7 +2134,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main(argv=None) -> int:
-    global DB_PATH, CMD_DIR, CMD_DISABLED, CMD_DIR_FIXED
+    global DB_PATH, CMD_DIR, CMD_DISABLED, CMD_DIR_FIXED, SERVER_PORT
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", type=Path, default=None, help="SQLite database (default: db/tf3_dashboard.db or config.json)")
     ap.add_argument("--port", type=int, default=None, help="HTTP port (default: 8765 or config.json)")
@@ -2117,6 +2145,9 @@ def main(argv=None) -> int:
     DB_PATH = tf3paths.db_path(args.db)
     tf3paths.apply_pending_restore(DB_PATH, say=lambda m: console.say(m, "warn"))  # whichever of collector/server starts first does it
     port = tf3paths.port(args.port)
+    SERVER_PORT = port
+    if args.host.strip("[]") not in ("", "0.0.0.0", "::"):  # a wildcard names no host a browser would use
+        ALLOWED_HOSTS.add(args.host.strip("[]").lower())
     CMD_DISABLED = bool(args.no_cmd)
     CMD_DIR_FIXED = bool(args.cmd_dir or tf3paths.load_config().get("export_dir") or os.environ.get("TF3_EXPORT_DIR"))
     CMD_DIR = None if CMD_DISABLED else tf3paths.export_dir(args.cmd_dir)

@@ -538,6 +538,12 @@ table.stops .cargo-toggle input { display: none; }
 table.stops .chip.ok { border-color: var(--ok); }
 table.stops .chip.bad { border-color: var(--bad); opacity: .7; }
 table.stops .chip.warn { border-color: var(--warn); }
+/* a stop whose station was bulldozed (the game shows the line in red): struck out, dimmed, warning icon */
+table.stops tr.gone td { opacity: .6; }
+table.stops tr.gone td.wrap { opacity: 1; }
+table.stops tr.gone s { color: var(--muted); }
+table.stops tr.gone .wrap .ico, .brokenline .ico { color: var(--bad); }
+p.brokenline { margin: 0 0 8px; font-size: 12px; color: var(--bad); display: flex; align-items: center; gap: 4px; }
 table.stops td.act .btn { margin: 1px 2px; }
 table.stops select, table.stops input[type=number] { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; font: inherit; font-size: 12px; }
 table.stops { width: 100%; }

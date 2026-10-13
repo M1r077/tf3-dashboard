@@ -394,7 +394,7 @@ def api_lines(q: dict) -> dict:
                   WHERE vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)}) GROUP BY vs.line_id""", (gid,))
     vmap = {v["line_id"]: v for v in veh}
     stops = rows("""SELECT line_id, stop_index, name, station_group, station, terminal, load_mode, min_wait, max_wait, max_add_wait, waypoints,
-                           force_unload, no_load, max_load, terminals, alternatives, waiting
+                           force_unload, no_load, max_load, terminals, alternatives, waiting, gone
                     FROM line_stop WHERE game_id=? ORDER BY line_id, stop_index""", (gid,))
     for st in stops:
         for k in ("no_load", "max_load", "terminals", "alternatives", "waiting"):
@@ -416,6 +416,8 @@ def api_lines(q: dict) -> dict:
         l["stop_names"] = smap.get(l["line_id"], [])
         l["stop_list"] = stmap.get(l["line_id"], [])
         l["capacities"] = cmap.get(l["line_id"], [])
+        # a stop whose station was bulldozed (the game shows the line in red): the mod exports the line bare then
+        l["broken"] = any(s.get("gone") for s in l["stop_list"])
     cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
     return {"lines": lines, "cargo_types": cargo_types}
 

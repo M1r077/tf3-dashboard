@@ -118,10 +118,28 @@ local function vec3(v)
 	return nil
 end
 
+-- Does the entity still exist? Every id obtained earlier (the item list of a time-sliced section, a stop's station
+-- group, a terminal's edge, the construction of an industry...) may have been deleted by the player in between.
+local function exists(e)
+	if e == nil then return false end
+	local ok, ex = pcall(api.engine.entityExists, e)
+	return ok and ex == true
+end
+
 local function entityName(e)
+	if not exists(e) then return "" end
 	local ok, n = pcall(api.engine.util.getEntityName, e)
 	if ok and type(n) == "string" then return n end
 	return ""
+end
+
+-- getComponent on an entity that no longer exists is a fatal assertion inside the engine
+-- (Engine.h GetComponentDataIndex), not a Lua error: pcall cannot catch it and the game goes down. Reported on
+-- mod.io (12 October 2026): removing a station still served by a line crashed the game with the mod active. So
+-- never call api.engine.getComponent directly, always through this check.
+local function comp(e, ctype)
+	if not exists(e) then return nil end
+	return api.engine.getComponent(e, ctype)
 end
 
 local function arr(t)
@@ -209,8 +227,8 @@ end
 -- ---------------------------------------------------------------- collectors
 local function collectTime()
 	local world = api.engine.util.getWorld()
-	local gt = api.engine.getComponent(world, api.type.ComponentType.GAME_TIME)
-	local gs = api.engine.getComponent(world, api.type.ComponentType.GAME_SPEED)
+	local gt = comp(world, api.type.ComponentType.GAME_TIME)
+	local gs = comp(world, api.type.ComponentType.GAME_SPEED)
 	local t = { game_time_ms = num(gt and gt.gameTime),
 		time_of_day_sec = num(gt and gt.timeOfDaySec), speed = num(gs and gs.speedup), millis_per_day = num(gs and gs.millisPerDay) }
 	local ok, d = pcall(api.engine.util.getCalendarDate, t.game_time_ms or 0)
@@ -221,7 +239,7 @@ local function collectTime()
 end
 
 local function collectFinance(player)
-	local acc = api.engine.getComponent(player, api.type.ComponentType.ACCOUNT)
+	local acc = comp(player, api.type.ComponentType.ACCOUNT)
 	local f = { balance = num(acc and acc.balance), loan = num(acc and acc.loan) }
 	local ok, v = pcall(api.engine.util.finance.calculateEarnings, player); if ok then f.earnings_year_to_date = num(v) end
 	ok, v = pcall(api.engine.util.headquarters.getTransportedData)
@@ -427,7 +445,7 @@ local function collectVehicles()
 	local out = {}
 	local sys = api.engine.system
 	for _, v in ipairs(arr(api.engine.util.vehicle.getVehicles())) do
-		local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+		local tv = comp(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 		if tv then
 			local rec = { id = v, state = enumName("TransportVehicleState", VSTATES, tv.state), line = num(tv.line), stop_index = num(tv.stopIndex),
 				user_stopped = tv.userStopped and true or false, no_path = tv.noPath and true or false, depot = num(tv.depot),
@@ -489,7 +507,7 @@ local function pathEdgeEntity(e)
 end
 
 local function vehiclePathItem(v, tv)
-	local okP, mp = pcall(api.engine.getComponent, v, api.type.ComponentType.MOVE_PATH)
+	local okP, mp = pcall(comp, v, api.type.ComponentType.MOVE_PATH)
 	if not okP or not mp then
 		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: MOVE_PATH of vehicle " .. tostring(v) .. ": " .. (okP and "nil" or tostring(mp))) end
 		return
@@ -548,7 +566,7 @@ local function vehiclesBegin()
 end
 
 local function vehicleStaticItem(v)
-	local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+	local tv = comp(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 	if not tv then return nil end
 	local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
 	pcall(vehiclePathItem, v, tv)
@@ -621,13 +639,29 @@ local function cargoClassesOf(cargoIds)
 	return classes
 end
 
+-- A station group outlives its stations: when the player bulldozes a station that a line still calls at, the group
+-- entity stays (the line references it, the game shows the line in red) while the station entity inside it is gone.
+-- Checking the group is therefore not enough; the stop is "whole" only when every station of its group exists.
+-- Verified in game on 13 October 2026: checkLineStopForVehicleOverlength on such a stop is the fatal assertion of
+-- the mod.io crash report (GetComponentDataIndex, pcall cannot catch it).
+local function stopWhole(groupEntity)
+	local sg = comp(groupEntity, api.type.ComponentType.STATION_GROUP)
+	if not sg then return false end
+	local stations = arr(sg.stations)
+	if #stations == 0 then return false end
+	for _, stationEntity in ipairs(stations) do
+		if not exists(stationEntity) then return false end
+	end
+	return true
+end
+
 local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 	local out = {}
-	local sg = api.engine.getComponent(groupEntity, api.type.ComponentType.STATION_GROUP)
+	local sg = comp(groupEntity, api.type.ComponentType.STATION_GROUP)
 	if not sg then return out end
 	local n = 0
 	for si, stationEntity in ipairs(arr(sg.stations)) do
-		local station = api.engine.getComponent(stationEntity, api.type.ComponentType.STATION)
+		local station = comp(stationEntity, api.type.ComponentType.STATION)
 		for ti, term in ipairs(arr(station and station.terminals or {})) do
 			n = n + 1
 			local rec = { n = n, station = si - 1, terminal = ti - 1 }
@@ -670,10 +704,13 @@ local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 			end)
 			pcall(function()
 				-- transport modes usable on the terminal's edge vs the line's modes (line_util.isLineCompatibleWithTransportMode)
-				if tpNet == nil then return end
+				-- tpNet is a copy taken when the section began, frames ago: the node's entity (the station's track or
+				-- street, type index 49 in the crash report) may have been bulldozed since. Check both ends.
+				if tpNet == nil or not exists(term.vehicleNodeId and term.vehicleNodeId.entity) then return end
 				local nd = tpNet:getNodeData(term.vehicleNodeId)
-				local edgeId = nd.ports[1].edgeId
-				local tn = api.engine.getComponent(edgeId.entity, api.type.ComponentType.TRANSPORT_NETWORK)
+				local edgeId = nd and nd.ports and nd.ports[1] and nd.ports[1].edgeId
+				local tn = edgeId and comp(edgeId.entity, api.type.ComponentType.TRANSPORT_NETWORK)
+				if not tn then return end
 				local edgeModes = tn.edges[edgeId.index + 1].transportModes
 				local ok = false
 				for m, on in pairs(lineModes) do if on and edgeModes[m] then ok = true end end
@@ -697,18 +734,29 @@ local function lineItem(l, ctx)
 	local sys = api.engine.system
 	local cargoNames = ctx.names
 	do
-		local line = api.engine.getComponent(l, api.type.ComponentType.LINE)
-		local rec = { id = l, name = entityName(l), stops = line and count(line.stops) or 0 }
-		pcall(function() local c = api.engine.getComponent(l, api.type.ComponentType.COLOR); if c then rec.color = vec3(c.color) end end)
+		local line = comp(l, api.type.ComponentType.LINE)
+		if not line then return nil end
+		local rec = { id = l, name = entityName(l), stops = count(line.stops) }
+		-- A stop whose station group was bulldozed while the line still lists it (the game shows the line in red
+		-- until the player fixes it). The engine's line utils below walk the stops and the transport network; on a
+		-- dead entity they hit a fatal assertion (not a Lua error, pcall cannot catch it). Reported on mod.io on
+		-- 12 October 2026: removing a served station crashed the game. Such a line is exported bare: id, name,
+		-- colour, vehicles and the stop list, nothing that walks the stops.
+		local broken = false
+		for _, s in ipairs(arr(line.stops)) do
+			if not stopWhole(s.stationGroup) then broken = true end
+		end
+		if broken then rec.broken = true end
+		pcall(function() local c = comp(l, api.type.ComponentType.COLOR); if c then rec.color = vec3(c.color) end end)
 		pcall(function() rec.vehicles = count(sys.transportVehicleSystem.getLineVehicles(l)) end)
-		pcall(function() rec.max_frequency = num(api.engine.util.line.getMaxFrequency(l)) end)
-		pcall(function() rec.throughput = num(api.engine.util.line.calcLineStationThroughput(l)) end)
-		pcall(function()
+		if not broken then pcall(function() rec.max_frequency = num(api.engine.util.line.getMaxFrequency(l)) end) end
+		if not broken then pcall(function() rec.throughput = num(api.engine.util.line.calcLineStationThroughput(l)) end) end
+		if not broken then pcall(function()
 			local q = api.engine.util.cargo.getSummarizedCargoQualityDataForLine(l)
 			rec.quality = { pax_bad = num(q.passengers.countBad), pax_total = num(q.passengers.countTotal), pax_avg = num(q.passengers.averageQuality),
 				cargo_bad = num(q.cargo.countBad), cargo_total = num(q.cargo.countTotal), cargo_avg = num(q.cargo.averageQuality) }
-		end)
-		pcall(function()
+		end) end
+		if not broken then pcall(function()
 			rec.capacity = {}
 			-- The engine returns a dense array over all cargo types (one entry per CargoTypeId, 0-based),
 			-- which Lua exposes 1-based: key k = cargo type k-1. Only when a key 0 is present is it a real id map.
@@ -723,19 +771,19 @@ local function lineItem(l, ctx)
 					rec.capacity[#rec.capacity + 1] = { cargo_type = ct, cargo = cargoNames[ct], used = used, capacity = cap }
 				end
 			end
-		end)
+		end) end
 		pcall(function() rec.persons_on_line = count(sys.simPersonSystem.getSimPersonsForLine(l)) end)
-		pcall(function()
+		if not broken then pcall(function()
 			local modes = {}
 			for m, on in pairs(api.engine.util.line.getLineTransportModesUnion(l)) do if on then modes[#modes + 1] = num(m) or tostring(m) end end
 			rec.transport_modes = modes
-		end)
+		end) end
 		pcall(function()
 			rec.stop_list = {}
 			rec.custom_filters = line.customFilters and true or false
 			rec.reservation_priority = num(line.reservationPriority)
 			local lineModes = {}
-			pcall(function() lineModes = api.engine.util.line.getLineTransportModesUnion(l) end)
+			if not broken then pcall(function() lineModes = api.engine.util.line.getLineTransportModesUnion(l) end) end
 			local lineCargoIds = {}
 			for _, c in ipairs(rec.capacity or {}) do if c.cargo_type then lineCargoIds[#lineCargoIds + 1] = c.cargo_type end end
 			local lineClasses = cargoClassesOf(lineCargoIds)
@@ -761,7 +809,10 @@ local function lineItem(l, ctx)
 					for k, f in pairs(c.maxLoad or {}) do local fr = num(f); if fr and fr < 1 then limited[#limited + 1] = { cargo_type = num(k) - 1, max = fr } end end
 					st.max_load = limited
 				end)
-				pcall(function()
+				-- a stop whose station was bulldozed while the line still lists it: the engine utils below walk the
+				-- station's terminals and the transport network and assert on the dead entity. Export the bare stop.
+				if not stopWhole(s.stationGroup) then st.gone = true end
+				if not st.gone then pcall(function()
 					-- terminals of the station group + which ones this stop may use (main = station/terminal above)
 					local alts = {}
 					for _, a in ipairs(arr(s.alternativeTerminals)) do alts[#alts + 1] = { station = num(a.station), terminal = num(a.terminal) } end
@@ -774,8 +825,8 @@ local function lineItem(l, ctx)
 						end
 					end)
 					for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
-				end)
-				pcall(function()
+				end) end
+				if not st.gone then pcall(function()
 					-- items waiting at this stop for this line (the figure in the game's line window), per cargo the line carries
 					local w = {}
 					for _, c in ipairs(rec.capacity or {}) do
@@ -784,7 +835,7 @@ local function lineItem(l, ctx)
 						if total and total > 0 then w[#w + 1] = { cargo_type = c.cargo_type, total = total, bad = num(q.countBad) or 0 } end
 					end
 					st.waiting = w
-				end)
+				end) end
 				rec.stop_list[i] = st
 			end
 		end)
@@ -823,14 +874,14 @@ local function stationItem(s, ctx)
 	local sys = api.engine.system
 	local st2town, st2con, player = ctx.st2town, ctx.st2con, ctx.player
 	do
-		local owned = api.engine.getComponent(s, api.type.ComponentType.PLAYER_OWNED)
+		local owned = comp(s, api.type.ComponentType.PLAYER_OWNED)
 		if owned and owned.player == player then
 			local rec = { id = s, name = entityName(s), town = num(st2town[s]) }
 			pcall(function()
 				-- what the terminals actually handle. isStationOfType(s, true) only says "supports cargo", which is true
 				-- for most passenger stations too (universal terminals), so the type comes from the terminal flags.
 				local pax, cargo = false, false
-				local station = api.engine.getComponent(s, api.type.ComponentType.STATION)
+				local station = comp(s, api.type.ComponentType.STATION)
 				for _, term in ipairs(arr(station and station.terminals or {})) do
 					if term.passengersLoad or term.passengersUnload then pax = true end
 					if term.cargoLoad or term.cargoUnload then cargo = true end
@@ -872,7 +923,7 @@ local function stationItem(s, ctx)
 				local cs = {}
 				for _, e in pairs(api.engine.system.catchmentAreaSystem.getStationCatchables(s, true)) do
 					local id = num(e)
-					local ind = id and api.engine.getComponent(e, api.type.ComponentType.INDUSTRY)
+					local ind = id and comp(e, api.type.ComponentType.INDUSTRY)
 					if ind then cs[#cs + 1] = { entity = id, stock_list = num(ind.stockList) or id } end
 				end
 				rec.catch = cs
@@ -880,7 +931,7 @@ local function stationItem(s, ctx)
 			pcall(function()
 				local con = st2con[s]
 				if con == nil then con = sys.streetConnectorSystem.getConstructionEntityForStation(s) end
-				local c = con and api.engine.getComponent(con, api.type.ComponentType.CONSTRUCTION)
+				local c = con and comp(con, api.type.ComponentType.CONSTRUCTION)
 				if c then
 					local m = c.transf
 					rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) }
@@ -888,7 +939,7 @@ local function stationItem(s, ctx)
 			end)
 			if rec.pos == nil then
 				pcall(function()
-					local bv = api.engine.getComponent(s, api.type.ComponentType.BOUNDING_VOLUME)
+					local bv = comp(s, api.type.ComponentType.BOUNDING_VOLUME)
 					if bv and bv.bbox then
 						local mn, mx = bv.bbox.min, bv.bbox.max
 						rec.pos = { x = (num(mn.x) + num(mx.x)) / 2, y = (num(mn.y) + num(mx.y)) / 2, z = num(mn.z) }
@@ -916,7 +967,7 @@ local SUPPLY_TOWNS_PER_CYCLE = 2
 local supplyCache = {}  -- town -> { rows, at }
 local TOWN_PARTS = {
 	function(t, rec, ctx)
-		local town = api.engine.getComponent(t, api.type.ComponentType.TOWN)
+		local town = comp(t, api.type.ComponentType.TOWN)
 		rec.name = entityName(t)
 		rec.development_active = town and town.developmentActive and true or false
 		local c = arr(ctx.caps[t]); rec.cap_res, rec.cap_com, rec.cap_ind = num(c[1]), num(c[2]), num(c[3])
@@ -1021,20 +1072,20 @@ end
 
 local function industriesBegin(cargoNames)
 	local ctx = { names = cargoNames }
-	pcall(function() local gt = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME); ctx.game_time_ms = num(gt and gt.gameTime) end)
+	pcall(function() local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME); ctx.game_time_ms = num(gt and gt.gameTime) end)
 	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)), ctx
 end
 
 local function industryItem(i, ctx)
 	local cargoNames = ctx.names
 	do
-		local ind = api.engine.getComponent(i, api.type.ComponentType.INDUSTRY)
+		local ind = comp(i, api.type.ComponentType.INDUSTRY)
 		if ind then
 			local rec = { id = i, name = entityName(i), level = num(ind.level), max_level = num(ind.maxLevel), closure_time = num(ind.closureTimeStamp),
 				manual = ind.manualDevelopment and true or false, stock_list = num(ind.stockList) }
 			local sl = ind.stockList
 			pcall(function()
-				local c = api.engine.getComponent(ind.construction, api.type.ComponentType.CONSTRUCTION)
+				local c = comp(ind.construction, api.type.ComponentType.CONSTRUCTION)
 				if c then local m = c.transf; rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) }; rec.construction = c.fileName end
 			end)
 			pcall(function() rec.production_rating = num(api.engine.util.stock.getProductionRating(sl)) end)
@@ -1043,7 +1094,7 @@ local function industryItem(i, ctx)
 				rec.producing = p.producing and true or false; rec.boost_rule = p.boostFromRule and true or false; rec.boost_persons = p.boostFromPersonCapacity and true or false
 			end)
 			pcall(function()
-				local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST)
+				local s = comp(sl, api.type.ComponentType.STOCK_LIST)
 				if not s then return end
 				rec.thrown_away = num(s.thrownAwayCargo)
 				-- what lies in the piles now: per stock (input / output / storage) and cargo type, amount and capacity.
@@ -1067,7 +1118,7 @@ local function industryItem(i, ctx)
 			--     reach half the capacity; factor = stockList.modifiers.productivity (what applies now),
 			--     potential = the construction's workersBoostFactor (or the seeded 1.5..2.5 the game draws)
 			pcall(function()
-				local s = api.engine.getComponent(sl, api.type.ComponentType.STOCK_LIST)
+				local s = comp(sl, api.type.ComponentType.STOCK_LIST)
 				if not s then return end
 				local rules, datas = arr(s.rules), arr(s.ruleDatas)
 				local nowMs = ctx.game_time_ms or 0
@@ -1097,13 +1148,13 @@ local function industryItem(i, ctx)
 					end
 				end
 				pcall(function()
-					local pc = api.engine.getComponent(i, api.type.ComponentType.PERSON_CAPACITY)
+					local pc = comp(i, api.type.ComponentType.PERSON_CAPACITY)
 					if not pc or (num(pc.capacity) or 0) <= 0 then return end
 					local cap = num(pc.capacity)
 					local workers = 0
 					pcall(function()
 						local se = api.engine.system.gameScriptSystem.getEntityForGameScript("::/industries/industry_workers.gs")
-						local gs = api.engine.getComponent(se, api.type.ComponentType.GAME_SCRIPT)
+						local gs = comp(se, api.type.ComponentType.GAME_SCRIPT)
 						local st = gs and gs.state_native and gs.state_native:findPath({ "industriesState", i })
 						if st then local tbl = st:asTable(); workers = tbl and tbl.lastVisitors and #arr(tbl.lastVisitors) or 0 end
 					end)
@@ -1111,7 +1162,7 @@ local function industryItem(i, ctx)
 					local potential = nil
 					pcall(function()
 						local ce = api.engine.system.streetConnectorSystem.getConstructionEntityForSubconstruction(i)
-						local c = ce and api.engine.getComponent(ce, api.type.ComponentType.CONSTRUCTION)
+						local c = ce and comp(ce, api.type.ComponentType.CONSTRUCTION)
 						if c and c.persistentMetadata and c.persistentMetadata.workersBoostFactor then potential = num(c.persistentMetadata.workersBoostFactor) end
 					end)
 					boosters[#boosters + 1] = { kind = "workers", active = workers > 0 and workers >= need, factor = num(s.modifiers and s.modifiers.productivity), potential = potential, workers = workers, need = need, capacity = cap }
@@ -1148,9 +1199,9 @@ end
 
 local function depotItem(d, ctx)
 	do
-		local owned = api.engine.getComponent(d, api.type.ComponentType.PLAYER_OWNED)
+		local owned = comp(d, api.type.ComponentType.PLAYER_OWNED)
 		if owned and owned.player == ctx.player then
-			local dep = api.engine.getComponent(d, api.type.ComponentType.VEHICLE_DEPOT)
+			local dep = comp(d, api.type.ComponentType.VEHICLE_DEPOT)
 			local carrier = nil
 			if dep and dep.carrier ~= nil then carrier = enumName("Carrier", CARRIERS, dep.carrier) end
 			if (carrier == nil or carrier == "nil") and dep then
@@ -1168,12 +1219,12 @@ local function depotItem(d, ctx)
 			pcall(function()
 				-- position = the depot construction's transform (same as stations)
 				local con = api.engine.system.streetConnectorSystem.getConstructionEntityForDepot(d)
-				local c = con and api.engine.getComponent(con, api.type.ComponentType.CONSTRUCTION)
+				local c = con and comp(con, api.type.ComponentType.CONSTRUCTION)
 				if c then local m = c.transf; rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) } end
 			end)
 			if rec.pos == nil then
 				pcall(function()
-					local bv = api.engine.getComponent(d, api.type.ComponentType.BOUNDING_VOLUME)
+					local bv = comp(d, api.type.ComponentType.BOUNDING_VOLUME)
 					if bv and bv.bbox then local mn, mx = bv.bbox.min, bv.bbox.max; rec.pos = { x = (num(mn.x) + num(mx.x)) / 2, y = (num(mn.y) + num(mx.y)) / 2, z = num(mn.z) } end
 				end)
 			end
@@ -1277,6 +1328,10 @@ local function slowJobStep()
 		job.sec = job.sec + 1
 		return SLOW_SECTIONS[job.sec] == nil
 	end
+	-- the item list was taken at the section's begin, frames ago: an entity the player removed since is skipped
+	-- (the engine's util functions assert on a dead entity, see comp())
+	local ent = type(e) == "table" and e[1] or e
+	if type(ent) == "number" and not exists(ent) then return false end
 	local ok, rec = pcall(def.item, e, job.ctx)
 	noteStep(job, def.name .. "#" .. (def.label and def.label(e) or tostring(e)), os.clock() - t0)
 	if ok then
@@ -1725,7 +1780,7 @@ local function geoJobStart()
 	local tiles = nil
 	pcall(function()
 		local world = api.engine.util.getWorld()
-		local tr = api.engine.getComponent(world, api.type.ComponentType.TERRAIN)
+		local tr = comp(world, api.type.ComponentType.TERRAIN)
 		if tr then
 			geo.water_level = num(tr.waterLevel)
 			local sz = vec2(tr.size)
@@ -1854,7 +1909,7 @@ local function geoWaterStep(job)
 	local e = job.water[job.wi]
 	if e == nil then return true end
 	local ok, err = pcall(function()
-		local wm = api.engine.getComponent(e, api.type.ComponentType.WATER_MESH)
+		local wm = comp(e, api.type.ComponentType.WATER_MESH)
 		if not wm or not wm.contours then return end
 		local pos = vec2(wm.pos)
 		debug(string.format("geo: water mesh %s tile (%s,%s): %d contours, %d mesh vertices", tostring(e), pos and pos.x or "?", pos and pos.y or "?", count(wm.contours), wm.vertices and count(wm.vertices) or 0))
@@ -1888,13 +1943,13 @@ local function geoEdgeStep(job)
 		local e = job.edges[job.ei]
 		if e == nil then return true end
 		local ok, err = pcall(function()
-			local be = api.engine.getComponent(e, api.type.ComponentType.BASE_EDGE)
+			local be = comp(e, api.type.ComponentType.BASE_EDGE)
 			if not be then return end
 			local p0, p1 = vec2(be.position0), vec2(be.position1)
 			if not (p0 and p1) then
 				-- older builds: positions only on the nodes
-				local n0 = api.engine.getComponent(be.node0, api.type.ComponentType.BASE_NODE)
-				local n1 = api.engine.getComponent(be.node1, api.type.ComponentType.BASE_NODE)
+				local n0 = comp(be.node0, api.type.ComponentType.BASE_NODE)
+				local n1 = comp(be.node1, api.type.ComponentType.BASE_NODE)
 				p0, p1 = n0 and vec2(n0.position), n1 and vec2(n1.position)
 			end
 			if not (p0 and p1) then return end
@@ -1986,7 +2041,7 @@ end
 
 local function heightJobStart()
 	local world = api.engine.util.getWorld()
-	local tr = api.engine.getComponent(world, api.type.ComponentType.TERRAIN)
+	local tr = comp(world, api.type.ComponentType.TERRAIN)
 	if not tr then return false end
 	local sz = vec2(tr.size)
 	if not sz or sz.x <= 0 or sz.y <= 0 then return false end
@@ -2029,7 +2084,7 @@ local function heightJobRun()
 		end
 		local col, row = job.i % job.nx, math.floor(job.i / job.nx)
 		local ok, e = pcall(api.engine.terrain.getHeightmapEntity, Vec2i.new(job.tx0 + col, job.ty0 + row))
-		local hm = ok and e and api.engine.getComponent(e, api.type.ComponentType.TERRAIN_TILE_HEIGHTMAP)
+		local hm = ok and e and comp(e, api.type.ComponentType.TERRAIN_TILE_HEIGHTMAP)
 		local out = {}
 		if hm and hm.vertices then
 			local prev = nil
@@ -2159,7 +2214,7 @@ end
 local function vehicleEntity(args)
 	local v = num(args and args.vehicle)
 	if not v then error("missing args.vehicle") end
-	local tv = api.engine.getComponent(v, api.type.ComponentType.TRANSPORT_VEHICLE)
+	local tv = comp(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 	if not tv then error("not a transport vehicle: " .. tostring(v)) end
 	return v
 end
@@ -2167,7 +2222,7 @@ end
 local function lineEntity(args)
 	local l = num(args and args.line)
 	if not l then error("missing args.line") end
-	if not api.engine.entityExists(l) or not api.engine.getComponent(l, api.type.ComponentType.LINE) then error("not a line: " .. tostring(l)) end
+	if not api.engine.entityExists(l) or not comp(l, api.type.ComponentType.LINE) then error("not a line: " .. tostring(l)) end
 	return l
 end
 
@@ -2201,7 +2256,7 @@ local COMMANDS = {
 	end,
 	pause = function() return sendCmd(api.cmd.makeGameSetSpeedCmd(0)) end,
 	toggle_pause = function()
-		local gs = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_SPEED)
+		local gs = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_SPEED)
 		local cur = num(gs and gs.speedup) or 1
 		return sendCmd(api.cmd.makeGameSetSpeedCmd(cur == 0 and 1 or 0))
 	end,
@@ -2315,7 +2370,7 @@ local COMMANDS = {
 	-- Only the given fields are changed; the route (stations, terminals, waypoints) is never touched.
 	line_set_stop = function(args)
 		local l = lineEntity(args)
-		local lineData = api.type.Line.new(api.engine.getComponent(l, api.type.ComponentType.LINE))
+		local lineData = api.type.Line.new(comp(l, api.type.ComponentType.LINE))
 		local stops = {}
 		for _, s in ipairs(arr(lineData.stops)) do stops[#stops + 1] = s end
 		local idx = num(args.stop)
@@ -2378,7 +2433,7 @@ local COMMANDS = {
 	-- is recomputed by the game; it may refuse if there is no path, like in its own window).
 	line_set_terminals = function(args)
 		local l = lineEntity(args)
-		local lineData = api.type.Line.new(api.engine.getComponent(l, api.type.ComponentType.LINE))
+		local lineData = api.type.Line.new(comp(l, api.type.ComponentType.LINE))
 		local stops = {}
 		for _, s in ipairs(arr(lineData.stops)) do stops[#stops + 1] = s end
 		local idx = num(args.stop)
@@ -2387,13 +2442,13 @@ local COMMANDS = {
 		local main = args.main
 		if type(main) ~= "table" or num(main.station) == nil or num(main.terminal) == nil then error("missing args.main {station, terminal}") end
 		-- validate every index against the station group as it exists now (the station may have been rebuilt)
-		local sg = api.engine.getComponent(stop.stationGroup, api.type.ComponentType.STATION_GROUP)
+		local sg = comp(stop.stationGroup, api.type.ComponentType.STATION_GROUP)
 		local stations = arr(sg and sg.stations or {})
 		local function check(st, tm, what)
 			st, tm = num(st), num(tm)
 			local se = stations[st + 1]
 			if se == nil then error(what .. ": station index " .. st .. " out of range") end
-			local station = api.engine.getComponent(se, api.type.ComponentType.STATION)
+			local station = comp(se, api.type.ComponentType.STATION)
 			if station == nil or arr(station.terminals)[tm + 1] == nil then error(what .. ": terminal index " .. tm .. " out of range") end
 			return st, tm
 		end
@@ -2416,7 +2471,7 @@ local COMMANDS = {
 	-- Same departure configuration applied to every stop of the line (load_mode / waits only).
 	line_set_all_stops = function(args)
 		local l = lineEntity(args)
-		local lineData = api.type.Line.new(api.engine.getComponent(l, api.type.ComponentType.LINE))
+		local lineData = api.type.Line.new(comp(l, api.type.ComponentType.LINE))
 		local stops = {}
 		local lm, mn, mx, ad = num(args.load_mode), num(args.min_wait), num(args.max_wait), num(args.max_add_wait)
 		if lm == nil and mn == nil and mx == nil and ad == nil then error("nothing to change") end
@@ -2598,7 +2653,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	-- finance journal: once per game month (or after a save game reload); its own frame
 	do
 		local okJ, wroteJ = pcall(function()
-			local gt = api.engine.getComponent(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
+			local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
 			return journalWriteIfDue(api.engine.util.getPlayer(), num(gt and gt.gameTime))
 		end)
 		if not okJ then log("journal write failed:", tostring(wroteJ)) end

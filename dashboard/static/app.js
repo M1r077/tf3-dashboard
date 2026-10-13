@@ -1675,12 +1675,28 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     spiral: (v, p) => { const n = 40, far = v.dist * (1 + 1.5 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { const t = i / n; const d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle + 2 * Math.PI * t, pitch: v.pitch }); } return pts; },
   };
   const travel = { active: null, sel: null };  // { kind: "view"|"chain", id, points } = what we asked the mod to play
+  // Pan speed limit, the cinematographers' rule of thumb (RED, "Panning speed best practices"): a static scene should
+  // take at least 7 s to cross the frame, else it judders. The game's horizontal field of view is ~40 deg (CAM_HALF_FOV),
+  // so the heading must not turn faster than 40 / 7 deg/s ~ 0.1 rad/s. The requested duration is a minimum: a full
+  // orbit stretches to ~63 s whatever the button says, and the row shows the duration that will actually play.
+  const PAN_MAX = 0.1;  // rad/s = 2 * CAM_HALF_FOV / 7 (CAM_HALF_FOV is declared further down, with the map drawing)
+  function panTurn(points, loop) {
+    let turn = 0;
+    const d = (a, b) => { let x = (b - a) % (2 * Math.PI); if (x > Math.PI) x -= 2 * Math.PI; if (x < -Math.PI) x += 2 * Math.PI; return Math.abs(x); };
+    for (let i = 1; i < points.length; i++) turn += d(points[i - 1].angle, points[i].angle);
+    if (loop && points.length > 1) turn += d(points[points.length - 1].angle, points[0].angle);
+    return turn;
+  }
+  // duration a travelling really takes: the preference, or longer when the pan would exceed PAN_MAX
+  const travelDuration = (points, loop, dur) => Math.max(dur, Math.ceil(panTurn(points, loop) / PAN_MAX));
   function playTravelling(kind, points, prefs) {
     const loop = prefs.loop && kind !== "dolly" && kind !== "flyover";
     // duration = total, spread over the legs
     const legs = points.length - 1 + (loop ? 1 : 0);
-    sendCmd("camera_path", { points: points.map(pt => ({ ...pt, duration: prefs.dur / legs })), loop, ease: false });
-    travel.active = { kind, points, loop, at: Date.now(), dur: prefs.dur };
+    const dur = travelDuration(points, loop, prefs.dur);
+    sendCmd("camera_path", { points: points.map(pt => ({ ...pt, duration: dur / legs })), loop });
+    prefs = { ...prefs, dur };
+    travel.active = { kind, points, loop, at: Date.now(), dur };
     if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop, n: points.length };
     musicStart(prefs);
     renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
@@ -1812,13 +1828,20 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const v = camViews.list.find(x => x.id === s.view); return v ? v.name : t("trv_view_gone");
   }
   const trvFail = () => { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; };
+  // the camera_path a view / chain recipe would play now: { kind, points, prefs } or null (subject gone); lines build
+  // their path in the mod
+  function trvPath(s) {
+    const tp = { ...TRAVEL_DEFAULTS, ...s };
+    if (s.kind === "chain") { const vs = chainViews(s), points = vs.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); return points.length < 2 ? null : { kind: "chain", points, prefs: { ...tp, dur: tp.dur * Math.max(1, vs.length - 1) / 2 } }; }
+    const v = camViews.list.find(x => x.id === s.view), lv = v && liveView(v); if (!lv) return null;
+    return { kind: tp.move, points: TRAVEL_MOVES[tp.move](lv, tp), prefs: tp };
+  }
   // run a recipe: returns false when the subject no longer exists
   function trvPlay(s) {
     const tp = { ...TRAVEL_DEFAULTS, ...s };
     if (s.kind === "line") { const l = (state.lines || []).find(x => x.line_id === s.line) || { line_id: s.line, name: trvSubjectName(s) }; lineTravelling(l, tp); return true; }
-    if (s.kind === "chain") { const vs = chainViews(s), pts = vs.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); if (pts.length < 2) return false; playTravelling("chain", pts, { ...tp, dur: tp.dur * Math.max(1, vs.length - 1) / 2 }); return true; }
-    const v = camViews.list.find(x => x.id === s.view), lv = v && liveView(v); if (!lv) return false;
-    playTravelling(tp.move, TRAVEL_MOVES[tp.move](lv, tp), tp); return true;
+    const p = trvPath(s); if (!p) return false;
+    playTravelling(p.kind, p.points, p.prefs); return true;
   }
   async function editTravellings(body) {
     let j;
@@ -1847,6 +1870,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       ${tp && !editing && trv.list.length < 20 ? `<button class="btn" data-travel="save" title="${esc(t("trv_save_hint"))}">${ico("ct_save", "sm")}${t("trv_save")}</button>` : ""}
       ${music.el ? `<button class="btn" data-tmute title="${esc(t("cam_music_off"))}">${ico("noise", "sm")}${t("cam_music_off")}</button>` : ""}</div>`;
   }
+  // "→ 63 s" after the duration buttons when the pan speed limit stretches the travelling (view and chain only)
+  function panNote(tp) {
+    if (tp.kind === "line") return "";
+    const p = trvPath(tp); if (!p) return "";
+    const loop = p.prefs.loop && p.kind !== "dolly" && p.kind !== "flyover";
+    const dur = travelDuration(p.points, loop, p.prefs.dur);
+    return dur > p.prefs.dur ? `<span class="muted small tr-pan" title="${esc(t("cam_pan_limit_hint"))}">→ ${dur} s</span>` : "";
+  }
   function renderWorkshop() {
     const box = $("#trv-workshop"); if (!box) return;
     const cur = camViews.cur, off = cmdOff();
@@ -1874,7 +1905,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("own/move_reverse", "sm")}</button></div>
         <div class="tr-row"><span class="muted small tr-desc">${t("cam_move_" + tp.move)}</span></div>` : ""}
         <div class="tr-row"><span class="lbl">${t("cam_travel_dur")}</span>${seg("dur", [10, 20, 40, 90], tp.dur, x => x + " s")}
-          <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("refresh", "sm")}</button></div>
+          <button class="btn tgl ${tp.loop ? "active" : ""}" data-tset="loop" title="${esc(t("cam_travel_loop"))}">${ico("refresh", "sm")}</button>${panNote(tp)}</div>
         <div class="tr-row"><span class="lbl">${tp.kind === "line" ? t("trv_alt") : t("cam_travel_amp")}</span>${seg("amp", [0.5, 1, 2], tp.amp, a => "×" + a)}</div>
         <div class="tr-row" id="tr-music"></div>
       </div><div class="tr-foot">${trvPlayer(tp, off, editing)}</div>`;
@@ -2558,9 +2589,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // clockwise with the angle (sign -1), and looking north / east the cone came out west / south with offset 0, i.e.
   // our picture was a quarter turn counter-clockwise -> a -90 deg offset
   const CAM_ANGLE_OFFSET = -Math.PI / 2, CAM_ANGLE_SIGN = -1, CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
+  // unit vector eye -> target in game coordinates for a raw game angle: (cos angle, -sin angle). The mod's camLook()
+  // in dashboard_export.script.lua is the same function; the two must stay identical
+  function camLook(angle) { const a = CAM_ANGLE_SIGN * angle + CAM_ANGLE_OFFSET; return [-Math.sin(a), Math.cos(a)]; }
   function drawViewCone(ctx, c, color) {
-    const a = CAM_ANGLE_SIGN * c.angle + CAM_ANGLE_OFFSET;
-    const dx = -Math.sin(a), dy = Math.cos(a);                            // unit vector eye -> target (game coords)
+    const [dx, dy] = camLook(c.angle);                                    // unit vector eye -> target (game coords)
     // horizontal distance eye -> target, in metres; kept readable on screen (>= 36 px) when the map is zoomed out
     const back = Math.max(c.dist * Math.cos(Math.abs(c.pitch)), 36 / map.scale);
     const ex = c.x - dx * back, ey = c.y - dy * back;                     // eye on the ground plane
@@ -2729,7 +2762,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (tv && tv.points.length > 1 && $("#map-views").checked) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();
-      tv.points.forEach((pt, i) => { const a = CAM_ANGLE_SIGN * pt.angle + CAM_ANGLE_OFFSET, back = pt.dist * Math.cos(Math.abs(pt.pitch)); const ex = pt.x + Math.sin(a) * back, ey = pt.y - Math.cos(a) * back; const [x, y] = P(ex, ey); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      tv.points.forEach((pt, i) => { const [lx, ly] = camLook(pt.angle), back = pt.dist * Math.cos(Math.abs(pt.pitch)); const [x, y] = P(pt.x - lx * back, pt.y - ly * back); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
       ctx.stroke(); ctx.restore();
     }
     // the "views" toggle hides the saved pins and the travelling track; the live camera cone stays (it is the

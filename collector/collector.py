@@ -1184,13 +1184,27 @@ class SlowFiles:
         # assembler keeps it, not the leftovers
         out = []
         paths = list(self.dir.glob(f"{self.prefix}height_*.lua"))
-        for p in sorted(paths, key=lambda q: (os.path.getmtime(q) if q.exists() else 0, q.name)):
+        times = {p: (os.path.getmtime(p) if p.exists() else 0) for p in paths}
+        newest = max(times.values(), default=0)
+        for p in sorted(paths, key=lambda q: (times[q], q.name)):
             name = p.stem[len(self.prefix):]
+            if times[p] < newest - heightmap.EXPORT_GAP_S and self.mtime.get(name) is None:
+                # leftover of an older export (the mod never deletes band files, bigger maps leave more of them): the
+                # assembler would ignore it anyway, so do not spend a second decoding it - mark it seen; a rewrite
+                # changes its time and brings it back. Decoding forty leftovers blocked the snapshots for half a minute
+                # right when the mod was writing the fresh bands
+                self.mtime[name] = times[p]
+                continue
             d = self._changed_file(name, "tiles")
             if d is not None:
                 d["_mtime"] = self.mtime.get(name) or 0  # the assembler tells the exports apart by their file times
                 out.append(d)
         return out
+
+    def forget_height_bands(self) -> None:
+        """Make every band file 'changed' again: the next height_bands() re-reads them all (safety net)."""
+        for name in [n for n in self.mtime if n.startswith("height_")]:
+            del self.mtime[name]
 
     def merge(self, snap: dict) -> dict:
         """Return a schema-3-shaped snapshot: slow sections inlined, vehicle static fields merged back."""
@@ -1244,6 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
 
     store = Store(args.db)
     height_asm = heightmap.HeightAssembler()
+    height_retry = -1  # export_no whose band files were re-read once because bands stayed missing
     if args.status:
         print(store.status())
         return 0
@@ -1481,6 +1496,14 @@ def main(argv: list[str] | None = None) -> int:
                             for band in slow_files.height_bands():
                                 height_asm.add(band)
                                 bands_in += 1
+                            if (not bands_in and height_asm.total > 0 and not height_asm.complete
+                                    and time.time() - height_asm.t_last > 60 and height_retry != height_asm.export_no):
+                                # bands missing a minute after the last one arrived: re-read every band file once for
+                                # this export - the mod wrote them all (its log says so), whatever was dropped on the
+                                # way is on disk
+                                height_retry = height_asm.export_no
+                                slow_files.forget_height_bands()
+                                say(f"heightmap: {height_asm.n_done}/{height_asm.total} bands, re-reading the files", "info")
                             if bands_in and height_asm.export_no != export_before:
                                 # a new terrain export began: whatever picture sits under this game's name is from
                                 # another map (same player id reused by the game) - drop it, the bands replace it

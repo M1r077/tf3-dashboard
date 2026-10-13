@@ -357,6 +357,18 @@ body.layout-edit #layout-bar { display: flex; }
 /* ---------------- game icons (white-on-alpha PNG from the game, recolored via CSS mask) */
 .ico { display: inline-block; width: var(--isz); height: var(--isz); vertical-align: calc(var(--isz) * -0.25); margin-right: 6px; background-color: currentColor;
   -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat; flex: none; }
+/* the game's loading chevrons: a 4 x 3 sprite sheet stepped through (12 frames, ~1 s per cycle, as in the game at
+   speed x1); frozen when the game is paused (body.paused) */
+.ico.anim-load { -webkit-mask-size: 400% 300%; mask-size: 400% 300%; -webkit-mask-position: 0 0; mask-position: 0 0; animation: load-sheet 1.1s steps(1) infinite; }
+@keyframes load-sheet {
+  0% { -webkit-mask-position: 0 0; mask-position: 0 0; }           8.33% { -webkit-mask-position: 33.333% 0; mask-position: 33.333% 0; }
+  16.67% { -webkit-mask-position: 66.667% 0; mask-position: 66.667% 0; } 25% { -webkit-mask-position: 100% 0; mask-position: 100% 0; }
+  33.33% { -webkit-mask-position: 0 50%; mask-position: 0 50%; }   41.67% { -webkit-mask-position: 33.333% 50%; mask-position: 33.333% 50%; }
+  50% { -webkit-mask-position: 66.667% 50%; mask-position: 66.667% 50%; } 58.33% { -webkit-mask-position: 100% 50%; mask-position: 100% 50%; }
+  66.67% { -webkit-mask-position: 0 100%; mask-position: 0 100%; } 75% { -webkit-mask-position: 33.333% 100%; mask-position: 33.333% 100%; }
+  83.33% { -webkit-mask-position: 66.667% 100%; mask-position: 66.667% 100%; } 91.67%, 100% { -webkit-mask-position: 100% 100%; mask-position: 100% 100%; }
+}
+body.paused .ico.anim-load { animation-play-state: paused; }
 .ico.sm { width: calc(var(--isz) * 0.75); height: calc(var(--isz) * 0.75); vertical-align: calc(var(--isz) * -0.18); margin-right: 4px; }
 .ico.lg { width: calc(var(--isz) * 1.4); height: calc(var(--isz) * 1.4); vertical-align: calc(var(--isz) * -0.4); }
 .ico.xl { width: calc(var(--isz) * 2); height: calc(var(--isz) * 2); }

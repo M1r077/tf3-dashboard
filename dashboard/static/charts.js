@@ -7,6 +7,8 @@
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const PALETTE = ["#4f8a8a", "#d62560", "#e8b04b", "#58a6ff", "#3fb950", "#bc8cff", "#f0883e", "#8b98a8"];
   const FONT = () => css("--font") || "sans-serif";
+  // series names come from the game and its mods (cargo, line names): text, never markup
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   /** Height: if the canvas sits in a user-sized card (.card.sized), fill the space left under the title;
       otherwise use data-h, or the default chart height of the settings (CSS --charth, 200 px shipped). */
@@ -158,7 +160,7 @@
           const lines = series.map((s, si) => {
             if (!u.series[si + 1].show) return null;
             const v = s.values[i]; if (v == null) return null;
-            return `<span style="color:${s.color}">●</span> ${s.icon || ""}${s.name}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
+            return `<span style="color:${s.color}">●</span> ${s.icon || ""}${esc(s.name)}: <b>${fmtShort(v, s.unit || (s.axis === "right" ? opts.rightUnit : opts.unit))}</b>`;
           }).filter(Boolean);
           if (!lines.length) { el.style.display = "none"; return; }
           const isAgg = opts.aggFrom != null && i < opts.aggFrom;

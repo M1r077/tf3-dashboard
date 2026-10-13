@@ -2,7 +2,9 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (mod revision 17)
+## Companion 0.9.0 - 13 October 2026 (mod revision 17)
+
+Mod revision 17 is required for the crash fix below; the companion keeps working with revision 16 (the broken-line marker simply never shows).
 
 - Mod: removing a station, harbour or stop still served by a line crashed the game a few seconds later (reported on mod.io, reproduced: `Engine.h GetComponentDataIndex: Assertion 'it != components.end()' failed`). The culprit is `checkLineStopForVehicleOverlength` on the orphaned stop: the station group entity survives the bulldozer (the line still references it, the game shows the line in red) while the station inside it is gone, and the engine asserts when it walks the terminals, a fatal error `pcall` cannot catch. A stop is now "whole" only when its group and every station of the group exist; an orphaned stop gets no engine call at all, and its line is exported bare (id, name, colour, vehicles, stop list; no capacities, headway, quality or terminals) until the player deletes or replaces the stop. Also: every `getComponent` goes through an `entityExists` check, a slow-section item whose entity vanished since the section began is skipped.
 - Dashboard: such a line shows a red warning after its name (table and detail), a one-line explanation in the detail, the orphaned stop struck out in the stop table (no station link or camera for it) and in the stop sequence; it counts as a problem for the "problems only" filter. `line_stop.gone` column.

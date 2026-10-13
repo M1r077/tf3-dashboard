@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS line_stop (
     terminals     TEXT,                           -- JSON list of the station group terminals {n, station, terminal, pax, cargo, class, class_name, class_color, length, speed_mod, compatible, overlength}
     alternatives  TEXT,                           -- JSON list of {station, terminal} the stop may use besides the main one (station/terminal above)
     waiting       TEXT,                           -- JSON list of {cargo_type, total, bad}: items waiting at this stop for this line (NULL = nothing waiting)
+    gone          INTEGER,                        -- 1 = the station of this stop was bulldozed, the line still lists it (mod rev 17+)
     PRIMARY KEY (game_id, line_id, stop_index)
 );
 

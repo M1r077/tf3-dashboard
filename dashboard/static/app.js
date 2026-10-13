@@ -865,7 +865,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // ------------------------------------------------------------ lines
   const cargoName = (n) => n ? String(n).replace(/^.*\//, "").replace(/\.cargo.*$/, "").replace(/_/g, " ") : "?";
   const cargoChip = (c) => `<span class="chip">${cargoIcon(c)}${esc(cargoName(cargoLabel(c)))}</span>`;
-  const hasLineProblem = (l) => (l.vehicles === 0) || (l.pax_total > 10 && l.pax_bad / l.pax_total > 0.3) || (l.cargo_total > 10 && l.cargo_bad / l.cargo_total > 0.3);
+  const hasLineProblem = (l) => l.broken || (l.vehicles === 0) || (l.pax_total > 10 && l.pax_bad / l.pax_total > 0.3) || (l.cargo_total > 10 && l.cargo_bad / l.cargo_total > 0.3);
+  // a stop whose station was bulldozed while the line still lists it (the game draws the line in red): warning icon
+  // after the name in the table and in the detail header, the stop itself struck out in the stop table
+  const brokenMark = (l) => l.broken ? ` <span class="brokenline" title="${esc(t("line_broken"))}">${ico("warning", "sm")}</span>` : "";
   // Vehicle type of a line: from the vehicles currently on it (icon_type / carrier), else from the line's transport
   // modes (TransportMode enum: 2 CAR 3 BUS 4 TRUCK 5 TRAM 6 ELECTRIC_TRAM 7 TRAIN 8 ELECTRIC_TRAIN 9 AIRCRAFT 10 SHIP
   // 11 SMALL_AIRCRAFT 12 SMALL_SHIP 13 HELICOPTER). Returns one of the LINE_TYPES keys.
@@ -933,7 +936,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const rows = lines.filter(l => (!q || (l.name || "").toLowerCase().includes(q) || l.stop_names.join(" ").toLowerCase().includes(q)) && (!onlyP || hasLineProblem(l)) && (!state.lineTypes.size || state.lineTypes.has(lineType(l))));
     const loadOf = (l) => l.capacities.reduce((a, x) => ({ u: a.u + (x.used || 0), c: a.c + (x.capacity || 0) }), { u: 0, c: 0 });
     const cols = [
-      { key: "name", label: t("th_line"), render: l => `<span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)}` },
+      { key: "name", label: t("th_line"), render: l => `<span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)}${brokenMark(l)}` },
       { key: "stops", label: t("th_stops"), num: true },
       { key: "vehicles", label: t("th_veh"), num: true, render: l => `${l.vehicles ?? "–"}${l.live ? ` <small>(${l.live.en_route} ${t("en_route")})</small>` : ""}` },
       { key: "max_frequency", label: t("th_headway"), num: true, render: l => headway(l.max_frequency), sortValue: l => l.max_frequency },
@@ -958,9 +961,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const el = $("#line-detail"), top = el.scrollTop;
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
     const keepStops = state.editStop && state.editStop.line === id && $("#line-stops-wrap tr.editing", el) ? $("#line-stops-wrap", el) : null;
-    el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)} <small>#${l.line_id}</small></h2>
+    el.innerHTML = `<h2><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name)}${brokenMark(l)} <small>#${l.line_id}</small></h2>
+      ${l.broken ? `<p class="brokenline">${ico("warning", "sm")}${t("line_broken_hint")}</p>` : ""}
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button><button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 || (travel.active && travel.active.kind === "line" && travel.active.id === id) ? "disabled" : ""}>${ico("ct_film", "sm")}${t("line_travel")}</button></div>
-      <p class="muted">${l.stop_names.map(esc).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
+      <p class="muted">${(l.stop_list || []).map(s => s.gone ? `<s>${esc(s.name)}</s>` : esc(s.name)).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}
         <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
         <tr><td>${t("det_throughput")}</td><td>${int(l.throughput)}</td></tr>
@@ -1160,15 +1164,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const w = st.waiting || []; if (!w.length) return '<span class="muted">–</span>';
       return w.map(x => { const c = ctById.get(x.cargo_type); return `<span class="chip ${x.bad ? "bad" : ""}" title="${esc(c ? c.name : x.cargo_type)}: ${x.total}${x.bad ? ` (${t("waiting_bad", { n: x.bad })})` : ""}">${cargoIcon({ cargo: c && c.name, cargo_key: c && c.key })}${x.total}</span>`; }).join("");
     };
-    const viewRow = (st) => `<tr data-stop="${st.stop_index}">
+    // a stop whose station was bulldozed: name struck out, no station link or camera (nothing to go to), still editable
+    const viewRow = (st) => `<tr data-stop="${st.stop_index}" class="${st.gone ? "gone" : ""}">
         <td class="num muted">${st.stop_index}</td>
-        <td class="wrap">${st.station_group ? `<a class="goto" data-st="${st.station_group}" title="${esc(t("goto_station"))}">${esc(st.name || "?")}</a>` : esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
+        <td class="wrap">${st.gone ? `<s title="${esc(t("stop_gone"))}">${esc(st.name || "?")}</s> ${ico("warning", "sm", t("stop_gone"))}` : st.station_group ? `<a class="goto" data-st="${st.station_group}" title="${esc(t("goto_station"))}">${esc(st.name || "?")}</a>` : esc(st.name || "?")}${st.waypoints ? ` <small class="muted" title="${esc(t("waypoints_n", { n: st.waypoints }))}">(+${st.waypoints})</small>` : ""}</td>
         <td class="nowrap">${cargoCell(st)}${st.force_unload ? ` <span class="chip bad" title="${esc(t("force_unload"))}">${ico("line_unload", "sm")}</span>` : ""}</td>
         <td class="nowrap">${termBadges(st)}</td>
         <td class="nowrap">${waiting(st)}</td>
         <td class="center">${st.load_mode == null ? "–" : ico(LOAD_MODE_ICON[st.load_mode] || "load_available", "sm", t("load_mode_" + st.load_mode))}</td>
         <td class="num nowrap">${waits(st)}</td>
-        <td class="act">${st.station_group ? entBtns(st.station_group) : ""}<button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
+        <td class="act">${st.station_group && !st.gone ? entBtns(st.station_group) : ""}<button class="btn iconbtn stop-edit" data-stop="${st.stop_index}" title="${esc(t("edit"))}" ${off ? "disabled" : ""}>${ico("edit", "sm")}</button></td></tr>`;
     const editRow = (st) => {
       const w = (k, v, min) => `<input type="number" class="stop-in" data-k="${k}" min="${min}" max="600" step="5" value="${v == null ? "" : Math.round(v)}" style="width:62px">`;
       return `<tr class="editing" data-stop="${st.stop_index}"><td colspan="8"><div class="stopedit">

@@ -210,6 +210,7 @@ class Store:
         ("station_state", "waiting", "TEXT"),  # JSON [{cargo_type, cargo, total, bad}] what waits at the station (mod rev 15+)
         ("station", "catch", "TEXT"),  # JSON [{entity, stock_list}] stock lists in the station's catchment area (mod rev 16+)
         ("line", "gone", "INTEGER"),  # snapshot in which a line stopped being exported (deleted in game); NULL = alive
+        ("line_stop", "gone", "INTEGER"),  # 1 = the stop's station was bulldozed, the line still lists it (mod rev 17+)
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -688,8 +689,8 @@ class Store:
                     self.con.execute(
                         """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name,
                            load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, no_load, max_load,
-                           terminals, alternatives, waiting)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           terminals, alternatives, waiting, gone)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (gid, lid, i, g(s, "station_group"), g(s, "station"), g(s, "terminal"), g(s, "name"),
                          g(s, "load_mode"), g(s, "min_wait"), g(s, "max_wait"), g(s, "max_add_wait"), g(s, "waypoints"),
                          _bool(g(s, "force_unload")),
@@ -697,7 +698,8 @@ class Store:
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
                          json.dumps(terminals) if terminals else None,
                          json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None,
-                         json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None))
+                         json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None,
+                         1 if g(s, "gone") else None))  # station bulldozed, line still calls there (mod rev 17+)
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))

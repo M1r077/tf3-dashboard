@@ -1391,23 +1391,41 @@ end
 -- ---------------------------------------------------------------- camera travelling
 -- camera_path: the dashboard sends a list of waypoints once ({x, y, dist, angle, pitch} + the duration of each
 -- leg); the mod interpolates on every frame (guiUpdate runs per rendered frame) and calls setCameraData, so the
--- movement is as smooth as the frame rate. Nothing touches the simulation. Catmull-Rom on the ground point and the
--- distance (the path bends through the waypoints instead of cornering), shortest-way interpolation of the heading,
--- smoothstep easing per leg when the dashboard asks for it. Stops on camera_stop, on a new path, when the player
--- grabs the camera (the camera no longer is where we left it), or when a follow camera takes over.
-camPath = nil  -- { pts = {...}, legs = { duration }, t0, total, loop, ease, lastSet = Vec5 we wrote, tick }
+-- movement is as smooth as the frame rate. Nothing touches the simulation. Stops on camera_stop, on a new path,
+-- when the player grabs the camera (the camera no longer is where we left it), or when a follow camera takes over.
+--
+-- The motion follows textbook rules rather than per-leg tweaks (rev 18):
+--  * Catmull-Rom spline with the waypoint TIMES as knots (Barry-Goldman recursive form, Yuksel-Schaefer-Keyser
+--    2011): the curve is C1 in time, so the speed of the ground point, the distance, the heading and the pitch are
+--    continuous through every waypoint (the uniform spline of rev 10 jumped in speed wherever two legs differed in
+--    length, 0.6 x alt before a stop against 2 x alt in between).
+--  * One speed profile for the whole path, not per leg: quintic ramps (minimum-jerk, Flash & Hogan 1985:
+--    10t^3 - 15t^4 + 6t^5, zero speed AND zero acceleration at both ends) of at most 3 s, constant speed between.
+--    A loop has no ends and no ramps.
+--  * Heading and pitch pass through a first-order filter (time constant CAM_TAU) fed with the spline value CAM_TAU
+--    ahead: at constant rate the lead cancels the lag exactly, at a change of rate the filter rounds it off. The
+--    last frame writes the end point exactly.
+camPath = nil  -- { pts = {...}, legs = { duration }, knots = { time of each point }, t0, total, loop, ramps, lastSet, tick, ... }
 
-local function lerp(a, b, t) return a + (b - a) * t end
-local function angLerp(a, b, t)
-	local d = (b - a) % (2 * math.pi)
-	if d > math.pi then d = d - 2 * math.pi end
-	return a + d * t
+local CAM_RAMP_MAX = 3.0   -- s, each end
+local CAM_TAU = 0.6        -- s, heading / pitch filter and look-ahead
+local TWO_PI = 2 * math.pi
+local function angDelta(a, b)  -- shortest signed turn from a to b
+	local d = (b - a) % TWO_PI
+	if d > math.pi then d = d - TWO_PI end
+	return d
 end
--- Catmull-Rom between p1 and p2 (p0, p3 = neighbours, clamped at the ends), t in [0,1]
-local function catmull(p0, p1, p2, p3, t)
-	local t2, t3 = t * t, t * t * t
-	return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+-- non-uniform Catmull-Rom between p1 (knot t1) and p2 (knot t2) at time t, neighbours p0 (t0) and p3 (t3)
+local function crom(p0, p1, p2, p3, t0, t1, t2, t3, t)
+	local a1 = ((t1 - t) * p0 + (t - t0) * p1) / (t1 - t0)
+	local a2 = ((t2 - t) * p1 + (t - t1) * p2) / (t2 - t1)
+	local a3 = ((t3 - t) * p2 + (t - t2) * p3) / (t3 - t2)
+	local b1 = ((t2 - t) * a1 + (t - t0) * a2) / (t2 - t0)
+	local b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1)
+	return ((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1)
 end
+-- integral of the quintic ramp 10u^3 - 15u^4 + 6u^5 from 0 to u (= u^4 (2.5 - 3u + u^2)), 0.5 at u = 1
+local function rampArea(u) return u * u * u * u * (2.5 + u * (u - 3)) end
 
 camPathProgress = function()
 	if not camPath then return 0 end
@@ -1432,6 +1450,15 @@ local function camPathUserTouched()
 		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
 end
 
+-- Heading convention of getCameraData().angle, checked in game against the compass (same constants as
+-- CAM_ANGLE_SIGN / CAM_ANGLE_OFFSET in the dashboard's app.js): the camera turns clockwise with the angle and looks
+-- along (cos a, -sin a) in map coordinates (angle 0 = looking east, +Y north); the eye sits behind the target along
+-- the opposite direction. Until rev 18 the tour and the clearance assumed (-sin a, cos a): the tour looked across the
+-- track instead of along it in half the directions, and the terrain was sampled on the wrong side of the target.
+local function camLook(angle) return math.cos(angle), -math.sin(angle) end
+local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
+local function headingOf(dx, dy) return atan2(-dy, dx) end  -- angle that looks along (dx, dy)
+
 -- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
 -- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
 -- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
@@ -1444,13 +1471,13 @@ local function camClear(x, y, dist, angle, pitch)
 	if not terrain or not terrain.getHeightAt then return dist, pitch end
 	if pitch < CAM_MIN_PITCH then pitch = CAM_MIN_PITCH end
 	local sp, cp = math.sin(pitch), math.cos(pitch)
-	local sa, ca = math.sin(angle), math.cos(angle)
+	local lx, ly = camLook(angle)
 	local function hAt(px, py) local ok, h = pcall(terrain.getHeightAt, api.type.Vec2f.new(px, py)); return ok and num(h) or 0 end
 	local h0 = hAt(x, y)
 	local back = dist * cp
 	local hmax = h0
 	for _, f in ipairs({ 0.33, 0.66, 1.0 }) do
-		local h = hAt(x + sa * back * f, y - ca * back * f)
+		local h = hAt(x - lx * back * f, y - ly * back * f)  -- from the target back towards the eye
 		if h > hmax then hmax = h end
 	end
 	local eyeZ = h0 + dist * sp
@@ -1467,11 +1494,6 @@ local function camSet(x, y, dist, angle, pitch)
 	camPath.tick = camPath.tick + 1
 	return true
 end
-local function smooth(t) return t * t * (3 - 2 * t) end
--- heading that looks along (dx, dy): the eye sits at centre + (sin a, -cos a) * back
-local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
-local function headingOf(dx, dy) return atan2(-dx, dy) end
-
 -- Line tour: ONE camera path built when the command arrives, from the points of interest of the line =
 -- its stops (route sent by the dashboard, in order) + the positions of its vehicles AT THAT MOMENT, inserted at
 -- their place along the route. Then it is played exactly like camera_path (Catmull-Rom, constant ground speed).
@@ -1606,8 +1628,8 @@ local function camTourBuild(args)
 		local pitch = q.kind == "vehicle" and 0.9 or q.kind == "stop" and 0.95 or 1.0
 		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy) + (q.swing or 0), pitch = pitch, s = q.s }
 	end
-	-- durations: constant ground speed; speed = alt/8 m/s by default
-	local speed = math.max(10, num(args.speed) or alt / 8)
+	-- durations: constant ground speed; speed = alt/16 m/s by default (what the dashboard sends too)
+	local speed = math.max(10, num(args.speed) or alt / 16)
 	local raw2 = {}
 	for i, q in ipairs(path) do
 		local d = i > 1 and (q.s - path[i - 1].s) / speed or nil
@@ -1617,31 +1639,90 @@ local function camTourBuild(args)
 	return raw2, nv, alt, len
 end
 
+-- speed profile: wall time e in [0, total] -> path time in [0, total]. Quintic ramps of `ramp` seconds at both ends,
+-- constant speed between; the plateau speed is total / (total - ramp) so the path time still ends at total
+-- (each ramp covers half of what the plateau covers in the same time). No ramps on a loop or when ramp = 0.
+local function camPathWarp(cp, e)
+	local r, T = cp.ramp, cp.total
+	if r <= 0 then
+		if cp.loop and T > 0 then e = e % T end
+		return e
+	end
+	local v = T / (T - r)
+	if e <= r then return v * r * rampArea(e / r) end
+	if e >= T - r then return T - v * r * rampArea((T - e) / r) end
+	return v * (e - r / 2)
+end
+
+-- the spline at path time s: x, y, dist, angle, pitch (angle unwrapped: each point's angle is stored relative to the
+-- previous one by the shortest turn, so the spline never crosses the +-pi seam)
+local function camPathAt(cp, s)
+	local pts, knots, n = cp.pts, cp.knots, #cp.pts
+	if cp.loop and cp.total > 0 then s = s % cp.total end
+	local i = cp.seg or 1
+	if s < knots[i] then i = 1 end
+	while i < n - 1 and s >= knots[i + 1] do i = i + 1 end
+	cp.seg = i
+	local p1, p2 = pts[i], pts[i + 1]
+	local t1, t2 = knots[i], knots[i + 1]
+	local p0, p3, t0, t3
+	if cp.loop and n > 2 then
+		-- pts[n] == pts[1]: the neighbours wrap around, with the knot spacing of the wrapped leg
+		p0 = i > 1 and pts[i - 1] or pts[n - 1]
+		t0 = i > 1 and knots[i - 1] or t1 - (knots[n] - knots[n - 1])
+		p3 = i + 2 <= n and pts[i + 2] or pts[2]
+		t3 = i + 2 <= n and knots[i + 2] or t2 + (knots[2] - knots[1])
+	else
+		-- clamped ends: mirror the end point in time so the tangent there is the chord (no overshoot)
+		p0 = i > 1 and pts[i - 1] or p1
+		t0 = i > 1 and knots[i - 1] or t1 - (t2 - t1)
+		p3 = i + 2 <= n and pts[i + 2] or p2
+		t3 = i + 2 <= n and knots[i + 2] or t2 + (t2 - t1)
+	end
+	local a0, a1, a2, a3 = p0.ua, p1.ua, p2.ua, p3.ua
+	if cp.loop and n > 2 then
+		-- unwrapped angles across the wrap: shift the wrapped neighbours next to this segment
+		if i == 1 then a0 = a1 + angDelta(p1.ua, p0.ua) end
+		if i + 2 > n then a3 = a2 + angDelta(p2.ua, p3.ua) end
+	end
+	local x = crom(p0.x, p1.x, p2.x, p3.x, t0, t1, t2, t3, s)
+	local y = crom(p0.y, p1.y, p2.y, p3.y, t0, t1, t2, t3, s)
+	local d = math.max(10, crom(p0.dist, p1.dist, p2.dist, p3.dist, t0, t1, t2, t3, s))
+	local a = crom(a0, a1, a2, a3, t0, t1, t2, t3, s)
+	local q = crom(p0.pitch, p1.pitch, p2.pitch, p3.pitch, t0, t1, t2, t3, s)
+	return x, y, d, a, q
+end
+
 local function camPathTick()
 	if not camPath then return end
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then return camPathStop("follow camera active") end
 	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera") end
-	local e = os.clock() - camPath.t0
-	if e >= camPath.total then
-		if camPath.loop then e = e % camPath.total else e = camPath.total end
+	local now = os.clock()
+	local e = now - camPath.t0
+	local ended = e >= camPath.total and not camPath.loop
+	if ended then e = camPath.total end
+	local x, y, dist, angle, pitch
+	if ended then
+		local p = camPath.pts[#camPath.pts]
+		x, y, dist, angle, pitch = p.x, p.y, p.dist, p.angle, p.pitch
+	else
+		x, y, dist = camPathAt(camPath, camPathWarp(camPath, e))
+		local ahead = camPath.loop and e + CAM_TAU or math.min(camPath.total, e + CAM_TAU)
+		local _, _, _, aT, pT = camPathAt(camPath, camPathWarp(camPath, ahead))
+		if camPath.tick == 0 then
+			local _, _, _, a0, q0 = camPathAt(camPath, camPathWarp(camPath, e))
+			angle, pitch = a0, q0
+		else
+			local dt = math.max(0, math.min(0.25, now - camPath.lastTime))
+			local k = 1 - math.exp(-dt / CAM_TAU)
+			angle = camPath.angle + angDelta(camPath.angle, aT) * k
+			pitch = camPath.pitch + (pT - camPath.pitch) * k
+		end
 	end
-	-- find the leg
-	local pts, legs = camPath.pts, camPath.legs
-	local i, acc = 1, 0
-	while i < #legs and e > acc + legs[i] do acc = acc + legs[i]; i = i + 1 end
-	local t = legs[i] > 0 and (e - acc) / legs[i] or 1
-	if t > 1 then t = 1 end
-	if camPath.ease then t = t * t * (3 - 2 * t) end
-	local p0, p1, p2, p3 = pts[math.max(1, i - 1)], pts[i], pts[math.min(#pts, i + 1)], pts[math.min(#pts, i + 2)]
-	if camPath.loop and #pts > 2 then p0 = pts[i == 1 and #pts - 1 or i - 1]; p3 = pts[(i + 1) % (#pts - 1) + 1] end
-	local x = catmull(p0.x, p1.x, p2.x, p3.x, t)
-	local y = catmull(p0.y, p1.y, p2.y, p3.y, t)
-	local dist = math.max(10, catmull(p0.dist, p1.dist, p2.dist, p3.dist, t))
-	local angle = angLerp(p1.angle, p2.angle, t)
-	local pitch = lerp(p1.pitch, p2.pitch, t)
+	camPath.angle, camPath.pitch, camPath.lastTime = angle, pitch, now
 	if not camSet(x, y, dist, angle, pitch) then return end
-	if e >= camPath.total and not camPath.loop then camPathStop("finished") end
+	if ended then camPathStop("finished") end
 end
 
 local function camPathStart(args)
@@ -1657,18 +1738,29 @@ local function camPathStart(args)
 			legs[#legs + 1] = d; total = total + d
 		end
 	end
-	if args.loop and (pts[1].x ~= pts[#pts].x or pts[1].y ~= pts[#pts].y) then
+	local loop = args.loop == true
+	if loop and (pts[1].x ~= pts[#pts].x or pts[1].y ~= pts[#pts].y) then
 		-- close the loop: come back to the first point
-		pts[#pts + 1] = pts[1]
+		local p = pts[1]
+		pts[#pts + 1] = { x = p.x, y = p.y, dist = p.dist, angle = p.angle, pitch = p.pitch }
 		local d = math.max(0.1, num(args.duration) or legs[#legs] or 5)
 		legs[#legs + 1] = d; total = total + d
 	end
+	-- knots = cumulative times; unwrapped angles (shortest turn from the previous point, cumulative)
+	local knots = { 0 }
+	pts[1].ua = pts[1].angle
+	for i = 2, #pts do
+		knots[i] = knots[i - 1] + legs[i - 1]
+		pts[i].ua = pts[i - 1].ua + angDelta(pts[i - 1].angle, pts[i].angle)
+	end
+	-- ramps: the dashboard's `ease` (default on) asks for the slow-in / slow-out; never on a loop
+	local ramp = (args.ease ~= false and not loop) and math.min(CAM_RAMP_MAX, total / 4) or 0
 	-- a follow camera would pull the view back to its vehicle: detach it first
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
 		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(pts[1].x, pts[1].y, 0), pts[1].dist)
 	end
-	camPath = { pts = pts, legs = legs, total = total, loop = args.loop == true, ease = args.ease ~= false, t0 = os.clock(), tick = 0, lastSet = nil }
+	camPath = { pts = pts, legs = legs, knots = knots, total = total, loop = loop, ramp = ramp, t0 = os.clock(), tick = 0, lastSet = nil }
 	camPathTick()
 	debug(string.format("camera path started: %d points, %.1fs%s", #pts, total, camPath.loop and ", loop" or ""))
 	return true
@@ -1676,7 +1768,7 @@ end
 
 local function camTourStart(args)
 	local points, nv, alt, len = camTourBuild(args)
-	camPathStart({ points = points, loop = args.loop == true, ease = false })
+	camPathStart({ points = points, loop = args.loop == true })
 	debug(string.format("camera tour: %d points (%d vehicles), route %.0f m, alt %.0f m", #points, nv, len, alt))
 	return true
 end

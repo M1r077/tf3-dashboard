@@ -304,8 +304,14 @@ Three independent parts:
      waypoint every 2 x alt on long legs.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
-     `setCameraData`: Catmull-Rom through the ground points and the distance (the camera bends through a view instead
-     of cornering), shortest-way heading, linear pitch, smoothstep per leg. Cost: one Vec5f per frame. It stops by
+     `setCameraData`. Since mod rev 18 the motion follows textbook rules instead of per-leg tweaks: a Catmull-Rom
+     spline with the waypoint *times* as knots (Barry-Goldman form, Yuksel-Schaefer-Keyser 2011) on the ground
+     point, the distance, the unwrapped heading and the pitch, so the speed is continuous through every waypoint;
+     one speed profile for the whole path with minimum-jerk quintic ramps (Flash & Hogan 1985) of at most 3 s at both
+     ends and constant speed between (none on a loop); heading and pitch through a first-order filter (0.6 s) fed with
+     the spline 0.6 s ahead, so a change of turning rate is rounded off without lag at constant rate. The heading
+     convention (`camLook`: the camera looks along (cos a, -sin a) in map coordinates) is checked against the compass
+     and shared with the dashboard's cone drawing. Cost: a few multiplications and one Vec5f per frame. It stops by
      itself at the end (or loops), on `camera_stop`, on `set_camera` / a new path, when a follow camera is active,
      or when the camera is no longer where the mod left it (the player grabbed it). `snapshot.camera.path
      {playing, progress, loop, n}` is exported while it plays; the panel shows a progress bar and the map draws the
@@ -314,15 +320,18 @@ Three independent parts:
      - *Around one view* (camera button on a view's row, or pick a view and press Play): the view is the subject,
        the points are generated around it — orbit (full turn), dolly (far -> view, or away), flyover (high and
        far, levelling out), sweep (back and forth +-45 degrees), spiral (turn while coming closer). Direction,
-       amplitude (x0.5/1/2), duration (10/20/40/90 s), loop.
-     - *Chain all views*: the saved views in order, the duration spread over the legs.
+       amplitude (x0.5/1/2), duration (10/20/40/90 s), loop. The duration is a minimum: the pan speed is capped at
+       0.1 rad/s (the cinematographers' rule of one frame width per 7 s with the game's ~40 degree field of view), a
+       full orbit therefore takes about 63 s whatever the button says, and the row shows "-> 63 s" when it applies.
+     - *Chain all views*: the saved views in order, the duration spread over the legs, same pan cap.
      - *Line tour* (button on a line's sheet, `camera_tour {line, route, closed, alt, speed, loop}`): the dashboard
        sends the stops of the line; **the mod reads the positions of the line's vehicles at that moment**, inserts
        them along the route, merges points closer than alt/2, puts an approach and an exit point around every point
-       of interest (heading swinging -30 -> +30 degrees across it, so the camera pans over the subject) and a high
-       waypoint in the middle of long empty stretches, then plays it as a normal path. Altitude = 15 % of the span
-       of the line, 250-900 m, x amplitude; stops at 0.7x, vehicles at 0.45x, stretches at 1.5x; constant ground
-       speed = alt/8 per second (the duration preference can only speed it up). It is a snapshot: a vehicle that
+       of interest (heading swinging -17 -> +17 degrees across it, so the camera pans over the subject) and a high
+       waypoint every 2 x alt along long stretches, then plays it as a normal path. Altitude = 15 % of the span
+       of the line, 250-900 m, x amplitude; stops at 0.8x, vehicles at 0.7x, approach/exit at 1.05x, stretches at
+       1.15x; constant ground speed = alt/16 per second (the duration preference can only speed it up, capped at
+       alt/6). It is a snapshot: a vehicle that
        moves on during the flight is not followed - a live-tracking version was tried and dropped because vehicle
        positions only change on simulation ticks and the picture jerked.
      Preferences live per browser in `localStorage tf3.travel`.

@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (mod revision 20)
+## Companion 0.11.0 - 13 October 2026 (mod revision 20)
 
 - Russian: full translation of the dashboard and of the mod's settings and status window, contributed by tassaddarhome-ctrl (#125). Follows the game language automatically; also selectable in Settings. The mod strings need the next revision to reach the game.
 - Vehicle state "at terminal" was the game's internal enum name, not what the player sees: the vehicle is loading or unloading, and the game shows that as animated chevrons. The dashboard now shows the same chevrons (the game's `load_animation` sprite, 12 frames, frozen when the game is paused) in the state chips, the state filter, the fleet counters and the per-carrier table, and the word, where one is needed, is "loading" (FR en chargement, DE beim Laden, PT carregando, ZH 装卸中). Icons are re-extracted at the next start (`extract_icons.py` changed).

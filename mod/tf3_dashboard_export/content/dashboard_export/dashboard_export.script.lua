@@ -1435,8 +1435,20 @@ camPathProgress = function()
 end
 
 local followFrame = nil  -- { entity, dist, angle, pitch, left }: framing to apply over a follow camera (follow_view)
+-- The game's data layers (passenger flow, satisfaction, noise...) are what a player studies while a travelling or a
+-- vehicle view runs, and their ridge of eleven toggles is folded by default. "openLayerRidge" without a layer unfolds
+-- it with nothing selected (the same react event the game's own town window fires with a layer); the player picks.
+-- Opening a window does not move the camera, so the travelling survives the clicks. Closed again when the travelling
+-- ends by itself; left alone when the player took the camera (he is doing something).
+local function camLayersShow(show)
+	pcall(api.gui.fireReactEvent, show and "openLayerRidge" or "closeLayerRidge", nil)
+end
 local function camPathStop(reason)
-	if camPath then debug("camera path stopped: " .. tostring(reason)); camPath = nil end
+	if camPath then
+		debug("camera path stopped: " .. tostring(reason))
+		camPath = nil
+		if reason == "finished" or reason == "camera_stop" then camLayersShow(false) end
+	end
 end
 
 -- the camera is "ours" if it is within a small tolerance of what we last wrote; otherwise the player moved it
@@ -1762,6 +1774,7 @@ local function camPathStart(args)
 	end
 	camPath = { pts = pts, legs = legs, knots = knots, total = total, loop = loop, ramp = ramp, t0 = os.clock(), tick = 0, lastSet = nil }
 	camPathTick()
+	camLayersShow(true)
 	debug(string.format("camera path started: %d points, %.1fs%s", #pts, total, camPath.loop and ", loop" or ""))
 	return true
 end
@@ -2391,6 +2404,7 @@ local COMMANDS = {
 		camPathStop("follow_view")
 		api.gui.camera.followEntity(e, args.jump ~= false)
 		followFrame = { entity = e, dist = num(args.dist), angle = num(args.angle), pitch = num(args.pitch), left = 12 }
+		camLayersShow(true)
 		return true
 	end,
 	-- camera travelling: args = { points = { {x, y, dist, angle, pitch, duration?}, ... }, duration?, loop?, ease? }

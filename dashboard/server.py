@@ -2105,6 +2105,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
         except (ValueError, TypeError, zipfile.BadZipFile) as e:
             self._send(400, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
+        except sqlite3.Error as e:  # no database yet, or the collector holds it: same answer as the GET routes
+            self._send(503, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
         except OSError as e:
             self._send(500, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")
 

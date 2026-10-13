@@ -766,7 +766,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
 
     const idle = fleet.idle || [];
     $("#idle-count").textContent = idle.length ? idle.length : "";
-    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${STI(v.state)}</span><br><span class="muted">${t("idle_days", { n: (v.days_in_depot || 0) + (v.days_at_terminal || 0) })}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
+    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${STI(v.state)}</span><br><span class="muted">${v.days_in_depot ? t("idle_days", { n: v.days_in_depot }) : ""}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
     const stuck = fleet.stuck || [];
     $("#stuck-list").innerHTML = stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`;
     $$("#idle-list .row, #stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
@@ -816,7 +816,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
     renderStateBar($("#veh-states"), veh);
     const q = $("#veh-filter").value.toLowerCase(), worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
-    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || (v.days_in_depot + v.days_at_terminal) > 2));
+    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || v.days_in_depot > 2));
     $("#veh-count").textContent = `${rows.length} / ${veh.length}`;
     const cols = [
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },

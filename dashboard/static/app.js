@@ -332,7 +332,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const now = Date.now();
     if (now - lastHint < 1500) return;
     lastHint = now;
-    fetch("/api/activity", { method: "POST" }).catch(() => {});
+    fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
     setTimeout(() => refresh(), 1200);  // the mod flushes its slow files within ~1 s of the hint
   }
   ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, activityHint, { passive: true, capture: true }));

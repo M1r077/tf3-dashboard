@@ -2031,6 +2031,21 @@ class Handler(BaseHTTPRequestHandler):
         self._send(403, b"forbidden host", "text/plain")
         return False
 
+    def _post_ok(self) -> bool:
+        """A POST from our own page only. The client address is 127.0.0.1 for any site open in the player's browser,
+        so it proves nothing: Origin (sent by browsers with every POST) must be this server, and the body must be
+        declared JSON, which a cross-site page cannot send without a CORS preflight this server never answers."""
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            o = urlparse(origin)
+            if o.scheme != "http" or not self._local_authority(o.netloc):
+                self._send(403, json.dumps({"ok": False, "error": "cross-site request refused"}).encode(), "application/json")
+                return False
+        if self.headers.get_content_type() != "application/json":
+            self._send(415, json.dumps({"ok": False, "error": "Content-Type must be application/json"}).encode(), "application/json")
+            return False
+        return True
+
     def do_GET(self):
         if not self._host_ok():
             return
@@ -2097,11 +2112,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
             self._send(404, b"not found", "text/plain")
             return
-        # local only: never accept commands from another host
+        # local only: never accept commands from another host, nor from another site open in the local browser
         if self.client_address[0] not in ("127.0.0.1", "::1"):
             self._send(403, json.dumps({"error": "local only"}).encode(), "application/json")
             return
-        if not self._host_ok():
+        if not self._host_ok() or not self._post_ok():
             return
         if u.path == "/api/activity":
             try:

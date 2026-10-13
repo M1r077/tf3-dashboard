@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Collector: the bottom of the map kept the coarse relief after a game launch ("20/22 bands" in the legend, for good). The mod had written all 22 band files; the collector, started seconds before, was reading the whole folder in one slow pass (forty leftover band files of earlier maps, half a minute of decoding) while the mod rewrote band 0, 1, 2... A fresh band 0 was accepted, then slot 2 still held the previous map's content, its other `revs` reset the assembler, and band 0 was dropped with its file time recorded as read, so it never came back. Three changes: a band older than the running export by more than the export gap is ignored *before* the reset tests, whatever its revs; leftover files older than the newest band by that gap are not decoded at all on a first pass (marked seen, a rewrite brings them back); and when bands are still missing a minute after the last one arrived, every band file is re-read once for that export. Test in `migrate_check.py` (fails on 0.9.0).
+
 ## Companion 0.9.0 - 13 October 2026 (mod revision 17)
 
 Mod revision 17 is required for the crash fix below; the companion keeps working with revision 16 (the broken-line marker simply never shows).

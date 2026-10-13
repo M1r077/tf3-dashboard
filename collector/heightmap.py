@@ -94,11 +94,16 @@ class HeightAssembler:
         # previous map's files of the same size come first in mtime order, then the fresh ones - without this the old
         # bands and the new were mixed and the fresh ones already read never came back)
         mt = float(band.get("_mtime") or 0)
+        if self.t_last > 0 and mt and mt < self.t_last - EXPORT_GAP_S:
+            # leftover of an older export while a fresher one is under way: ignore it BEFORE the reset tests below,
+            # whatever its revs or shape. A collector started seconds before the mod began writing read the folder in
+            # one slow pass while band 0, 1, ... were being rewritten: a fresh band 0 was accepted, then band 2 still
+            # held the previous map's content, its other revs reset the assembler and band 0 was gone for good (its
+            # file time never changes again) - the bottom of the map kept the coarse relief, "20/22 bands" forever
+            return self.complete
         later = self.t_last > 0 and mt > self.t_last + EXPORT_GAP_S
         if revs != self.revs or not same_shape or later or (k in self.bands and self.bands[k].get("tiles") != band.get("tiles")):
             self._reset(revs, band)
-        if self.t_last > 0 and mt and mt < self.t_last - EXPORT_GAP_S:  # leftover of an older export, the fresh one is under way
-            return self.complete
         if mt:
             self.t_last = max(self.t_last, mt)
         if k < 0 or k >= self.total or k in self.bands:  # leftover files of a bigger map keep band numbers past the end

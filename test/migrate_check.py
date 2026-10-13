@@ -121,10 +121,42 @@ def line_lifecycle(db: Path) -> list[str]:
     return bad
 
 
+def heightmap_race() -> list[str]:
+    """Collector started seconds before the mod exports a new map: the folder still holds the previous map's bands
+    (other revs, same slot numbers). Bands are fed in the order the first pass met them: fresh 0 and 1, then slot 2
+    still with the OLD content, then the fresh 2..N. The fresh bands 0 and 1 must survive (0.8.3 lost them for good:
+    the bottom of the map kept the coarse relief, '20/22 bands' forever)."""
+    import heightmap
+    nx, ny, side = 2, 8, 3           # 2x8 tiles, bands of 4 rows -> 2 bands per export; vertices 3x3 per tile
+    flat = "A" * 0                   # decode_tile pads a short string with zeros: a flat tile is fine for the test
+    def band(k: int, revs: str, bands: int, t: float) -> dict:
+        tiles = [flat] * (nx * 4)
+        return {"band": k, "row0": k * 4, "tiles": tiles, "grid": [nx, ny], "side": side, "band_rows": 4,
+                "bands": bands, "revs": revs, "_mtime": t}
+    old_t, new_t = 1000.0, 2000.0    # the previous export, then the fresh one 1000 s later
+    asm = heightmap.HeightAssembler()
+    bad = []
+    asm.add(band(0, "new", 2, new_t))             # fresh band 0 read first (rewritten before the pass reached it)
+    asm.add(band(1, "old", 2, old_t))             # slot 1 still holds the previous map's band
+    if 0 not in asm.bands or asm.revs != "new":
+        bad.append(f"stale band reset the fresh export (bands {sorted(asm.bands)}, revs {asm.revs})")
+    asm.add(band(1, "new", 2, new_t + 2))         # the fresh band 1 arrives
+    if not asm.complete:
+        bad.append(f"export not complete after all fresh bands: {sorted(asm.bands)}/{asm.total}")
+    # a genuinely newer export (next map, same size, same revs) must still replace the picture
+    asm.add(band(0, "new", 2, new_t + 500))
+    if asm.complete or asm.export_no != 2:
+        bad.append(f"a later export did not reset the assembler (export_no {asm.export_no})")
+    return bad
+
+
 def main() -> int:
     failed = 0
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
+        bad = heightmap_race()
+        print("heightmap bands (stale band of the previous map met between fresh ones):", "FAIL " + "; ".join(bad) if bad else "ok")
+        failed += bool(bad)
         bad = line_lifecycle(tmp / "lines.db")
         print("entity lifecycle (line rename/delete, station/industry/depot removed, failed section, back):", "FAIL " + "; ".join(bad) if bad else "ok")
         failed += bool(bad)

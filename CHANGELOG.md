@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 

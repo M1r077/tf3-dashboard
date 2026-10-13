@@ -491,8 +491,8 @@ end
 -- leg is replaced only by a sequence that starts and ends elsewhere (the player rerouted). Legs survive across cycles,
 -- so a few minutes of game give the whole line once each leg was driven once; written in slow_line_paths.lua.
 local linePaths = {}      -- line id -> { [leg] = { edges = {ids}, n = count, seen = os.time() } }
-LINEPATH.dirty = false
 local LINEPATH = {}
+LINEPATH.dirty = false
 LINEPATH.MAX_EDGES = 3000
 
 LINEPATH.probe = 3  -- debug: describe the first few MOVE_PATH shapes seen (the API docs and the Lua view differ)
@@ -1404,12 +1404,12 @@ end
 --  * One speed profile for the whole path, not per leg: quintic ramps (minimum-jerk, Flash & Hogan 1985:
 --    10t^3 - 15t^4 + 6t^5, zero speed AND zero acceleration at both ends) of at most 3 s, constant speed between.
 --    A loop has no ends and no ramps.
+local CAM = {}
 --  * Heading and pitch pass through a first-order filter (time constant CAM.TAU) fed with the spline value CAM.TAU
 --    ahead: at constant rate the lead cancels the lag exactly, at a change of rate the filter rounds it off. The
 --    last frame writes the end point exactly.
 camPath = nil  -- { pts = {...}, legs = { duration }, knots = { time of each point }, t0, total, loop, ramps, lastSet, tick, ... }
 
-local CAM = {}
 CAM.RAMP_MAX = 3.0   -- s, each end
 CAM.TAU = 0.6        -- s, heading / pitch filter and look-ahead
 local TWO_PI = 2 * math.pi
@@ -2110,13 +2110,13 @@ end
 -- The terrain is stored tile by tile (256 m, TERRAIN_TILE_HEIGHTMAP: 65x65 integers at 4 m, metres = raw * baseResolution.z
 -- + offsetZ, 5 cm steps), readable in Lua at no cost (the array is already in memory, ~0 ms per tile measured). The
 -- whole map (44x44 tiles = 7.9 M values on an 11 km map) does not fit one Lua file, so the tiles go out in band files
+local HEIGHT = {}
 -- tf3dash_height_<band>.lua of HEIGHT.BAND tile rows each, one tile per frame, each tile one printable string: the
 -- first height in full, then the difference to the previous vertex (row-major), both as variable-length base-64 digits
 -- (6 bits per character, the low bit of the first digit is the sign, the top bit of every digit says "more digits").
 -- Flat land is 1 character per vertex: ~5 KB per tile, ~10 MB for the map, written once per load and again when the
 -- terrain changed (getTerrainEntityRevisions, the game's own change counter, checked with the geo edge count).
 local HEIGHT_PREFIX = PREFIX .. "height_"
-local HEIGHT = {}
 HEIGHT.BAND = 4              -- tile rows per file (44 tiles x 4 rows x ~5 KB = ~1 MB per file)
 HEIGHT.TILES_PER_STEP = 2    -- tiles encoded per frame (~1 ms each: 4 225 values through the encoder)
 local heightJob = nil
@@ -2622,11 +2622,11 @@ end
 
 -- ---------------------------------------------------------------- activity hint (dashboard -> mod)
 -- The dashboard tells the mod when the player is interacting with it (click, key, wheel): their attention is on the
+local ACTIVITY = {}
 -- second screen, so for ACTIVITY.WINDOW seconds the mod may do its heavy work (collect the slow cycle, write the
 -- slow_*.lua files) without anybody noticing a hitch in the game, and the dashboard gets fresh data right when it is
 -- being looked at. Not a command: works whatever "Permit game control" is set to, changes timing only.
 ACTIVITY.FILE = PREFIX .. "activity"
-local ACTIVITY = {}
 ACTIVITY.WINDOW = 2.0      -- seconds of relaxed budget after a hint
 ACTIVITY.BUDGET = 0.05     -- per-frame budget for slow steps during the window (50 ms = a frame nobody sees)
 ACTIVITY.MIN_AGE = 5.0     -- restart the slow cycle on a hint only if the last one is older than this

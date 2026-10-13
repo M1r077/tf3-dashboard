@@ -211,6 +211,9 @@ class Store:
         ("station", "catch", "TEXT"),  # JSON [{entity, stock_list}] stock lists in the station's catchment area (mod rev 16+)
         ("line", "gone", "INTEGER"),  # snapshot in which a line stopped being exported (deleted in game); NULL = alive
         ("line_stop", "gone", "INTEGER"),  # 1 = the stop's station was bulldozed, the line still lists it (mod rev 17+)
+        ("station", "gone", "INTEGER"),  # snapshot in which a station stopped being exported (bulldozed); NULL = alive
+        ("industry", "gone", "INTEGER"),  # same for an industry (closed and removed from the map)
+        ("depot", "gone", "INTEGER"),  # same for a depot
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -546,13 +549,14 @@ class Store:
             self._last_slow_seq[gid] = slow_seq
             self._cargo_types(gid, snap.get("cargo_types"))
             self._company(sid, snap.get("company"))
-            lines_ok = not any(g(e, "section") == "lines" for e in as_list(snap.get("errors")))
-            self._lines(sid, gid, now, slow_seq, snap.get("lines"), lines_ok)
-            self._stations(sid, gid, now, snap.get("stations"))
+            # a section the mod reported as failed this cycle is incomplete: nothing may be marked gone from it
+            failed = {g(e, "section") for e in as_list(snap.get("errors"))}
+            self._lines(sid, gid, now, slow_seq, snap.get("lines"), "lines" not in failed)
+            self._stations(sid, gid, now, snap.get("stations"), "stations" not in failed)
             self._towns(sid, gid, now, snap.get("towns"))
             self._label_game(gid, snap.get("towns"))
-            self._industries(sid, gid, now, snap.get("industries"))
-            self._depots(sid, gid, now, snap.get("depots"))
+            self._industries(sid, gid, now, snap.get("industries"), "industries" not in failed)
+            self._depots(sid, gid, now, snap.get("depots"), "depots" not in failed)
         self.con.commit()
         return sid
 
@@ -705,29 +709,40 @@ class Store:
                                  (_bool(l.get("custom_filters")), l.get("reservation_priority"), gid, lid))
         # the mod exports every line of the player each cycle: one that is missing was deleted in game (the lists kept
         # them forever, each under its default name "Line 1"). Marked, not deleted: the history keeps the name.
-        # Not when the section failed in the mod or its file is missing for this cycle (ls is None)
-        if section_ok and ls is not None:
-            marks = ",".join("?" * len(seen))
-            where = f"game_id=? AND gone IS NULL{' AND line_id NOT IN (' + marks + ')' if seen else ''}"
-            gone = [r[0] for r in self.con.execute(f"SELECT line_id FROM line WHERE {where}", (gid, *seen))]
-            if gone:
-                self.con.execute(f"UPDATE line SET gone=? WHERE game_id=? AND line_id IN ({','.join('?' * len(gone))})", (sid, gid, *gone))
-                self.con.execute(f"DELETE FROM line_stop WHERE game_id=? AND line_id IN ({','.join('?' * len(gone))})", (gid, *gone))
+        gone = self._mark_gone("line", "line_id", sid, gid, seen, section_ok and ls is not None)
+        if gone:
+            self.con.execute(f"DELETE FROM line_stop WHERE game_id=? AND line_id IN ({','.join('?' * len(gone))})", (gid, *gone))
 
-    def _stations(self, sid: int, gid: int, now: str, ss: Any):
+    def _mark_gone(self, table: str, key: str, sid: int, gid: int, seen: list, complete: bool) -> list:
+        """Entities of this game not in the complete export of this cycle have left the game (bulldozed, closed and
+        removed, deleted): stamp `gone` with the snapshot, keep the row so the history keeps the name and position.
+        Nothing is marked when the section failed in the mod or its file is missing this cycle (complete=False)."""
+        if not complete:
+            return []
+        marks = ",".join("?" * len(seen))
+        where = f"game_id=? AND gone IS NULL{' AND ' + key + ' NOT IN (' + marks + ')' if seen else ''}"
+        gone = [r[0] for r in self.con.execute(f"SELECT {key} FROM {table} WHERE {where}", (gid, *seen))]
+        if gone:
+            self.con.execute(f"UPDATE {table} SET gone=? WHERE game_id=? AND {key} IN ({','.join('?' * len(gone))})", (sid, gid, *gone))
+        return gone
+
+    def _stations(self, sid: int, gid: int, now: str, ss: Any, section_ok: bool = True):
+        seen: list[int] = []
         for s in as_list(ss):
             if not isinstance(s, dict) or s.get("id") is None:
                 continue
+            seen.append(s["id"])
             x, y, _z = xyz(s.get("pos"))
             # catchables (mod rev 16+): stock lists the station can load from; changes only when something is built, so
             # it lives on the station row, not in the per-cycle state. Kept as-is when an older mod does not send it.
             catch = [x for x in as_list(s.get("catch")) if isinstance(x, dict) and x.get("stock_list") is not None]
+            # gone=NULL on every pass: a station comes back when an older save is reloaded
             self.con.execute(
                 """INSERT INTO station(game_id, station_id, name, town_id, station_group, is_cargo, is_pax, x, y, catch)
                    VALUES (?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, station_id) DO UPDATE SET name=excluded.name, town_id=excluded.town_id, station_group=excluded.station_group,
                    is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y,
-                   catch=COALESCE(excluded.catch, station.catch)""",
+                   catch=COALESCE(excluded.catch, station.catch), gone=NULL""",
                 (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y,
                  json.dumps([{"entity": x.get("entity"), "stock_list": x["stock_list"]} for x in catch], separators=(",", ":")) if "catch" in s else None),
             )
@@ -735,6 +750,7 @@ class Store:
             self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines, waiting) VALUES (?,?,?,?,?,?,?,?)",
                              (sid, s["id"], s.get("used"), s.get("overflow"), s.get("pool_capacity"), s.get("terminal_capacity"), s.get("lines"),
                               json.dumps(waiting, separators=(",", ":")) if waiting else None))
+        self._mark_gone("station", "station_id", sid, gid, seen, section_ok and ss is not None)
 
     def _towns(self, sid: int, gid: int, now: str, ts: Any):
         def pair(p: Any) -> tuple[Any, Any]:
@@ -775,17 +791,19 @@ class Store:
                     nu, nt = pair(tl.get("non_resident"))
                     self.con.execute("INSERT OR REPLACE INTO town_top_line(snapshot_id, town_id, line_id, resident_unhappy, resident_total, nonresident_unhappy, nonresident_total) VALUES (?,?,?,?,?,?,?)", (sid, tid, tl["line"], ru, rt, nu, nt))
 
-    def _industries(self, sid: int, gid: int, now: str, inds: Any):
+    def _industries(self, sid: int, gid: int, now: str, inds: Any, section_ok: bool = True):
+        seen: list[int] = []
         for i in as_list(inds):
             if not isinstance(i, dict) or i.get("id") is None:
                 continue
             iid = i["id"]
+            seen.append(iid)
             x, y, _z = xyz(i.get("pos"))
             self.con.execute(
                 """INSERT INTO industry(game_id, industry_id, name, construction, stock_list, max_level, x, y)
                    VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, industry_id) DO UPDATE SET name=excluded.name, construction=excluded.construction,
-                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y""",
+                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y, gone=NULL""",
                 (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y),
             )
             self.con.execute(
@@ -816,20 +834,24 @@ class Store:
             for (direction, ct), pile in piles.items():  # piles without a rule (warehouses, storage stocks)
                 self.con.execute("INSERT OR REPLACE INTO industry_cargo(snapshot_id, industry_id, cargo_id, direction, produced_year, max_prod_year, shipped_year, consumed_year, max_cons_year, delivered_year, stock, capacity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                                  (sid, iid, ct, direction, None, None, None, None, None, None, pile[0], pile[1]))
+        self._mark_gone("industry", "industry_id", sid, gid, seen, section_ok and inds is not None)
 
-    def _depots(self, sid: int, gid: int, now: str, ds: Any):
+    def _depots(self, sid: int, gid: int, now: str, ds: Any, section_ok: bool = True):
+        seen: list[int] = []
         for d in as_list(ds):
             if not isinstance(d, dict) or d.get("id") is None:
                 continue
+            seen.append(d["id"])
             x, y, _z = xyz(d.get("pos"))
             self.con.execute(
                 """INSERT INTO depot(game_id, depot_id, name, carrier, x, y) VALUES (?,?,?,?,?,?)
                    ON CONFLICT(game_id, depot_id) DO UPDATE SET name=excluded.name, carrier=excluded.carrier,
-                   x=COALESCE(excluded.x, depot.x), y=COALESCE(excluded.y, depot.y)""",
+                   x=COALESCE(excluded.x, depot.x), y=COALESCE(excluded.y, depot.y), gone=NULL""",
                 (gid, d["id"], d.get("name"), clean_enum(d.get("carrier")), x, y),
             )
             self.con.execute("INSERT OR REPLACE INTO depot_state(snapshot_id, depot_id, vehicles, incoming, maintenance_pool, pool_max, pool_avg) VALUES (?,?,?,?,?,?,?)",
                              (sid, d["id"], d.get("vehicles"), d.get("incoming"), d.get("maintenance_pool"), d.get("pool_max"), d.get("pool_avg")))
+        self._mark_gone("depot", "depot_id", sid, gid, seen, section_ok and ds is not None)
 
     # ------------------------------------------------------------ retention / aggregation
     # detail (one row per snapshot) is kept for `detail_hours`; everything older is rolled up into the

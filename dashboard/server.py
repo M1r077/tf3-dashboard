@@ -183,6 +183,21 @@ def one(sql: str, args: tuple = ()) -> dict | None:
     return r[0] if r else None
 
 
+_gone_cols: set[str] = set()
+
+
+def _alive(table: str, alias: str) -> str:
+    """SQL fragment keeping the entities still in the game: `station`, `industry` and `depot` rows are never deleted
+    (the history keeps their name), the collector stamps `gone` when the mod stops exporting them (bulldozed, closed
+    and removed). A database the new collector has not opened yet (dashboard started on an old copy) has no such
+    column: filter nothing then, never fail. Only a positive answer is cached, the collector may add the column later."""
+    if table not in _gone_cols:
+        if "gone" not in {r["name"] for r in rows(f"PRAGMA table_info({table})")}:
+            return ""
+        _gone_cols.add(table)
+    return f" AND {alias}.gone IS NULL"
+
+
 # ---------------------------------------------------------------- API
 def api_overview(q: dict) -> dict:
     # no database file yet (the collector creates it at the first snapshot) or no snapshot: the page shows the
@@ -580,7 +595,7 @@ def api_towns(q: dict) -> dict:
     # stations in the town where at least one line calls: the game's own "stations" figure counts every station
     # built, including the ones nothing stops at, so it cannot say whether the town is served
     served = rows(f"""SELECT s.town_id, COUNT(*) AS n FROM station s JOIN station_state ss ON ss.station_id=s.station_id
-                     WHERE s.game_id={int(gid)} AND ss.lines>0 AND ss.snapshot_id=(SELECT MAX(x.snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
+                     WHERE s.game_id={int(gid)}{_alive("station", "s")} AND ss.lines>0 AND ss.snapshot_id=(SELECT MAX(x.snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
                      GROUP BY s.town_id""")
     served_map = {s["town_id"]: s["n"] for s in served}
     for t in towns:
@@ -604,9 +619,9 @@ def api_town_history(q: dict) -> dict:
 
 def api_industries(q: dict) -> dict:
     gid = _gid()
-    inds = rows("""SELECT i.industry_id, i.name, i.construction, i.max_level, i.x, i.y, st.* FROM industry i
+    inds = rows(f"""SELECT i.industry_id, i.name, i.construction, i.max_level, i.x, i.y, st.* FROM industry i
                    JOIN industry_state st ON st.industry_id=i.industry_id
-                   WHERE i.game_id=? AND st.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state x WHERE x.industry_id=i.industry_id)
+                   WHERE i.game_id=?{_alive("industry", "i")} AND st.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state x WHERE x.industry_id=i.industry_id)
                    ORDER BY i.name""", (gid,))
     cargo = rows(f"""SELECT ic.*, ct.name AS cargo, ct.key AS cargo_key FROM industry_cargo ic LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=ic.cargo_id
                     WHERE ic.snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""", (gid,))
@@ -660,7 +675,7 @@ def api_stations(q: dict) -> dict:
     st = rows(f"""SELECT s.station_id, s.name, s.is_cargo, s.is_pax, s.station_group, s.x, s.y, {"s.catch" if has_catch else "NULL AS catch"}, t.name AS town_name, ss.*
                  FROM station s JOIN station_state ss ON ss.station_id=s.station_id
                  LEFT JOIN town t ON t.game_id=s.game_id AND t.town_id=s.town_id
-                 WHERE s.game_id=? AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
+                 WHERE s.game_id=?{_alive("station", "s")} AND ss.snapshot_id=(SELECT MAX(snapshot_id) FROM station_state x WHERE x.station_id=s.station_id)
                  ORDER BY ss.used DESC""", (gid,))
     # catchables (mod rev 16+): the stock lists in reach of each station, resolved to the industries we know and their
     # output piles at the latest industry snapshot = what the station can load (freight never waits at a station in TF3).
@@ -715,8 +730,8 @@ def api_station_history(q: dict) -> dict:
 
 def api_depots(q: dict) -> dict:
     gid = _gid()
-    d = rows("""SELECT d.depot_id, d.name, d.carrier, ds.* FROM depot d JOIN depot_state ds ON ds.depot_id=d.depot_id
-                WHERE d.game_id=? AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)""", (gid,))
+    d = rows(f"""SELECT d.depot_id, d.name, d.carrier, ds.* FROM depot d JOIN depot_state ds ON ds.depot_id=d.depot_id
+                WHERE d.game_id=?{_alive("depot", "d")} AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)""", (gid,))
     return {"depots": d}
 
 
@@ -740,15 +755,17 @@ def api_map(q: dict) -> dict:
     towns = rows("""SELECT t.town_id, t.name, t.x, t.y, ts.cap_res+ts.cap_com+ts.cap_ind AS size FROM town t
                     LEFT JOIN town_state ts ON ts.town_id=t.town_id AND ts.snapshot_id=(SELECT MAX(snapshot_id) FROM town_state x WHERE x.town_id=t.town_id)
                     WHERE t.game_id=? AND t.x IS NOT NULL""", (gid,))
-    st = rows("SELECT station_id, name, x, y, is_cargo, is_pax FROM station WHERE game_id=? AND x IS NOT NULL", (gid,))
-    # only the industries of the latest state: the industry table keeps every entity ever seen under this game key
-    # (closed, renamed, earlier saves), which would litter the map with ghosts
+    # stations, industries and depots that left the game (bulldozed, closed and removed) keep their row for the
+    # history; the collector stamps them `gone`, the map only draws the living ones
+    st = rows(f"SELECT station_id, name, x, y, is_cargo, is_pax FROM station s WHERE game_id=?{_alive('station', 's')} AND x IS NOT NULL", (gid,))
+    # industries: also only those of the latest state, for a database filled before `gone` existed (every entity ever
+    # seen under this game key, closed or from earlier saves, would litter the map with ghosts)
     ind = rows(f"""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
-                  WHERE i.game_id=? AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
+                  WHERE i.game_id=?{_alive("industry", "i")} AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
                         (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})))""", (gid,))
-    dep = rows("""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
+    dep = rows(f"""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
                   LEFT JOIN depot_state ds ON ds.depot_id=d.depot_id AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)
-                  WHERE d.game_id=? AND d.x IS NOT NULL""", (gid,))
+                  WHERE d.game_id=?{_alive("depot", "d")} AND d.x IS NOT NULL""", (gid,))
     hq = one("""SELECT c.hq_id AS id, c.hq_x AS x, c.hq_y AS y FROM company c JOIN snapshot s USING(snapshot_id)
                 WHERE s.game_id=? AND c.hq_x IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT 1""", (gid,))
     # alerts with position

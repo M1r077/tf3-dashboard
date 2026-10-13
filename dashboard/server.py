@@ -1974,6 +1974,8 @@ ROUTES = {
     "/api/games": api_games, "/api/music": api_music,
 }
 
+POST_MAX_BYTES = 2 * 1024 * 1024  # request body limit; a line tour with its whole ground track stays well below
+
 MIME = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
         ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon"}
 
@@ -2084,6 +2086,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             n = int(self.headers.get("Content-Length") or 0)
+            if n < 0 or n > POST_MAX_BYTES:  # negative = read until the client hangs up, huge = all into memory
+                raise ValueError(f"request body must be 0..{POST_MAX_BYTES} bytes")
             body = json.loads(self.rfile.read(n) or b"{}")
             if u.path in ("/api/views", "/api/travellings"):
                 res = (edit_views if u.path == "/api/views" else edit_travellings)(body if isinstance(body, dict) else {})

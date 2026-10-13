@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS station (
     is_pax        INTEGER,                        -- a terminal loads/unloads passengers (NULL = old mod: not cargo => pax)
     x REAL, y REAL,
     catch         TEXT,                           -- JSON [{entity, stock_list}]: stock lists (industries, warehouses) in the catchment area = what the station can load (mod rev 16+; NULL = older mod)
+    gone          INTEGER,                        -- snapshot in which the station was no longer exported (bulldozed); NULL = alive. Row kept for the history
     PRIMARY KEY (game_id, station_id)
 );
 
@@ -345,6 +346,7 @@ CREATE TABLE IF NOT EXISTS industry (
     stock_list    INTEGER,
     max_level     INTEGER,
     x REAL, y REAL,
+    gone          INTEGER,                        -- snapshot in which the industry was no longer exported (closed and removed); NULL = alive
     PRIMARY KEY (game_id, industry_id)
 );
 
@@ -387,6 +389,7 @@ CREATE TABLE IF NOT EXISTS depot (
     carrier    TEXT,
     x          REAL,                               -- world position (depot construction), NULL from old mods
     y          REAL,
+    gone       INTEGER,                            -- snapshot in which the depot was no longer exported (bulldozed); NULL = alive
     PRIMARY KEY (game_id, depot_id)
 );
 

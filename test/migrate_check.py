@@ -93,6 +93,30 @@ def line_lifecycle(db: Path) -> list[str]:
     store.ingest(back)
     if store.con.execute("SELECT gone FROM line WHERE game_id=? AND line_id=?", (gid, deleted)).fetchone()[0] is not None:
         bad.append("re-exported line still gone")
+    # same lifecycle for stations (bulldozed), industries (closed and removed) and depots: missing from a complete
+    # export = gone, failed section = untouched, exported again = back
+    prev = back
+    for section, table, key in (("stations", "station", "station_id"), ("industries", "industry", "industry_id"), ("depots", "depot", "depot_id")):
+        items = [i for i in base[section] if isinstance(i, dict) and i.get("id") is not None]
+        assert items, f"the recorded export needs a {section} item"
+        victim = items[0]["id"]
+        nxt = cycle(prev)
+        nxt[section] = [i for i in items if i["id"] != victim]
+        store.ingest(nxt)
+        if store.con.execute(f"SELECT gone FROM {table} WHERE game_id=? AND {key}=?", (gid, victim)).fetchone()[0] is None:
+            bad.append(f"removed {table} not marked gone")
+        if store.con.execute(f"SELECT COUNT(*) FROM {table} WHERE game_id=? AND gone IS NOT NULL", (gid,)).fetchone()[0] != 1:
+            bad.append(f"{table}: more than the removed one marked gone")
+        broken = cycle(nxt)
+        broken[section], broken["errors"] = [], [{"section": section, "error": "boom"}]
+        store.ingest(broken)
+        if store.con.execute(f"SELECT COUNT(*) FROM {table} WHERE game_id=? AND gone IS NULL", (gid,)).fetchone()[0] != len(items) - 1:
+            bad.append(f"a failed {section} section marked {table} gone")
+        back = cycle(broken)
+        store.ingest(back)
+        if store.con.execute(f"SELECT gone FROM {table} WHERE game_id=? AND {key}=?", (gid, victim)).fetchone()[0] is not None:
+            bad.append(f"re-exported {table} still gone")
+        prev = back
     store.con.close()
     return bad
 
@@ -102,7 +126,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         bad = line_lifecycle(tmp / "lines.db")
-        print("line lifecycle (rename, delete, failed section, back):", "FAIL " + "; ".join(bad) if bad else "ok")
+        print("entity lifecycle (line rename/delete, station/industry/depot removed, failed section, back):", "FAIL " + "; ".join(bad) if bad else "ok")
         failed += bool(bad)
         fresh_rows, fresh_cols, _ = ingest(tmp / "fresh.db")
         print(f"fresh database: {sum(fresh_rows.values())} rows in {len(MUST_FILL)} tables")

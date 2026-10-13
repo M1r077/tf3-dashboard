@@ -163,7 +163,7 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
 - **Game closed?** The dashboard still works: it shows the last recorded situation of your save (an amber bar says
   so, commands are off) so you can plan the next session on the couch. With several saves in the database, pick the
   one to look at in Settings ▸ Savegames ("View"); the live game takes over again as soon as it writes.
-- Languages: English, Russian, French, German, Brazilian Portuguese, partial Chinese — follows the game language automatically.
+- Languages: English, French, German, Brazilian Portuguese, Russian, partial Chinese — follows the game language automatically.
 
 ## Configuration
 

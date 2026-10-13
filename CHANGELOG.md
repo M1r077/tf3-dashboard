@@ -1,6 +1,10 @@
-﻿# Changelog
+# Changelog
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
+
+## Companion 0.10.1 - 13 October 2026 (mod revision 19)
+
+Hotfix. **Revision 18 did not load**: the script had crossed Lua's limit of 200 local variables in the main chunk (the camera work added the last ones), the game refused to compile it and the export stopped - the dashboard waited for a game "66 minutes ago". The constants and small state variables are now grouped in tables (`CAM`, `GEO`, `HEIGHT`, `ACTIVITY`, `STATUS`, `LINEPATH`), 173 locals left, and the release build fails above 185 (`test/lua_locals_check.py`). Revision 19 is otherwise revision 18; the companion changes only its version number.
 
 ## Companion 0.10.0 - 13 October 2026 (mod revision 18)
 

@@ -59,6 +59,8 @@ def checks() -> bool:
     that). Node.js is needed for the translation check, as in the Windows build."""
     print("[build] checks")
     for name, argv in (("i18n", ["node", str(ROOT / "test" / "i18ncheck.js")]),
+                       ("lua locals", [sys.executable, str(ROOT / "test" / "lua_locals_check.py")]),
+                       ("lua chunk", ["node", str(ROOT / "test" / "lua_chunk_check.js")]),
                        ("migration", [sys.executable, str(ROOT / "test" / "migrate_check.py")])):
         try:
             rc = subprocess.run(argv, cwd=ROOT).returncode

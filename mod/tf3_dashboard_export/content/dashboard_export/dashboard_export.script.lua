@@ -71,8 +71,9 @@ end
 -- what the status window shows: "starting" (first slow cycle running), "ok" (files written), "error" (saveUserdata
 -- refused: Controlled folder access, antivirus, read-only folder...). The React side is told only when it changes.
 local status = { state = "starting", last_ok = nil, last_error = nil, companion_seen = nil, folder = nil }
-local STATUS_EVENT = "TF3DashboardStatus"
-local STATUS_TICK = 2.0  -- the open status window re-reads on this event ("x s ago", companion seen); a timer on the
+local STATUS = {}
+STATUS.EVENT = "TF3DashboardStatus"
+STATUS.TICK = 2.0  -- the open status window re-reads on this event ("x s ago", companion seen); a timer on the
 local lastStatusTick = -1e9  -- React side cannot read gui script state (build 40420: "API is currently restricted")
 local function setStatus(state, err)
 	local now = os.time()
@@ -80,13 +81,13 @@ local function setStatus(state, err)
 	elseif state == "error" then status.last_error = tostring(err) end
 	if status.state ~= state then
 		status.state = state
-		pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = state })
+		pcall(api.gui.fireReactEvent, STATUS.EVENT, { state = state })
 	end
 end
 local function statusTick(now)
-	if now - lastStatusTick < STATUS_TICK then return end
+	if now - lastStatusTick < STATUS.TICK then return end
 	lastStatusTick = now
-	pcall(api.gui.fireReactEvent, STATUS_EVENT, { state = status.state })
+	pcall(api.gui.fireReactEvent, STATUS.EVENT, { state = status.state })
 end
 
 local function log(...)
@@ -490,10 +491,11 @@ end
 -- leg is replaced only by a sequence that starts and ends elsewhere (the player rerouted). Legs survive across cycles,
 -- so a few minutes of game give the whole line once each leg was driven once; written in slow_line_paths.lua.
 local linePaths = {}      -- line id -> { [leg] = { edges = {ids}, n = count, seen = os.time() } }
-local linePathsDirty = false
-local LINE_PATH_MAX_EDGES = 3000
+LINEPATH.dirty = false
+local LINEPATH = {}
+LINEPATH.MAX_EDGES = 3000
 
-local linePathProbe = 3  -- debug: describe the first few MOVE_PATH shapes seen (the API docs and the Lua view differ)
+LINEPATH.probe = 3  -- debug: describe the first few MOVE_PATH shapes seen (the API docs and the Lua view differ)
 -- an edge entry of MovePath.path.edges is {EdgeId, dir}; EdgeId = {entity, index}. Seen through Lua the pair may be
 -- an array {id, dir}, a record {edgeId = ..., dir = ...} or the EdgeId itself: try all of them.
 local function pathEdgeEntity(e)
@@ -509,14 +511,14 @@ end
 local function vehiclePathItem(v, tv)
 	local okP, mp = pcall(comp, v, api.type.ComponentType.MOVE_PATH)
 	if not okP or not mp then
-		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: MOVE_PATH of vehicle " .. tostring(v) .. ": " .. (okP and "nil" or tostring(mp))) end
+		if LINEPATH.probe > 0 then LINEPATH.probe = LINEPATH.probe - 1; debug("line paths: MOVE_PATH of vehicle " .. tostring(v) .. ": " .. (okP and "nil" or tostring(mp))) end
 		return
 	end
 	local line, leg = num(tv.line), num(tv.stopIndex)
 	if not line or line <= 0 or leg == nil then return end
 	local okE, raw = pcall(function() return arr(mp.path.edges) end)
 	if not okE or #raw == 0 then
-		if linePathProbe > 0 then linePathProbe = linePathProbe - 1; debug("line paths: vehicle " .. tostring(v) .. " path.edges: " .. (okE and ("empty, path=" .. tostring(mp.path)) or tostring(raw))) end
+		if LINEPATH.probe > 0 then LINEPATH.probe = LINEPATH.probe - 1; debug("line paths: vehicle " .. tostring(v) .. " path.edges: " .. (okE and ("empty, path=" .. tostring(mp.path)) or tostring(raw))) end
 		return
 	end
 	local edges = {}
@@ -524,10 +526,10 @@ local function vehiclePathItem(v, tv)
 	for _, e in ipairs(raw) do
 		local id = pathEdgeEntity(e)
 		if id and id ~= last then edges[#edges + 1] = id; last = id end
-		if #edges >= LINE_PATH_MAX_EDGES then break end
+		if #edges >= LINEPATH.MAX_EDGES then break end
 	end
-	if linePathProbe > 0 then
-		linePathProbe = linePathProbe - 1
+	if LINEPATH.probe > 0 then
+		LINEPATH.probe = LINEPATH.probe - 1
 		local e1 = raw[1]
 		local desc = type(e1)
 		pcall(function() desc = desc .. " e1[1]=" .. tostring(e1[1]) .. " e1[2]=" .. tostring(e1[2]) .. " .edgeId=" .. tostring(e1.edgeId) .. " .entity=" .. tostring(e1.entity) end)
@@ -541,7 +543,7 @@ local function vehiclePathItem(v, tv)
 	-- keep the longest; a sequence whose last edge differs from the stored one means the leg changed (new route)
 	if cur == nil or #edges > cur.n or cur.edges[cur.n] ~= edges[#edges] then
 		legs[leg] = { edges = edges, n = #edges, seen = os.time() }
-		linePathsDirty = true
+		LINEPATH.dirty = true
 	end
 end
 
@@ -561,7 +563,7 @@ local function vehiclesBegin()
 	-- forget the legs of lines that no longer exist
 	local alive = {}
 	for _, l in ipairs(arr(api.engine.system.lineSystem.getLines())) do alive[num(l)] = true end
-	for line in pairs(linePaths) do if not alive[line] then linePaths[line] = nil; linePathsDirty = true end end
+	for line in pairs(linePaths) do if not alive[line] then linePaths[line] = nil; LINEPATH.dirty = true end end
 	return arr(api.engine.util.vehicle.getVehicles()), {}
 end
 
@@ -1402,13 +1404,14 @@ end
 --  * One speed profile for the whole path, not per leg: quintic ramps (minimum-jerk, Flash & Hogan 1985:
 --    10t^3 - 15t^4 + 6t^5, zero speed AND zero acceleration at both ends) of at most 3 s, constant speed between.
 --    A loop has no ends and no ramps.
---  * Heading and pitch pass through a first-order filter (time constant CAM_TAU) fed with the spline value CAM_TAU
+--  * Heading and pitch pass through a first-order filter (time constant CAM.TAU) fed with the spline value CAM.TAU
 --    ahead: at constant rate the lead cancels the lag exactly, at a change of rate the filter rounds it off. The
 --    last frame writes the end point exactly.
 camPath = nil  -- { pts = {...}, legs = { duration }, knots = { time of each point }, t0, total, loop, ramps, lastSet, tick, ... }
 
-local CAM_RAMP_MAX = 3.0   -- s, each end
-local CAM_TAU = 0.6        -- s, heading / pitch filter and look-ahead
+local CAM = {}
+CAM.RAMP_MAX = 3.0   -- s, each end
+CAM.TAU = 0.6        -- s, heading / pitch filter and look-ahead
 local TWO_PI = 2 * math.pi
 local function angDelta(a, b)  -- shortest signed turn from a to b
 	local d = (b - a) % TWO_PI
@@ -1474,14 +1477,14 @@ local function headingOf(dx, dy) return atan2(-dy, dx) end  -- angle that looks 
 -- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
 -- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
 -- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
--- if the eye would be lower than the highest of them + CAM_CLEARANCE, the distance is raised (same heading and
+-- if the eye would be lower than the highest of them + CAM.CLEARANCE, the distance is raised (same heading and
 -- pitch, the camera backs up and climbs) so that it is not. Cheap: four getHeightAt per frame.
-local CAM_CLEARANCE = 60      -- m above the highest ground sampled (buildings are rarely taller)
-local CAM_MIN_PITCH = 0.25    -- a flatter camera cannot be lifted by distance alone: raise the pitch to this first
+CAM.CLEARANCE = 60      -- m above the highest ground sampled (buildings are rarely taller)
+CAM.MIN_PITCH = 0.25    -- a flatter camera cannot be lifted by distance alone: raise the pitch to this first
 local function camClear(x, y, dist, angle, pitch)
 	local terrain = api.engine.terrain
 	if not terrain or not terrain.getHeightAt then return dist, pitch end
-	if pitch < CAM_MIN_PITCH then pitch = CAM_MIN_PITCH end
+	if pitch < CAM.MIN_PITCH then pitch = CAM.MIN_PITCH end
 	local sp, cp = math.sin(pitch), math.cos(pitch)
 	local lx, ly = camLook(angle)
 	local function hAt(px, py) local ok, h = pcall(terrain.getHeightAt, api.type.Vec2f.new(px, py)); return ok and num(h) or 0 end
@@ -1493,7 +1496,7 @@ local function camClear(x, y, dist, angle, pitch)
 		if h > hmax then hmax = h end
 	end
 	local eyeZ = h0 + dist * sp
-	local need = hmax + CAM_CLEARANCE
+	local need = hmax + CAM.CLEARANCE
 	if eyeZ < need and sp > 0.01 then dist = dist + (need - eyeZ) / sp end
 	return dist, pitch
 end
@@ -1720,14 +1723,14 @@ local function camPathTick()
 		x, y, dist, angle, pitch = p.x, p.y, p.dist, p.angle, p.pitch
 	else
 		x, y, dist = camPathAt(camPath, camPathWarp(camPath, e))
-		local ahead = camPath.loop and e + CAM_TAU or math.min(camPath.total, e + CAM_TAU)
+		local ahead = camPath.loop and e + CAM.TAU or math.min(camPath.total, e + CAM.TAU)
 		local _, _, _, aT, pT = camPathAt(camPath, camPathWarp(camPath, ahead))
 		if camPath.tick == 0 then
 			local _, _, _, a0, q0 = camPathAt(camPath, camPathWarp(camPath, e))
 			angle, pitch = a0, q0
 		else
 			local dt = math.max(0, math.min(0.25, now - camPath.lastTime))
-			local k = 1 - math.exp(-dt / CAM_TAU)
+			local k = 1 - math.exp(-dt / CAM.TAU)
 			angle = camPath.angle + angDelta(camPath.angle, aT) * k
 			pitch = camPath.pitch + (pT - camPath.pitch) * k
 		end
@@ -1766,7 +1769,7 @@ local function camPathStart(args)
 		pts[i].ua = pts[i - 1].ua + angDelta(pts[i - 1].angle, pts[i].angle)
 	end
 	-- ramps: the dashboard's `ease` (default on) asks for the slow-in / slow-out; never on a loop
-	local ramp = (args.ease ~= false and not loop) and math.min(CAM_RAMP_MAX, total / 4) or 0
+	local ramp = (args.ease ~= false and not loop) and math.min(CAM.RAMP_MAX, total / 4) or 0
 	-- a follow camera would pull the view back to its vehicle: detach it first
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
@@ -1794,20 +1797,21 @@ end
 -- slow budget, so a 10 000-edge map costs a few ms per frame for a couple of seconds, never a stall. Everything is
 -- rounded to the metre and contours are simplified (Douglas-Peucker) so the file stays a few hundred KB.
 local GEO_FILE = PREFIX .. "geo"
-local GEO_EDGE_BATCH = 40          -- edges per step (~1 ms measured target)
-local GEO_WATER_EPS = 6            -- m: contour simplification tolerance (the map shows 1 px = 5..50 m)
-local GEO_MIN_INTERVAL = 60        -- s between two collections when the network keeps changing
-local GEO_GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
-local GEO_GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
-local GEO_HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
-local GEO_SHORE_SUB = 11           -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (4 m on an 11 km map,
+local GEO = {}
+GEO.EDGE_BATCH = 40          -- edges per step (~1 ms measured target)
+GEO.WATER_EPS = 6            -- m: contour simplification tolerance (the map shows 1 px = 5..50 m)
+GEO.MIN_INTERVAL = 60        -- s between two collections when the network keeps changing
+GEO.GRID = 256               -- land/water grid: cells along the longer side (44 m per cell on an 11 km map)
+GEO.GRID_BATCH = 400         -- isOnWater samples per step (~0.5 ms)
+GEO.HEIGHT_EVERY = 2         -- a height sample every N grid points in x and y (128x128 for the relief)
+GEO.SHORE_SUB = 11           -- shore refinement: cells on a land/water boundary are resampled SUBxSUB (4 m on an 11 km map,
                                    -- the terrain resolution; ~1 400 cells x 121 = 170 000 isOnWater samples, ~4 s of frames)
-local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+GEO.B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local B64C = {}
-for i = 1, 64 do B64C[i - 1] = B64:sub(i, i) end
+for i = 1, 64 do B64C[i - 1] = GEO.B64:sub(i, i) end
 local geoJob = nil
 local geoCache = nil               -- { geo_seq, edges, water_tiles, duration } of the last written file
-local geoSeq = 0
+GEO.seq = 0
 local lastGeoAt = -1e9
 local lastGeoEdgeCount = nil
 
@@ -1908,14 +1912,14 @@ local function geoJobStart()
 	end
 	local edges, _, errE = geoEdgeList()
 	if edges == nil then edges = {}; geo.errors[#geo.errors + 1] = { section = "edges", error = tostring(errE) } end
-	geoSeq = geoSeq + 1
-	geo.geo_seq = geoSeq
+	GEO.seq = GEO.seq + 1
+	geo.geo_seq = GEO.seq
 	-- land / water grid: the sea and lakes are terrain below the water level, not water meshes (those only exist
 	-- for rivers and some lakes); sample isOnWater on a regular grid like the game's own minimap mods do
-	-- (schbrongx's minimap samples 256x256). GEO_GRID cells over the bounds, GEO_GRID_BATCH points per step.
+	-- (schbrongx's minimap samples 256x256). GEO.GRID cells over the bounds, GEO.GRID_BATCH points per step.
 	local grid = nil
 	if geo.bounds then
-		local n = GEO_GRID
+		local n = GEO.GRID
 		local w, h = geo.bounds[3] - geo.bounds[1], geo.bounds[4] - geo.bounds[2]
 		if w > 0 and h > 0 then
 			local ny = math.max(8, math.floor(n * h / math.max(w, h) + 0.5)); local nx = math.max(8, math.floor(n * w / math.max(w, h) + 0.5))
@@ -1936,7 +1940,7 @@ local function geoGridStep(job)
 	local b = job.geo.bounds
 	local cw, ch = (b[3] - b[1]) / g.nx, (b[4] - b[2]) / g.ny
 	local Vec2f = api.type.Vec2f
-	for _ = 1, GEO_GRID_BATCH do
+	for _ = 1, GEO.GRID_BATCH do
 		if g.i >= total then return true end
 		local col, row = g.i % g.nx, math.floor(g.i / g.nx)
 		local x, y = b[1] + (col + 0.5) * cw, b[4] - (row + 0.5) * ch  -- rows from north (max y) to south
@@ -1947,7 +1951,7 @@ local function geoGridStep(job)
 		if on == g.runOn then g.run = g.run + 1
 		else g.cur[#g.cur + 1] = g.run; g.run = 1; g.runOn = on end
 		if col == g.nx - 1 then g.cur[#g.cur + 1] = g.run; g.rows[#g.rows + 1] = table.concat(g.cur, ",") end
-		if col % GEO_HEIGHT_EVERY == 0 and row % GEO_HEIGHT_EVERY == 0 then
+		if col % GEO.HEIGHT_EVERY == 0 and row % GEO.HEIGHT_EVERY == 0 then
 			local hh = api.engine.terrain.getHeightAt(p)
 			local hv = round(num(hh) or 0)
 			g.heights[#g.heights + 1] = hv
@@ -1977,14 +1981,14 @@ local function geoShoreStep(job)
 		end
 		g.shoreList = list
 		g.cells = nil  -- the coarse samples are in the rows already
-		debug(string.format("geo: %d shore cells to refine (%dx%d sub-samples each)", #list, GEO_SHORE_SUB, GEO_SHORE_SUB))
+		debug(string.format("geo: %d shore cells to refine (%dx%d sub-samples each)", #list, GEO.SHORE_SUB, GEO.SHORE_SUB))
 		return #list == 0
 	end
 	local b = job.geo.bounds
 	local cw, ch = (b[3] - b[1]) / g.nx, (b[4] - b[2]) / g.ny
-	local sub = GEO_SHORE_SUB
+	local sub = GEO.SHORE_SUB
 	local Vec2f = api.type.Vec2f
-	local budgetCells = math.max(1, math.floor(GEO_GRID_BATCH / (sub * sub)))
+	local budgetCells = math.max(1, math.floor(GEO.GRID_BATCH / (sub * sub)))
 	for _ = 1, budgetCells do
 		g.si = g.si + 1
 		local i = g.shoreList[g.si]
@@ -2026,7 +2030,7 @@ local function geoWaterStep(job)
 			end
 			job.vertsIn = job.vertsIn + #pts
 			if #pts >= 3 then
-				local s = simplify(pts, GEO_WATER_EPS)
+				local s = simplify(pts, GEO.WATER_EPS)
 				if #s >= 3 then
 					local flat = {}
 					for _, p in ipairs(s) do flat[#flat + 1] = round(p[1]); flat[#flat + 1] = round(p[2]) end
@@ -2043,7 +2047,7 @@ end
 -- a batch of edges: {x0, y0, x1, y1, kind} with kind 0 street, 1 track, +2 bridge, +4 tunnel
 local function geoEdgeStep(job)
 	local out = job.geo.edges
-	for _ = 1, GEO_EDGE_BATCH do
+	for _ = 1, GEO.EDGE_BATCH do
 		job.ei = job.ei + 1
 		local e = job.edges[job.ei]
 		if e == nil then return true end
@@ -2090,10 +2094,10 @@ local function geoJobRun(budget)
 			if job.grid then
 				job.geo.water_rows = job.grid.rows
 				job.geo.heights = job.grid.heights
-				job.geo.height_every = GEO_HEIGHT_EVERY
+				job.geo.height_every = GEO.HEIGHT_EVERY
 				job.geo.height_range = { job.grid.hmin, job.grid.hmax }
 				job.geo.shore = job.grid.shore
-				job.geo.shore_sub = GEO_SHORE_SUB
+				job.geo.shore_sub = GEO.SHORE_SUB
 			end
 			geoJob = nil
 			return job
@@ -2106,14 +2110,15 @@ end
 -- The terrain is stored tile by tile (256 m, TERRAIN_TILE_HEIGHTMAP: 65x65 integers at 4 m, metres = raw * baseResolution.z
 -- + offsetZ, 5 cm steps), readable in Lua at no cost (the array is already in memory, ~0 ms per tile measured). The
 -- whole map (44x44 tiles = 7.9 M values on an 11 km map) does not fit one Lua file, so the tiles go out in band files
--- tf3dash_height_<band>.lua of HEIGHT_BAND tile rows each, one tile per frame, each tile one printable string: the
+-- tf3dash_height_<band>.lua of HEIGHT.BAND tile rows each, one tile per frame, each tile one printable string: the
 -- first height in full, then the difference to the previous vertex (row-major), both as variable-length base-64 digits
 -- (6 bits per character, the low bit of the first digit is the sign, the top bit of every digit says "more digits").
 -- Flat land is 1 character per vertex: ~5 KB per tile, ~10 MB for the map, written once per load and again when the
 -- terrain changed (getTerrainEntityRevisions, the game's own change counter, checked with the geo edge count).
 local HEIGHT_PREFIX = PREFIX .. "height_"
-local HEIGHT_BAND = 4              -- tile rows per file (44 tiles x 4 rows x ~5 KB = ~1 MB per file)
-local HEIGHT_TILES_PER_STEP = 2    -- tiles encoded per frame (~1 ms each: 4 225 values through the encoder)
+local HEIGHT = {}
+HEIGHT.BAND = 4              -- tile rows per file (44 tiles x 4 rows x ~5 KB = ~1 MB per file)
+HEIGHT.TILES_PER_STEP = 2    -- tiles encoded per frame (~1 ms each: 4 225 values through the encoder)
 local heightJob = nil
 local heightRevs = nil             -- revision signature of the terrain at the last export
 local lastHeightCheck = -1e9
@@ -2155,16 +2160,16 @@ local function heightJobStart()
 	heightJob = { nx = sz.x, ny = sz.y, tx0 = tx0, ty0 = ty0, i = 0, band = {}, bandNo = 0, bands = 0, tiles = 0, started = os.clock(),
 		meta = { schema = SCHEMA, mod = MOD_ID, grid = { sz.x, sz.y }, origin = { tx0, ty0 }, side = 65, step = num(tr.baseResolution.x) or 4,
 			res_z = num(tr.baseResolution.z) or 0.05, offset_z = num(tr.offsetZ) or 0, water_level = num(tr.waterLevel) or 0,
-			band_rows = HEIGHT_BAND, revs = heightRevSignature() } }
+			band_rows = HEIGHT.BAND, revs = heightRevSignature() } }
 	return true
 end
 
 -- one band file: { meta..., band = k, rows = {first tile row, last}, tiles = { "<encoded>", ... row-major } }
 local function heightBandWrite(job)
 	local k = job.bandNo
-	local data = { band = k, row0 = k * HEIGHT_BAND, tiles = job.band }
+	local data = { band = k, row0 = k * HEIGHT.BAND, tiles = job.band }
 	for key, v in pairs(job.meta) do data[key] = v end
-	data.bands = math.ceil(job.ny / HEIGHT_BAND)
+	data.bands = math.ceil(job.ny / HEIGHT.BAND)
 	local ok, err = pcall(app.saveUserdata, DIR, HEIGHT_PREFIX .. k, data)
 	if not ok then log("saveUserdata failed for heightmap band " .. k .. ":", tostring(err)) end
 	job.band = {}
@@ -2178,7 +2183,7 @@ local function heightJobRun()
 	local job = heightJob
 	if job == nil then return false end
 	local Vec2i = api.type.Vec2i
-	for _ = 1, HEIGHT_TILES_PER_STEP do
+	for _ = 1, HEIGHT.TILES_PER_STEP do
 		local total = job.nx * job.ny
 		if job.i >= total then
 			if #job.band > 0 then heightBandWrite(job) end
@@ -2203,7 +2208,7 @@ local function heightJobRun()
 		job.tiles = job.tiles + 1
 		job.i = job.i + 1
 		-- a band is complete when its last tile row is done
-		if col == job.nx - 1 and (row + 1) % HEIGHT_BAND == 0 then heightBandWrite(job); return false end
+		if col == job.nx - 1 and (row + 1) % HEIGHT.BAND == 0 then heightBandWrite(job); return false end
 	end
 	return false
 end
@@ -2283,13 +2288,13 @@ end
 
 -- line paths: their own file (tf3dash_line_paths.lua), outside the slow_seq set, rewritten only when a leg changed
 -- (typically a few times after loading, then rarely); the collector re-reads it on mtime change
-local LINE_PATHS_FILE = PREFIX .. "line_paths"
+LINEPATH.FILE = PREFIX .. "line_paths"
 local function linePathsWrite()
-	if not linePathsDirty then return false end
-	linePathsDirty = false
+	if not LINEPATH.dirty then return false end
+	LINEPATH.dirty = false
 	local items = linePathsExport()
 	local t0 = os.clock()
-	local ok, err = pcall(app.saveUserdata, DIR, LINE_PATHS_FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), items = items })
+	local ok, err = pcall(app.saveUserdata, DIR, LINEPATH.FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), items = items })
 	if not ok then log("saveUserdata failed for line_paths:", tostring(err)); return false end
 	local legs = 0
 	for _, r in ipairs(items) do legs = legs + #r.legs end
@@ -2617,23 +2622,24 @@ end
 
 -- ---------------------------------------------------------------- activity hint (dashboard -> mod)
 -- The dashboard tells the mod when the player is interacting with it (click, key, wheel): their attention is on the
--- second screen, so for ACTIVITY_WINDOW seconds the mod may do its heavy work (collect the slow cycle, write the
+-- second screen, so for ACTIVITY.WINDOW seconds the mod may do its heavy work (collect the slow cycle, write the
 -- slow_*.lua files) without anybody noticing a hitch in the game, and the dashboard gets fresh data right when it is
 -- being looked at. Not a command: works whatever "Permit game control" is set to, changes timing only.
-local ACTIVITY_FILE = PREFIX .. "activity"
-local ACTIVITY_WINDOW = 2.0      -- seconds of relaxed budget after a hint
-local ACTIVITY_BUDGET = 0.05     -- per-frame budget for slow steps during the window (50 ms = a frame nobody sees)
-local ACTIVITY_MIN_AGE = 5.0     -- restart the slow cycle on a hint only if the last one is older than this
-local activityUntil = -1e9
-local lastActivityId = nil
+ACTIVITY.FILE = PREFIX .. "activity"
+local ACTIVITY = {}
+ACTIVITY.WINDOW = 2.0      -- seconds of relaxed budget after a hint
+ACTIVITY.BUDGET = 0.05     -- per-frame budget for slow steps during the window (50 ms = a frame nobody sees)
+ACTIVITY.MIN_AGE = 5.0     -- restart the slow cycle on a hint only if the last one is older than this
+ACTIVITY.until_ = -1e9
+ACTIVITY.lastId = nil
 
 local function pollActivity(now)
-	local ok, a = pcall(app.loadUserdata, DIR, ACTIVITY_FILE)
-	pcall(app.removeUserdata, DIR, ACTIVITY_FILE)
+	local ok, a = pcall(app.loadUserdata, DIR, ACTIVITY.FILE)
+	pcall(app.removeUserdata, DIR, ACTIVITY.FILE)
 	if not ok or type(a) ~= "table" then return false end
-	if a.id ~= nil and a.id == lastActivityId then return false end
-	lastActivityId = a.id
-	activityUntil = now + ACTIVITY_WINDOW
+	if a.id ~= nil and a.id == ACTIVITY.lastId then return false end
+	ACTIVITY.lastId = a.id
+	ACTIVITY.until_ = now + ACTIVITY.WINDOW
 	return true
 end
 
@@ -2689,24 +2695,24 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
 		local present = listUserdata()
-		if present[ACTIVITY_FILE] or present[CMD_FILE] then status.companion_seen = os.time() end
-		if present[ACTIVITY_FILE] then
+		if present[ACTIVITY.FILE] or present[CMD_FILE] then status.companion_seen = os.time() end
+		if present[ACTIVITY.FILE] then
 			local okA, hinted = pcall(pollActivity, now)
 			if not okA then debug("pollActivity failed:", tostring(hinted))
-			elseif hinted then debug("activity hint: relaxed budget for " .. ACTIVITY_WINDOW .. "s") end
+			elseif hinted then debug("activity hint: relaxed budget for " .. ACTIVITY.WINDOW .. "s") end
 		end
 		if present[CMD_FILE] then
 			local okP, errP = pcall(pollCommands)
 			if not okP then debug("pollCommands failed:", tostring(errP)) end
 		end
 	end
-	local active = now < activityUntil
+	local active = now < ACTIVITY.until_
 
 	-- slow cycle: start a job when due, then advance it a little on every frame; a finished cycle is then written
 	-- to its slow_*.lua files one per frame (slowWriteNext) before the fast snapshots start referring to it.
 	-- While the player is busy on the dashboard (activity hint) a cycle is started early and run with a much larger
 	-- per-frame budget, and the slow files are flushed in one go: the hitch lands while nobody watches the game.
-	local due = (now - lastSlow) >= o.interval_slow or (active and (now - lastSlow) >= ACTIVITY_MIN_AGE)
+	local due = (now - lastSlow) >= o.interval_slow or (active and (now - lastSlow) >= ACTIVITY.MIN_AGE)
 	if slowJob == nil and slowPending == nil and due then
 		lastSlow = now
 		local ok, err = pcall(function()
@@ -2719,7 +2725,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if slowJob ~= nil then
 		-- the very first cycle runs unthrottled so that the dashboard gets a complete picture right away
 		local budget = SLOW_BUDGET
-		if slowCache == nil then budget = 1e9 elseif active then budget = ACTIVITY_BUDGET end
+		if slowCache == nil then budget = 1e9 elseif active then budget = ACTIVITY.BUDGET end
 		local ok, done = pcall(slowJobRun, budget)
 		if not ok then
 			log("slow cycle failed:", tostring(done))
@@ -2750,9 +2756,9 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
 
 	-- line paths: a small file, only when a leg changed; its own frame
-	if linePathsDirty then
+	if LINEPATH.dirty then
 		local okL, wrote = pcall(linePathsWrite)
-		if not okL then log("line paths write failed:", tostring(wrote)); linePathsDirty = false end
+		if not okL then log("line paths write failed:", tostring(wrote)); LINEPATH.dirty = false end
 		if wrote then return end
 	end
 
@@ -2768,7 +2774,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge
 	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete
-	if geoJob == nil and now - lastGeoAt >= GEO_MIN_INTERVAL then
+	if geoJob == nil and now - lastGeoAt >= GEO.MIN_INTERVAL then
 		lastGeoAt = now
 		local tc = os.clock()
 		local n = geoEdgeCount()
@@ -2780,13 +2786,13 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 	end
 	if geoJob ~= nil then
-		local okG, done = pcall(geoJobRun, active and ACTIVITY_BUDGET or SLOW_BUDGET)
+		local okG, done = pcall(geoJobRun, active and ACTIVITY.BUDGET or SLOW_BUDGET)
 		if not okG then log("geo collection failed:", tostring(done)); geoJob = nil
 		elseif done then pcall(geoWrite, done); return end  -- not in the same frame as live.lua (a big write)
 	end
 	-- full-resolution heightmap: after the geography, once per load, and again when the terrain revisions changed
 	-- (the player raised or dug ground); checked with the geo minute tick above, two tiles per frame meanwhile
-	if heightJob == nil and geoJob == nil and geoCache ~= nil and now - lastHeightCheck >= GEO_MIN_INTERVAL then
+	if heightJob == nil and geoJob == nil and geoCache ~= nil and now - lastHeightCheck >= GEO.MIN_INTERVAL then
 		lastHeightCheck = now
 		local sig = heightRevSignature()
 		if heightCache == nil or (sig ~= nil and sig ~= heightRevs) then

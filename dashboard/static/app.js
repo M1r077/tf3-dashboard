@@ -303,6 +303,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const STATE_COLOR = { EN_ROUTE: "#3fb950", AT_TERMINAL: "#58a6ff", IN_DEPOT: "#8b98a8", GOING_TO_DEPOT: "#e8b04b" };
   const CARRIER_COLOR = { ROAD: "#e8b04b", RAIL: "#4f8a8a", TRAM: "#bc8cff", AIR: "#58a6ff", WATER: "#3fb950", OTHER: "#8b98a8" };
   const ST = (s) => t("state." + s) === "state." + s ? (s || "?") : t("state." + s);
+  // AT_TERMINAL is the game's enum name; what the vehicle does is load or unload, and the game shows that as
+  // animated chevrons, never as a word. Same icon here, animated, frozen on pause (body.paused).
+  const STATE_ICON = { EN_ROUTE: "speed", AT_TERMINAL: "loading", IN_DEPOT: "depot", GOING_TO_DEPOT: "to_depot" };
+  const icoState = (s, cls = "sm") => ico(STATE_ICON[s] || "veh_car", s === "AT_TERMINAL" ? cls + " anim-load" : cls);
+  // state in a chip: icon + word (STI, HTML); ST alone for attributes
+  const STI = (s) => icoState(s, "sm inline") + ST(s);
   const CA = (c) => t("carrier." + c) === "carrier." + c ? (c || "?") : t("carrier." + c);
   const ALERT_SEV = { line_problem: "bad", line_issue: "warn", vehicle_problem: "bad", blocked_train: "bad", no_path_vehicle: "bad", town_problem: "warn", closing_industry: "warn", thrown_away_cargo: "info" };
   const ALERT_CODE = { line_problem: "line_problem", line_issue: "line_issue", vehicle_problem: "veh_problem", town_problem: "town_problem" };
@@ -638,8 +644,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const cal = s.millis_per_day == null ? null : s.millis_per_day === 0 ? 0 : Math.round(4000 / s.millis_per_day * 100) / 100;
     $("#k-speed").innerHTML = s.speed === 0 ? `${ico("play_pause", "sm")}${t("pause")}` : s.speed == null ? "" :
       `<span title="${esc(t("sim_speed"))}">${ico("play_1", "sm")}${t("speed_x", { n: s.speed })}</span>${cal != null ? ` <span class="muted" title="${esc(t("calendar_speed"))}">${ico("calendar", "sm")}${cal === 0 ? t("pause") : t("speed_x", { n: cal })}</span>` : ""}`;
+    document.body.classList.toggle("paused", s.speed === 0);  // freezes the loading chevrons, as in the game
     $("#k-veh").textContent = int(v.n);
-    $("#k-veh-detail").innerHTML = v.n ? `<span style="color:${STATE_COLOR.EN_ROUTE}">${v.en_route} ${t("en_route")}</span> · ${v.at_terminal} ${t("at_terminal")} · ${v.in_depot} ${t("in_depot")}${v.no_path ? ` · <span class="neg">${v.no_path} ${t("no_path")}</span>` : ""}` : "";
+    $("#k-veh-detail").innerHTML = v.n ? `<span style="color:${STATE_COLOR.EN_ROUTE}">${v.en_route} ${t("en_route")}</span> · ${icoState("AT_TERMINAL", "sm inline")}${v.at_terminal} ${t("at_terminal")} · ${v.in_depot} ${t("in_depot")}${v.no_path ? ` · <span class="neg">${v.no_path} ${t("no_path")}</span>` : ""}` : "";
     const fillEl = $("#k-fill");
     if (v.capacity) { fillEl.textContent = Math.round(pct(v.load, v.capacity)) + " %"; $("#k-fill-detail").textContent = t("seats", { a: int(v.load), b: int(v.capacity) }); } else { fillEl.textContent = "–"; $("#k-fill-detail").textContent = ""; }
     const m = $("#k-maint"); m.innerHTML = v.maint != null ? `${condIcon(v.maint)}${Math.round(v.maint * 100)} %` : "–"; m.className = "v " + (v.maint != null ? (v.maint < 0.5 ? "neg" : v.maint < 0.7 ? "" : "pos") : "");
@@ -749,7 +756,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     ], labels, { percent: true, rightAxis: true, rightUnit: "km/h", ...tx });
 
     const bc = fleet.by_carrier || [];
-    $("#fleet-carrier").innerHTML = `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num">${t("th_idle")}</th></tr></thead><tbody>` +
+    $("#fleet-carrier").innerHTML = `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${icoState("AT_TERMINAL", "sm inline")}${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num">${t("th_idle")}</th></tr></thead><tbody>` +
       bc.map(c => `<tr><td><span class="vehicon" style="color:${CARRIER_COLOR[c.carrier] || "#888"}">${ico(ICON_BY_CARRIER[c.carrier] || "veh_car")}<span>${CA(c.carrier)}</span></span></td><td class="num">${c.n}</td><td class="num">${c.en_route}</td><td class="num">${c.at_terminal}</td><td class="num">${c.in_depot}</td>
         <td>${c.capacity ? bar(c.load, c.capacity, fillCls(pct(c.load, c.capacity))) : "–"}</td><td>${c.maint != null ? condIcon(c.maint) + bar(c.maint, 1, maintCls(c.maint)) : "–"}${c.worn ? ` <span class="chip warn">${c.worn}</span>` : ""}</td>
         <td class="num">${kmh(c.avg_speed)}</td><td class="num">${c.stuck ? `<span class="chip bad">${c.stuck}</span>` : "0"}</td></tr>`).join("") + "</tbody>";
@@ -759,7 +766,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
 
     const idle = fleet.idle || [];
     $("#idle-count").textContent = idle.length ? idle.length : "";
-    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${ST(v.state)}</span><br><span class="muted">${t("idle_days", { n: (v.days_in_depot || 0) + (v.days_at_terminal || 0) })}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
+    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${STI(v.state)}</span><br><span class="muted">${t("idle_days", { n: (v.days_in_depot || 0) + (v.days_at_terminal || 0) })}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
     const stuck = fleet.stuck || [];
     $("#stuck-list").innerHTML = stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`;
     $$("#idle-list .row, #stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
@@ -815,7 +822,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },
       { key: "carrier", label: t("th_type"), render: v => `<span class="vehicon" style="color:${CARRIER_COLOR[v.carrier] || "#888"}">${modelImg(v)}${ENGINE_ICON[v.icon_type] ? ico(ENGINE_ICON[v.icon_type], "sm", t("icon_type." + v.icon_type)) : ""}</span>`, sortValue: v => (v.carrier || "") + (v.icon_type || "") },
       { key: "line_name", label: t("th_line"), render: v => lineLink(v.line_id, v.line_name) },
-      { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
+      { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${STI(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
       { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
       // "carries" = what is on board right now (icon + count per cargo), "load" = the gauge; the capacities of the
       // vehicle are in the sheet (same icons in the same column so the eye follows)
@@ -844,7 +851,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       ${vehActions({ vehicle_id: v.vehicle_id, user_stopped: cur.user_stopped })}
       <table class="kv">
         <tr><td>${t("th_line")}</td><td>${lineLink(cur.line_id || last.line_id, v.line_name)}</td></tr>
-        <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${ST(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
+        <tr><td>${t("th_state")}</td><td><span class="chip" style="color:${STATE_COLOR[last.state] || "#fff"}">${STI(last.state)}</span> · ${t("stop")} ${last.stop_index ?? "–"}</td></tr>
         ${Array.isArray(v.capacities) && v.capacities.length ? `<tr><td>${t("th_carries")}</td><td>${v.capacities.map(c => `${cargoChip(c)} <span class="mono">${c.n}</span>`).join(" ")}</td></tr>` : ""}
         <tr><td>${t("th_load")}</td><td>${onBoard(v, "")}${v.capacity ? bar(last.load || 0, v.capacity, fillCls(pct(last.load || 0, v.capacity)), `${last.load ?? 0}/${v.capacity}`) : "–"}</td></tr>
         <tr><td>${t("condition")}</td><td>${last.maintenance != null ? condIcon(last.maintenance) + bar(last.maintenance, 1, maintCls(last.maintenance)) : "–"}</td></tr>
@@ -852,7 +859,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       </table>
       <h2 data-sec="speed" style="margin-top:12px">${ico("speed")}${t("speed_load")}</h2><canvas id="chart-veh-1" data-h="170"></canvas>
       <h2 data-sec="cond">${ico("wrench")}${t("condition")}</h2><canvas id="chart-veh-2" data-h="120"></canvas>
-      <p class="muted" style="font-size:12px">${t("state_split", { n: hist.length })} ${["EN_ROUTE", "AT_TERMINAL", "IN_DEPOT", "GOING_TO_DEPOT"].map(s => { const n = hist.filter(h => h.state === s).length; return n ? `<span style="color:${STATE_COLOR[s]}">${ST(s)} ${Math.round(100 * n / hist.length)} %</span>` : ""; }).filter(Boolean).join(" · ")}</p>`;
+      <p class="muted" style="font-size:12px">${t("state_split", { n: hist.length })} ${["EN_ROUTE", "AT_TERMINAL", "IN_DEPOT", "GOING_TO_DEPOT"].map(s => { const n = hist.filter(h => h.state === s).length; return n ? `<span style="color:${STATE_COLOR[s]}">${STI(s)} ${Math.round(100 * n / hist.length)} %</span>` : ""; }).filter(Boolean).join(" · ")}</p>`;
     bindActions(el); sectionize(el);
     Charts.lineChart($("#chart-veh-1"), [
       { name: t("th_speed"), values: hist.map(h => h.speed_ms != null ? h.speed_ms * 3.6 : null), color: "#58a6ff", unit: "km/h", area: true },
@@ -911,12 +918,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const renderLineTypeBar = (lines) => renderTypeBar($("#lines-types"), lines, lineType, state.lineTypes, renderLines);
   // vehicle state filter: the game's icons as toggles (no dropdown: a <select> closes at every refresh), empty = all
   state.vehStates = new Set();
-  const STATE_ICON = { EN_ROUTE: "speed", AT_TERMINAL: "terminal", IN_DEPOT: "depot", GOING_TO_DEPOT: "to_depot" };
   function renderStateBar(bar, veh) {
     if (!bar) return;
     const counts = {}; veh.forEach(v => { counts[v.state] = (counts[v.state] || 0) + 1; });
     const active = state.vehStates;
-    bar.innerHTML = Object.keys(STATE_ICON).filter(s => counts[s]).map(s => `<button class="tbtn ${active.has(s) ? "active" : ""}" data-type="${s}" title="${esc(ST(s))}" style="--c:${STATE_COLOR[s]}">${ico(STATE_ICON[s], "sm")}<small>${counts[s]}</small></button>`).join("")
+    bar.innerHTML = Object.keys(STATE_ICON).filter(s => counts[s]).map(s => `<button class="tbtn ${active.has(s) ? "active" : ""}" data-type="${s}" title="${esc(ST(s))}" style="--c:${STATE_COLOR[s]}">${icoState(s)}<small>${counts[s]}</small></button>`).join("")
       + (active.size ? `<button class="tbtn clear" data-type="" title="${esc(t("all_states"))}">${ico("close", "sm")}</button>` : "");
     $$(".tbtn", bar).forEach(b => b.addEventListener("click", () => {
       const s = b.dataset.type;
@@ -982,7 +988,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if ((h.vehicles || []).length) {
       const vcols = [
         { key: "name", label: t("th_vehicle"), render: v => `${modelImg(v, "sm")}${esc(v.name)}` },
-        { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${ST(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
+        { key: "state", label: t("th_state"), render: v => { const cls = v.no_path ? "bad" : v.user_stopped ? "warn" : v.state === "EN_ROUTE" ? "ok" : ""; return `<span class="chip ${cls}">${STI(v.state)}${v.no_path ? " · " + t("no_path") : ""}${v.user_stopped ? " · " + t("stopped") : ""}</span>`; } },
         { key: "stop_index", label: t("th_next_stop"), render: v => v.stop_index == null ? "–" : `<small>${v.stop_index + 1}.</small> ${esc(v.stop_name || "?")}`, sortValue: v => v.stop_index },
         { key: "speed_ms", label: t("th_speed"), num: true, render: v => kmh(v.speed_ms) },
         { key: "carries", label: t("th_carries"), gauge: true, noicon: true, render: v => onBoard(v, "sm"), sortValue: v => Array.isArray(v.cargo) && v.cargo.length ? cargoName(v.cargo[0].cargo) : null },
@@ -2791,7 +2797,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     if ($("#map-views").checked) camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
-    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${ST(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
+    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${STI(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {

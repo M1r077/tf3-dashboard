@@ -334,6 +334,9 @@ ICONS: dict[str, tuple[str, str]] = {
     "star": (GUI, "gui/menu/icons/symbol_star@2x.tga"),
     "star_outline": (GUI, "gui/menu/icons/symbol_star_outline@2x.tga"),
     "terminal": (GUI, "gui/line_vehicle_mgmt/icons/indicator_terminal_20@2x.tga"),
+    # vehicle state "loading": the game's own animated chevrons (sprite sheet, 4 x 3 frames of 48 px, played in
+    # the cargo rows of a vehicle window); kept as a sheet, the CSS steps through it (.ico.anim-load)
+    "loading": (GUI, "gui/hud/icons/load_animation@2x.tga"),
     "plus": (GUI, "gui/camera_tool/icons/plus19.tga"),
     # layout presets (the game's graphics-presets icons) and copy
     "preset_save": (GUI, "gui/menu/icons/preset_save@2x.tga"),

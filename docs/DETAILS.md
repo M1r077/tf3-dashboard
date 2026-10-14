@@ -313,7 +313,12 @@ Three independent parts:
      on it (nearest segment, searched around the previous one first) and pushed forward by `speed_ms x rate x elapsed`,
      clamped at the leg's end. `rate` is the game time elapsed per real second between the two last samples
      (`snap.game_time_ms` / `snap.received_at`, now in `/api/map`): 0 while paused, 1, 2, 4 at the game's speeds - no
-     separate pause logic, smoothed over samples since `received_at` has whole seconds. A sample is 0.5-3.5 s old when it
+     separate pause logic. `received_at` has whole seconds, so one measure is off by up to 30 %: the rate settles
+     over the first samples (each new one weighs 1/n up to 1/8), then snaps to the nearest whole number (the game's speeds
+     are 1, 2, 4) and ignores the jitter; a pause or a change of more than 40 % restarts the settling. The marker's own
+     speed never steps either: it ramps linearly from what it had to the sampled speed over one sample interval, the
+     distance being the integral of that ramp; when the model fell behind by less than one interval (the vehicle
+     accelerated) the difference is folded into that ramp (capped at +30 %) instead of a correction. A sample is 0.5-3.5 s old when it
      arrives (mod interval, collector poll, page poll) while the model kept going, so the model is normally a little
      ahead: when the vehicle is still on the same leg and the model leads the sample by less than two sample
      intervals, the model is kept (its lead is the data latency, it does not grow); otherwise the sample wins. A new

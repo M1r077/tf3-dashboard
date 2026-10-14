@@ -40,7 +40,8 @@
   // ------------------------------------------------------------ settings (browser-local)
   // sizes (px): icons, text, table row padding, gap between cards, card corner radius, default chart height, gauge bar
   // height, map marker base size (marker was tied to the icon size before 0.7.2: a missing value falls back to it)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1gy" };
+  // smooth: vehicles glide along their line between two samples (costs a few ms per frame in the browser; off by default)
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, smooth: false, defaultTab: "overview", range: "1gy" };
   const SIZE_KEYS = ["ico", "fs", "rowpad", "gap", "radius", "charth", "barh", "marker"];
   // one range per question: since the game was set running, the last month played, this year, the trend, everything
   const RANGES = ["run", "1gm", "1gy", "5gy", "all"];
@@ -56,7 +57,9 @@
     $$("#settings input[data-range]").forEach(r => { r.value = settings[r.dataset.range]; const v = r.nextElementSibling; if (v) v.textContent = settings[r.dataset.range] + " px"; });
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
-    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
+    if (new URLSearchParams(location.search).get("smooth")) settings.smooth = true;  // ?smooth=1: shortcut for tests and links
+    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-smooth").checked = !!settings.smooth; $("#set-default-tab").value = settings.defaultTab;
+    if (typeof motionKick === "function") motionKick();
     const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange) settings.range = RANGE_ALIASES[urlRange] || urlRange;  // ?range= for screenshots / links
     settings.range = RANGE_ALIASES[settings.range] || settings.range;
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
@@ -81,6 +84,7 @@
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
   $("#set-keys").addEventListener("change", e => { settings.keys = e.target.checked; applySettings(); });
   $("#set-clock").addEventListener("change", e => { settings.clock = e.target.checked; applySettings(); refresh(true); });
+  $("#set-smooth").addEventListener("change", e => { settings.smooth = e.target.checked; applySettings(); });
   $("#set-default-tab").addEventListener("change", e => { settings.defaultTab = e.target.value; applySettings(); });
   $("#set-reset").addEventListener("click", () => { Object.assign(settings, DEFAULTS); localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); applySettings(); refresh(true); });
 
@@ -1658,7 +1662,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function liveView(v) {
     if (!v.follow) return v;
     const veh = map.data && (map.data.vehicles || []).find(x => x.vehicle_id === v.follow);
-    return veh && veh.x != null ? { ...v, x: veh.x, y: veh.y } : null;
+    if (!veh || veh.x == null) return null;
+    const p = typeof vehPos === "function" ? vehPos(veh) : veh;  // the pin rides with the smoothed marker
+    return { ...v, x: p.x, y: p.y };
   }
   function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
@@ -2150,8 +2156,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings(); renderWorkshop();
+    const prevData = map.data;
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
+    motionSample(prevData, map.data);
+    // the static layer is rebuilt only when what it draws changed (not on every sample: a 15-30 ms rebuild inside the
+    // animation would be a visible hitch every 3 s). Towns' size and depots' counts move slowly; cargo has its own stamp.
+    const d = map.data, sg = (arr, f) => (arr || []).map(f).join(",");
+    map.dataSig = [sg(d.lines, l => l.line_id + ":" + l.name + ":" + l.color_r + l.color_g + l.color_b + ":" + l.points.length), sg(d.stations, s => s.station_id + s.is_cargo + s.is_pax), sg(d.industries, i => i.industry_id), sg(d.depots, x => x.depot_id + ":" + x.vehicles + ":" + x.incoming), sg(d.towns, x => x.town_id + ":" + x.name + ":" + Math.round(x.size / 50)), d.headquarters && d.headquarters.x].join("|");
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -2225,16 +2237,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (!geo.edgeById) { geo.edgeById = new Map(); g.edges.forEach(e => { if (e[5] != null) geo.edgeById.set(e[5], e); }); }
     const legs = [];
     lp.legs.forEach(leg => {
-      if (leg.points && leg.points.length > 1) { legs.push({ pts: leg.points.map(p => [p[0], p[1]]), predicted: !!leg.predicted }); return; }
+      if (leg.points && leg.points.length > 1) { legs.push({ pts: leg.points.map(p => [p[0], p[1]]), predicted: !!leg.predicted, stop: leg.stop }); return; }
       const ids = leg.edges || []; let pts = [], last = null;
       ids.forEach((id, k) => {
         const e = geo.edgeById.get(id); if (!e) return;
         let a = [e[0], e[1]], b = [e[2], e[3]];
-        if (last) { const da = Math.hypot(a[0] - last[0], a[1] - last[1]), db = Math.hypot(b[0] - last[0], b[1] - last[1]); if (db < da) { [a, b] = [b, a]; } if (Math.min(da, db) > 150) { if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted }); pts = []; } }
+        if (last) { const da = Math.hypot(a[0] - last[0], a[1] - last[1]), db = Math.hypot(b[0] - last[0], b[1] - last[1]); if (db < da) { [a, b] = [b, a]; } if (Math.min(da, db) > 150) { if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted, stop: leg.stop }); pts = []; } }
         else if (ids.length > 1) { const n = geo.edgeById.get(ids[k + 1]); if (n) { const d = (p) => Math.min(Math.hypot(p[0] - n[0], p[1] - n[1]), Math.hypot(p[0] - n[2], p[1] - n[3])); if (d(a) < d(b)) { [a, b] = [b, a]; } } }
         if (!pts.length) pts.push(a); pts.push(b); last = b;
       });
-      if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted });
+      if (pts.length > 1) legs.push({ pts, predicted: !!leg.predicted, stop: leg.stop });
     });
     linePaths.poly[lineId] = legs.length ? legs : null;
     return linePaths.poly[lineId];
@@ -2720,16 +2732,244 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       + row(null, dz != null ? fmtDist(dist + 8 * Math.max(0, dz)) : fmtDist(dist), t("ruler_paid_as"))
       + netRow("road", "#f0a35e", RULER_SPEED.road) + netRow("rail", "#7fb8ff", RULER_SPEED.rail);
   }
+
+  // ---- smooth motion (Settings > "Smooth vehicle motion", off by default)
+  // The mod samples positions every 2 s (and the page polls every 3 s), so a marker jumps 100 m or more at a time.
+  // Between two samples each moving vehicle is advanced along its line: the sample gives its leg (line, stop_index =
+  // the stop it is heading to) and the line paths give that leg as a polyline (the real route from the game's
+  // MOVE_PATH when a vehicle reported it, else the server's prediction over the network). The vehicle is projected on
+  // the polyline and pushed forward by speed x game rate x elapsed time; the game rate is the game time elapsed per
+  // real second between the two last samples (0 while paused, 1, 2, 4 at the game's speeds), nothing else is needed.
+  // A fresh sample does not teleport the marker: the drawn point blends to the new one over 400 ms. Vehicles without
+  // a leg (no line, no path, projection farther than 60 m from the route) glide in a straight line between the two
+  // samples instead; stopped ones, and all of them while the data is stale or the game paused, stay put.
+  const motion = { by: new Map(), rate: 0, t0: 0, dtSample: 3000, raf: null, last: 0, frames: 0, ms: 0 };
+  const MOTION = { FPS: 60, BLEND_MS: 600, SNAP_M: 60, STALE_MS: 15000, MIN_SPEED: 0.3 };
+  // the polyline of the leg a vehicle is on: the pieces tagged with its stop_index (a leg is split where the chain of
+  // segments has a gap; the stop is the one the vehicle is heading to), the piece nearest to the vehicle
+  function legOf(v) {
+    if (v.line_id == null || v.stop_index == null) return null;
+    const legs = linePolylines(v.line_id); if (!legs || !legs.length) return null;
+    let best = null, bd = Infinity;
+    legs.forEach(l => { if (l.stop !== v.stop_index || l.pts.length < 2) return; const pr = legProject(l, v.x, v.y, null); if (pr.d < bd) { bd = pr.d; best = l; } });
+    if (best && bd < MOTION.SNAP_M) return best;
+    // no piece for that stop near the vehicle (a shuttle has one leg for both ways, a predicted leg can be missing):
+    // the nearest piece of the line will do, the direction comes from the progress between two samples
+    legs.forEach(l => { if (l.pts.length < 2) return; const pr = legProject(l, v.x, v.y, null); if (pr.d < bd) { bd = pr.d; best = l; } });
+    return best;
+  }
+  // polyline helpers: cumulative lengths, nearest point (abscissa), point at an abscissa
+  function legMeasure(leg) {
+    if (leg.cum) return leg;
+    const c = [0]; for (let i = 1; i < leg.pts.length; i++) c.push(c[i - 1] + Math.hypot(leg.pts[i][0] - leg.pts[i - 1][0], leg.pts[i][1] - leg.pts[i - 1][1]));
+    leg.cum = c; leg.len = c[c.length - 1]; return leg;
+  }
+  function legProject(leg, x, y, hintSeg) {
+    legMeasure(leg); const p = leg.pts; let best = { d: Infinity, s: 0, seg: 0 };
+    const scan = (i) => { const [ax, ay] = p[i], [bx, by] = p[i + 1]; const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy; let u = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0; u = u < 0 ? 0 : u > 1 ? 1 : u; const d = Math.hypot(ax + u * dx - x, ay + u * dy - y); if (d < best.d) best = { d, s: leg.cum[i] + u * Math.sqrt(l2), seg: i }; };
+    if (hintSeg != null) { for (let i = Math.max(0, hintSeg - 6); i <= Math.min(p.length - 2, hintSeg + 6); i++) scan(i); if (best.d < MOTION.SNAP_M) return best; }
+    for (let i = 0; i < p.length - 1; i++) scan(i);
+    return best;
+  }
+  function legPoint(leg, s) {
+    const p = leg.pts, c = leg.cum; if (s <= 0) return p[0]; if (s >= leg.len) return p[p.length - 1];
+    let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
+    const u = (s - c[lo]) / ((c[hi] - c[lo]) || 1); return [p[lo][0] + (p[hi][0] - p[lo][0]) * u, p[lo][1] + (p[hi][1] - p[lo][1]) * u];
+  }
+  // metres travelled dt seconds after the sample: the speed ramps linearly from what the marker had to the sampled
+  // one over one sample interval (a train accelerating 7 -> 9 m/s would otherwise step), the distance is the integral
+  // of that ramp; also records the marker's current speed for the next ramp
+  function advanceOf(m, dt) {
+    if (!(motion.rate > 0)) return 0;
+    const v0 = m.v0 != null ? m.v0 : m.speed;
+    if (!(m.speed > 0) && !(v0 > 0)) return 0;
+    const T = Math.max(0.5, motion.dtSample / 1000), t1 = Math.min(dt, T), u = t1 / T;
+    m.v = v0 + (m.speed - v0) * u;
+    return (v0 * t1 + (m.speed - v0) * t1 * u / 2 + (dt > T ? m.speed * (dt - T) : 0)) * motion.rate;
+  }
+  // a new sample: the game rate, and for each vehicle its leg, abscissa and direction (the drawn point starts blending)
+  function motionSample(prev, cur) {
+    // the sample is stamped at the last frame drawn, not at the fetch's return: the marker's model and its "from"
+    // point are both read at that instant, so the next frame continues exactly from where the previous one ended
+    const now = motion.lastDrawT || performance.now();
+    const ps = prev && prev.snap, cs = cur && cur.snap;
+    // the same sample again (the page polls faster than the mod writes): keep extrapolating, do not pull the markers back
+    if (ps && cs && ps.received_at && ps.received_at === cs.received_at && ps.game_time_ms === cs.game_time_ms && motion.by.size) { motionKick(); return; }
+    // a sample that goes back in game time (another savegame, a replay, the game restarted): forget everything
+    if (ps && cs && cs.game_time_ms != null && ps.game_time_ms != null && cs.game_time_ms < ps.game_time_ms) { motion.by.clear(); motion.rate = 0; motion.rateN = 0; }
+    // the rate: measured between the two samples, then smoothed (received_at has whole seconds, so one measure is
+    // +-30 % off); a pause (speed 0) applies at once
+    let rate = null;
+    if (ps && cs && cs.game_time_ms != null && ps.game_time_ms != null && cs.received_at && ps.received_at && cs.received_at !== ps.received_at) {
+      const dReal = new Date(cs.received_at).getTime() - new Date(ps.received_at).getTime();
+      if (dReal > 200) { rate = Math.max(0, Math.min(8, (cs.game_time_ms - ps.game_time_ms) / dReal)); motion.dtSample = Math.min(15000, dReal); motion.dtGame = (cs.game_time_ms - ps.game_time_ms) / 1000; }
+    } else motion.dtGame = 0;
+    if (rate == null && cs && cs.speed != null) rate = cs.speed;  // first sample: the game's own speed setting
+    // the rate settles: the first measures count, then each new one weighs less (1/n up to 1/8), so after a few
+    // seconds the figure is stable and a whole-second jitter in received_at no longer nudges every vehicle. A pause,
+    // or a change of game speed (the measure is off by more than 40 %), restarts the settling.
+    if (rate != null) {
+      // the game's speeds are whole numbers (1, 2, 4): the first measure snaps to the nearest one when it is within
+      // 35 % of it, later measures only confirm or, when they disagree by more than 40 %, restart (speed changed)
+      const snap = (x) => { const r = Math.round(x); return r >= 1 && Math.abs(x - r) < 0.35 * r ? r : x; };
+      if (rate === 0 || motion.rate === 0) { motion.rate = snap(rate); motion.rateN = 1; }
+      else if (Math.abs(rate - motion.rate) > 0.4 * motion.rate) { if ((motion.rateN2 = (motion.rateN2 || 0) + 1) >= 2) { motion.rate = snap(rate); motion.rateN = 1; motion.rateN2 = 0; } }  // twice in a row: changed
+      else { motion.rateN2 = 0; if (motion.rate !== Math.round(motion.rate) && (motion.rateN || 1) < 8) { motion.rateN = (motion.rateN || 1) + 1; motion.rate += (rate - motion.rate) / motion.rateN; motion.rate = snap(motion.rate); } }
+    }
+    if (cs && cs.speed === 0) motion.rate = 0;
+    // the model's abscissa right now, before the clocks are reset: a sample is 0.5-3.5 s old when it arrives (mod
+    // interval, collector poll, page poll) while the model kept going, so the model is normally a little ahead
+    const age = (now - motion.t0) / 1000;
+    motion.by.forEach(m => { const adv = advanceOf(m, age); m.modelS = m.leg && m.speed > 0 ? (m.dir > 0 ? Math.min(m.leg.len, m.s + adv) : m.dir < 0 ? Math.max(0, m.s - adv) : m.s) : null; });
+    motion.t0 = now;
+    const seen = new Set();
+    (cur && cur.vehicles || []).forEach(v => {
+      seen.add(v.vehicle_id);
+      let m = motion.by.get(v.vehicle_id);
+      const from = m ? { x: m.dx, y: m.dy } : { x: v.x, y: v.y };  // where the marker is drawn right now
+      const moving = v.state === "EN_ROUTE" && v.speed_ms >= MOTION.MIN_SPEED;
+      if (!m) { m = { dx: v.x, dy: v.y }; motion.by.set(v.vehicle_id, m); }
+      const wasKey = m.legKey, wasModelS = m.modelS;
+      // the speed the marker moves at eases towards the sampled one (a train accelerating 7 -> 9 m/s between two
+      // samples would otherwise step); the sampled speed is still the reference for leads and fallbacks
+      const vNow = m.v != null ? m.v : (moving ? v.speed_ms : 0);
+      // a stopped vehicle does not stop the marker on the spot: the pace ramps down to zero over one interval (the
+      // vehicle braked somewhere in the last 2 s, the marker is already there or nearly). dir is kept too, so the
+      // ramp runs the right way on the leg the marker still is
+      const halt = !moving && m.leg && m.v > 0.3;
+      Object.assign(m, { x: v.x, y: v.y, speed: moving ? v.speed_ms : 0, v0: vNow, vT: now, from, fromT: now, off: null, leg: halt ? m.leg : null, s: halt ? (wasModelS != null ? wasModelS : m.s) : 0, dir: halt ? m.dir : 1, seg: null, legKey: halt ? m.legKey : null, lin: null, modelS: null, braking: halt });
+      if (!moving) return;
+      const leg = legOf(v);
+      const key = leg ? v.line_id + "/" + v.stop_index : null;  // the leg, not its polyline object: a rebuilt route keeps the model
+      if (leg && leg.pts.length > 1) {
+        const pr = legProject(leg, v.x, v.y, wasKey === key && m.legRef === leg ? m.seg : null);
+        if (wasKey === key && m.legRef !== leg && wasModelS != null && m.legRef) { const [mx, my] = legPoint(m.legRef, wasModelS); const q = legProject(leg, mx, my, null); m.modelS = q.d < MOTION.SNAP_M ? q.s : null; }  // same leg, new polyline: carry the model over
+        m.legRef = leg;
+        if (pr.d < MOTION.SNAP_M) {
+          // direction: the leg polyline runs towards stop_index by construction; when the previous sample sat on the
+          // same leg, trust the sign of the progress instead (a leg chained backwards would send the vehicle back)
+          let dir = leg.stop === v.stop_index ? 1 : 0;  // a borrowed piece (not this stop's): no direction until the progress tells
+          if (m.prevKey === key && m.prevS != null && Math.abs(pr.s - m.prevS) > 1) dir = pr.s > m.prevS ? 1 : -1;
+          else if (m.prevKey === key && m.dir) dir = m.dir;
+          // same leg and the model is ahead of the sample by no more than two sample intervals: keep the model (its
+          // lead is the data latency, it does not grow); behind, or too far ahead: take the sample and blend to it
+          // The pace the marker runs at is the vehicle's speed MEASURED from its sampled positions: abscissa gained
+          // per game second between the two last samples (the sample's own game clock, not the smoothed rate),
+          // smoothed over the last 3 samples. The speed the game reports is the instantaneous figure at the sampling
+          // instant (94 % of the time within 30 % of the measure, but a bus pulling out or a ship turning is far off);
+          // it serves for the first sample on a leg, when nothing was measured yet.
+          let s = pr.s; const ms = m.modelS != null ? m.modelS : wasModelS;
+          let pace = null, lead0 = null;
+          const dtG = motion.dtGame > 0.2 ? motion.dtGame : motion.dtSample / 1000 * Math.max(motion.rate, 1);
+          if (wasKey === key && m.prevS != null && dir) {
+            const vMeas = (pr.s - m.prevS) * dir / dtG;
+            if (vMeas >= 0 && vMeas < 60) {
+              const n = Math.min(3, (m.paceN || 0) + 1); pace = m.pace == null ? vMeas : m.pace + (vMeas - m.pace) / n; m.paceN = n;
+
+            }
+          }
+          if (pace == null) { m.paceN = 0; pace = m.speed; }
+          // the model keeps its lead over the samples (its latency) as long as it stays within one interval behind or
+          // three ahead; the lead is held where it was first seen by a small nudge of the pace (at most +-4 %)
+          if (wasKey === key && ms != null && dir) {
+            const lead = (ms - pr.s) * dir, span = Math.max(pace, 0.5) * dtG;
+            if (lead >= -span && lead <= 3 * span) {
+              s = ms; lead0 = m.lead0 != null ? m.lead0 : Math.max(0, lead);
+              pace = pace * (1 + Math.max(-0.04, Math.min(0.04, (lead0 - lead) / (6 * span))));
+            }
+          }
+          m.speed = Math.max(pace, 0.01);
+          Object.assign(m, { leg, s, dir, seg: pr.seg, legKey: key, prevKey: key, prevS: pr.s, pace: m.paceN ? pace : null, lead0 });
+          return;
+        }
+      }
+      m.prevKey = null; m.prevS = null;
+      // no usable leg: straight line from the previous sample towards this one, over one sample interval
+      if (m.lx != null && (m.lx !== v.x || m.ly !== v.y)) { m.lin = { x0: m.lx, y0: m.ly }; const dtG = motion.dtGame > 0.2 ? motion.dtGame : motion.dtSample / 1000 * Math.max(motion.rate, 1); m.speed = Math.min(60, Math.hypot(v.x - m.lx, v.y - m.ly) / dtG); }  // pace measured too
+    });
+    motion.by.forEach((m, id) => { if (!seen.has(id)) motion.by.delete(id); });
+    // the offset to fade = drawn point at the last frame minus the new model at that same instant (t0): computing it
+    // one frame later, as the first draw would, loses one frame of travel - a 16 ms freeze on every sample
+    (cur && cur.vehicles || []).forEach(v => { const m = motion.by.get(v.vehicle_id); if (!m) return; m.lx = v.x; m.ly = v.y; const p0 = vehPos(v, now); m.off = { x: m.from.x - p0.x, y: m.from.y - p0.y }; });
+    motionKick();
+  }
+  // stale = no new sample for a while (measured on the browser's clock, since the last one arrived: the page may run on another machine)
+  const motionActive = () => !!settings.smooth && state.tab === "map" && document.visibilityState === "visible" && $("#map-veh").checked && map.data && motion.rate > 0 && performance.now() - motion.t0 < MOTION.STALE_MS;
+  // where a vehicle is drawn now: the sample position unless smooth motion is on and the vehicle has somewhere to go
+  function vehPos(v, at) {
+    const m = settings.smooth && motion.by.get(v.vehicle_id); if (!m) return v;
+    const now = at != null ? at : (motion.frameT || performance.now()), dt = (now - motion.t0) / 1000;  // one instant per frame for every marker
+    let tx = m.x, ty = m.y;
+    if ((m.speed > 0 || m.braking) && motion.rate > 0 && (at != null || motionActive())) {
+      const adv = advanceOf(m, dt);
+      if (m.leg && m.dir) { const s = m.dir > 0 ? Math.min(m.leg.len, m.s + adv) : Math.max(0, m.s - adv); [tx, ty] = legPoint(m.leg, s); }
+      else if (m.lin) {
+        // straight on along the heading of the last two samples, no farther than one sample interval would carry it
+        const hx = m.x - m.lin.x0, hy = m.y - m.lin.y0, hl = Math.hypot(hx, hy) || 1;
+        const run = Math.min(adv, m.speed * motion.rate * motion.dtSample / 1000);
+        tx = m.x + hx / hl * run; ty = m.y + hy / hl * run;
+      }
+    }
+    // the correction: the marker keeps moving at the model's pace while the offset it had when the sample arrived
+    // (drawn point minus model point at that instant) fades out - blending the positions themselves would freeze the
+    // marker for the first frames and let it catch up at double speed, a hiccup on every sample
+    if (at != null) return { x: tx, y: ty };  // the model alone, at a given instant (used when a sample arrives)
+    if (m.off == null) m.off = { x: m.from.x - tx, y: m.from.y - ty };  // (normally set at the sample; first frame fallback)
+    // the fade takes as long as the marker needs to cover the offset at a third of its pace (at least BLEND_MS):
+    // a 60 m offset on a 6 m/s bus fades over ~10 s, imperceptible, instead of a 600 ms dash
+    const offLen = Math.hypot(m.off.x, m.off.y), pace = Math.max(0.5, (m.v || m.speed || 0) * Math.max(motion.rate, 1));
+    const blendMs = Math.max(MOTION.BLEND_MS, Math.min(15000, offLen / (pace / 3) * 1000));
+    const b = Math.min(1, (now - m.fromT) / blendMs), e = b * b * (3 - 2 * b);  // smoothstep: no kick at either end
+    m.dx = tx + m.off.x * (1 - e); m.dy = ty + m.off.y * (1 - e);
+    return { x: m.dx, y: m.dy };
+  }
+  // the animation loop: only while there is something to move; capped at MOTION.FPS; stops by itself otherwise
+  function motionKick() {
+    if (motion.raf || !motionActive()) return;
+    const tick = (ts) => {
+      motion.raf = null;
+      if (!motionActive()) { if (map.data && state.tab === "map") drawMap($("#map")); return; }  // last frame on the sample positions
+      // every display frame (skipping frames against a 60 Hz display alternates 33 / 50 ms steps, which reads as
+      // judder), and the frame's instant is the vsync timestamp rAF hands over, not performance.now(): the callback
+      // runs a varying number of ms after vsync (whatever else the browser did first) and reading the clock then puts
+      // a jitter of several ms on every 16 ms step - a stutter the eye does see
+      if (ts - motion.last >= 1000 / MOTION.FPS - 1) { motion.last = ts; motion.frameT = ts; motion.lastDrawT = ts; const t = performance.now(); drawMap($("#map")); motion.ms = motion.ms * 0.9 + (performance.now() - t) * 0.1; motion.frames++; motion.frameT = 0; }
+      motion.raf = requestAnimationFrame(tick);
+    };
+    motion.raf = requestAnimationFrame(tick);
+  }
+  document.addEventListener("visibilitychange", motionKick);
+  window.TF3_MOTION = motion; motion.cfg = MOTION;  // console: TF3_MOTION.ms = average ms per frame, .rate = game rate, .by.size = vehicles tracked
+
+  // The map is two pictures: the base (page, grid, geography, lines, towns, stations, industries, depots, cargo
+  // layers) drawn into an offscreen canvas and kept while nothing it depends on changes, and the frame (vehicles,
+  // alerts, camera, pins, ruler, scale) drawn over a blit of it. Without smooth motion both happen together on each
+  // refresh as before; with it, the frame runs 30 times a second and the base costs nothing.
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
-    canvas.width = w * dpr; canvas.height = h * dpr;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
     if (!map.zoomedOnce) { map.zoomedOnce = true; const z = +new URLSearchParams(location.search).get("mapzoom"); const tw = z && d.towns.find(x => x.town_id === z); if (tw) { map.scale = 0.25; map.ox = w / 2 - tw.x * map.scale; map.oy = h / 2 + tw.y * map.scale; } }
-    const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
-    const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015", k = isz();
+    const th = mapTheme(), ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015", k = isz();
+    const toggles = $$("#tab-map input[type=checkbox]").map(i => i.checked ? 1 : 0).join(""), mp = mapPrefs();
+    // everything the base is drawn from; renderMap also clears the key when a new sample arrived
+    const icons = Object.values(map.icons).filter(im => im.complete && im.naturalWidth).length;  // icons still loading: redraw once they are
+    const baseKey = [w, h, dpr, map.scale, map.ox, map.oy, map.lineFilter, toggles, mp.theme, mp.relief, mp.net, mp.lines, i18n.lang, k, font, linePaths.stamp, geo.seq, hmap.revs, mapCargo.at, icons, map.dataSig].join("|");
+    if (!map.baseLayer || map.baseKey !== baseKey) {
+      if (!map.baseLayer) map.baseLayer = document.createElement("canvas");
+      if (map.baseLayer.width !== w * dpr || map.baseLayer.height !== h * dpr) { map.baseLayer.width = w * dpr; map.baseLayer.height = h * dpr; }
+      const bc = map.baseLayer.getContext("2d"); bc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawBase(bc, d, w, h, dpr, font, th, ink, halo, k);
+      map.baseKey = baseKey;
+    }
+    ctx.drawImage(map.baseLayer, 0, 0, w, h);
+    drawFrame(ctx, d, w, h, font, th, ink, halo, k);
+  }
+  function drawBase(ctx, d, w, h, dpr, font, th, ink, halo, k) {
+    const lf = map.lineFilter, lw = mapPrefs().lines;
     ctx.fillStyle = th.page; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = th.frame; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
@@ -2745,9 +2985,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); const kd = stKind(s); ctx.fillStyle = kd.pax ? "#58a6ff" : "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill();
       if (kd.pax && kd.cargo) { ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 3.5 * k); ctx.lineTo(x + 3.5 * k, y); ctx.lineTo(x, y + 3.5 * k); ctx.lineTo(x - 3.5 * k, y); ctx.closePath(); ctx.fill(); } });
     drawCargoLayers(ctx, d);
+  }
+  function drawFrame(ctx, d, w, h, font, th, ink, halo, k) {
+    const lf = map.lineFilter, big = map.scale > 0.08;
+    ctx.font = "12px " + font;
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
-      if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgbLit(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
+      if (lf != null && v.line_id !== lf) return; const vp = vehPos(v); const [x, y] = P(vp.x, vp.y); const col = v.color_r != null ? rgbLit(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
         ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12 * k, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
@@ -2797,7 +3041,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     if ($("#map-views").checked) camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
-    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${STI(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
+    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(vehPos(v), "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${STI(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {

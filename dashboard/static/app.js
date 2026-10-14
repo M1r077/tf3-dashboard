@@ -2940,8 +2940,6 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
   document.addEventListener("visibilitychange", motionKick);
   window.TF3_MOTION = motion; motion.cfg = MOTION;  // console: TF3_MOTION.ms = average ms per frame, .rate = game rate, .by.size = vehicles tracked
-  motion.debug = () => ({ map, linePolylines, legProject, legOf });
-  motion.timing = () => { const c = $("#map"), t = []; for (let i = 0; i < 5; i++) { const a = performance.now(); drawMap(c); t.push(+(performance.now() - a).toFixed(1)); } const a2 = performance.now(); map.baseKey = ""; drawMap(c); return { frames: t, baseRebuild: +(performance.now() - a2).toFixed(1) }; };
 
   // The map is two pictures: the base (page, grid, geography, lines, towns, stations, industries, depots, cargo
   // layers) drawn into an offscreen canvas and kept while nothing it depends on changes, and the frame (vehicles,

@@ -2,6 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (mod revision 21)
+
+- Ruler by rail: the decorative sidings inside a mine or a factory were part of the rail network, so the ruler happily routed through them. The mod now tags tracks frozen in an industry construction (kind bit 8) and the companion keeps them out of the rail graph; they are still drawn.
+- Security review by ThomasMeisters (#128, #129, #131): the server answers only requests whose `Host` names it (DNS rebinding), and a POST must come from the dashboard's own page with a JSON body (any other website open in the same browser got 127.0.0.1 too and could drive the game while "Permit game control" was on). Request bodies capped at 2 MB, database errors on POST answer a JSON 503 instead of a traceback, chart tooltips escape series names. The release build checks the embedded Python against python.org's checksum.
+
 ## Companion 0.11.0 - 13 October 2026 (mod revision 20)
 
 - Russian: full translation of the dashboard and of the mod's settings and status window, contributed by tassaddarhome-ctrl (#125). Follows the game language automatically; also selectable in Settings. The mod strings need the next revision to reach the game.

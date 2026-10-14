@@ -258,7 +258,8 @@ Three independent parts:
      `water` = the contours of every `WATER_MESH` entity (`riverSystem.getWaterMeshEntities` over the whole tile
      range), simplified with Douglas-Peucker at 6 m and flattened to `[x, y, x, y, ...]`, and `edges` = every street
      and track edge as `[x0, y0, x1, y1, kind]` (`BASE_EDGE.position0/1`; kind bit 0 = track, bit 1 = bridge, bit 2 =
-     tunnel). Collected one water mesh / 40 edges per step under the slow budget (2 ms per frame, 50 ms while the
+     tunnel, bit 3 = scenery track frozen in an industry construction, per
+     `streetConnectorSystem.getConstructionEntityForEdge` - drawn, but left out of the ruler's rail graph). Collected one water mesh / 40 edges per step under the slow budget (2 ms per frame, 50 ms while the
      player is on the dashboard), so the first collection takes a second or two of frames and never stalls; the game
      log line `geo written: N edges, M water contours (a -> b vertices) ...` gives the cost. The collector re-reads
      the file on mtime change into the `geo` table (one JSON row per game); `/api/geo?have=<seq>&game=<id>` answers

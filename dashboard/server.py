@@ -970,7 +970,8 @@ def _geo_graphs(gid: int, geo_seq, geo: dict) -> dict:
     key = (gid, geo_seq)
     if _route_cache.get("graph_key") != key:
         edges = geo.get("edges") or []
-        _route_cache["graphs"] = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 1) == 1)}
+        # kind bit 8 (mod rev 21+): scenery track inside an industry, no train runs there - not part of the rail graph
+        _route_cache["graphs"] = {"road": _geo_graph(edges, lambda k: (k & 1) == 0), "rail": _geo_graph(edges, lambda k: (k & 9) == 1)}
         _route_cache["graph_key"] = key
     return _route_cache["graphs"]
 

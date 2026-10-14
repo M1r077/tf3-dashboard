@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (mod revision 21)
+
+- Ruler by rail: the decorative sidings inside a mine or a factory were part of the rail network, so the ruler happily routed through them. The mod now tags tracks frozen in an industry construction (kind bit 8) and the companion keeps them out of the rail graph; they are still drawn.
+
 ## Companion 0.11.0 - 13 October 2026 (mod revision 20)
 
 - Russian: full translation of the dashboard and of the mod's settings and status window, contributed by tassaddarhome-ctrl (#125). Follows the game language automatically; also selectable in Settings. The mod strings need the next revision to reach the game.

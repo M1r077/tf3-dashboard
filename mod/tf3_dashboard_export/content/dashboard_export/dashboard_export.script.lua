@@ -2044,9 +2044,25 @@ local function geoWaterStep(job)
 	return false
 end
 
--- a batch of edges: {x0, y0, x1, y1, kind} with kind 0 street, 1 track, +2 bridge, +4 tunnel
+-- Tracks frozen inside an industry construction (the sidings of a mine, a sawmill) are scenery: no train of the
+-- player ever runs on them. The station tracks are frozen too but usable, so only constructions that hold an
+-- industry and no station count. Cached per construction for the duration of the job.
+local function geoEdgeScenery(job, e)
+	local ok, con = pcall(api.engine.system.streetConnectorSystem.getConstructionEntityForEdge, e)
+	local cid = ok and num(con) or nil
+	if cid == nil or cid < 0 then return false end
+	local cache = job.scenery
+	if cache[cid] == nil then
+		local c = comp(con, api.type.ComponentType.CONSTRUCTION)
+		cache[cid] = (c ~= nil and #arr(c.industries) > 0 and #arr(c.stations) == 0) or false
+	end
+	return cache[cid]
+end
+
+-- a batch of edges: {x0, y0, x1, y1, kind} with kind 0 street, 1 track, +2 bridge, +4 tunnel, +8 industry scenery track
 local function geoEdgeStep(job)
 	local out = job.geo.edges
+	if job.scenery == nil then job.scenery = {} end
 	for _ = 1, GEO.EDGE_BATCH do
 		job.ei = job.ei + 1
 		local e = job.edges[job.ei]
@@ -2066,6 +2082,7 @@ local function geoEdgeStep(job)
 			if enumName("RoadType", { "STREET", "TRACK" }, be.roadType) == "TRACK" then kind = 1 end
 			local et = enumName("BaseEdgeType", { "NORMAL", "BRIDGE", "TUNNEL" }, be.type)
 			if et == "BRIDGE" then kind = kind + 2 elseif et == "TUNNEL" then kind = kind + 4 end
+			if kind % 2 == 1 and geoEdgeScenery(job, e) then kind = kind + 8 end
 			-- the entity id lets the line paths (vehicle MOVE_PATH edge ids) refer to this segment
 			out[#out + 1] = { round(p0.x), round(p0.y), round(p1.x), round(p1.y), kind, num(e) }
 		end)

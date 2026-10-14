@@ -49,7 +49,7 @@ which is why the companion lives here.
 2. **Companion** — download `TF3-Dashboard-<version>-windows.zip` from the
    [Releases](https://github.com/M1r077/tf3-dashboard/releases) page, unzip anywhere **except a cloud-synced folder**
    (OneDrive Desktop/Documents, Dropbox...): the history is a SQLite database and sync clients lock or duplicate it.
-   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod and companion are released together: mod revision 20
+   `C:\TF3-Dashboard` or `D:\Games\TF3 Dashboard` are fine. Mod and companion are released together: mod revision 21
    goes with companion 0.11.x (older pairs keep working, the newest features simply stay blank).
 3. **Run** — start the game with the mod enabled, then double-click `run_dashboard.cmd`. A window with two panes
    opens (collector | server) and your browser shows the dashboard. Put the browser on your second monitor,
@@ -85,6 +85,7 @@ game folder found → `tf3dash_live.lua` written by the mod → snapshots stored
 
 - the mod is subscribed but **not enabled in the savegame** (Mods menu of the savegame): no `tf3dash_live.lua`;
 - the game is in the main menu: the mod only exports while a map is loaded;
+- a **downloaded savegame** (mod.io, Workshop) does not take new mods until you have saved it once yourself: save, reload, and the export starts;
 - **mod revision 8 or older with game build 40420 or newer** (the stability update of 8 October 2026): since that
   build the game only lets mods write to a few userdata folders, and the old mod wrote to its own
   `dashboard_export` folder; its log (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you

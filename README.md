@@ -201,7 +201,8 @@ also shows the export folder, when the companion was last seen, and the current 
   each vehicle for 7 days) and one point per game day for lines, towns, stations and industries, kept for as long
   as the save exists - like the game's own logbooks. It compacts itself once an hour, so it stays in the tens of
   megabytes. Configurable, see `collector.py --help`.
-- The server listens on `127.0.0.1` only. Commands are refused from any other address.
+- The server listens on `127.0.0.1` only. Commands are refused from any other address, and from other websites
+  open in the same browser (a request must come from the dashboard's own page).
 - The game icons are extracted from **your** game installation at first start (`dashboard/extract_icons.py`); they
   are not redistributed.
 

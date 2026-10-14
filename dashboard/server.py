@@ -762,7 +762,7 @@ def api_map(q: dict) -> dict:
     gid = _gid()
     sid = one("SELECT MAX(x.snapshot_id) sid FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     sid = sid["sid"] if sid else None
-    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.load, v.capacity, vs.cargo,
+    veh = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, v.model_key, vs.x, vs.y, vs.speed_ms, vs.state, vs.line_id, vs.stop_index, vs.load, v.capacity, vs.cargo,
                   l.color_r, l.color_g, l.color_b, l.name AS line_name
                   FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=?
                   LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
@@ -812,7 +812,10 @@ def api_map(q: dict) -> dict:
         d = lines.setdefault(p["line_id"], {"line_id": p["line_id"], "name": p["name"], "color_r": p["color_r"], "color_g": p["color_g"], "color_b": p["color_b"], "points": []})
         if p["x"] is not None:
             d["points"].append([p["x"], p["y"]])
-    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "depots": dep, "headquarters": hq, "alerts": al, "lines": list(lines.values())}
+    # the sample's clocks: the dashboard moves the vehicles between two samples by game time elapsed per real
+    # second (0 while paused, 1, 2, 4 at the game's speeds), so it needs both stamps of the snapshot it draws
+    snap = one("SELECT game_time_ms, speed, real_time, received_at FROM snapshot WHERE snapshot_id=?", (sid,)) if sid else None
+    return {"vehicles": veh, "towns": towns, "stations": st, "industries": ind, "depots": dep, "headquarters": hq, "alerts": al, "lines": list(lines.values()), "snap": snap}
 
 
 def api_map_cargo(q: dict) -> dict:

@@ -40,7 +40,8 @@
   // ------------------------------------------------------------ settings (browser-local)
   // sizes (px): icons, text, table row padding, gap between cards, card corner radius, default chart height, gauge bar
   // height, map marker base size (marker was tied to the icon size before 0.7.2: a missing value falls back to it)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, defaultTab: "overview", range: "1gy" };
+  // smooth: vehicles glide along their line between two samples (costs a few ms per frame in the browser; off by default)
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, smooth: false, defaultTab: "overview", range: "1gy" };
   const SIZE_KEYS = ["ico", "fs", "rowpad", "gap", "radius", "charth", "barh", "marker"];
   // one range per question: since the game was set running, the last month played, this year, the trend, everything
   const RANGES = ["run", "1gm", "1gy", "5gy", "all"];
@@ -56,7 +57,9 @@
     $$("#settings input[data-range]").forEach(r => { r.value = settings[r.dataset.range]; const v = r.nextElementSibling; if (v) v.textContent = settings[r.dataset.range] + " px"; });
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
-    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-default-tab").value = settings.defaultTab;
+    if (new URLSearchParams(location.search).get("smooth")) settings.smooth = true;  // ?smooth=1: shortcut for tests and links
+    $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-smooth").checked = !!settings.smooth; $("#set-default-tab").value = settings.defaultTab;
+    if (typeof motionKick === "function") motionKick();
     const urlRange = new URLSearchParams(location.search).get("range"); if (urlRange) settings.range = RANGE_ALIASES[urlRange] || urlRange;  // ?range= for screenshots / links
     settings.range = RANGE_ALIASES[settings.range] || settings.range;
     if (!RANGES.includes(settings.range)) settings.range = DEFAULTS.range;
@@ -81,6 +84,7 @@
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
   $("#set-keys").addEventListener("change", e => { settings.keys = e.target.checked; applySettings(); });
   $("#set-clock").addEventListener("change", e => { settings.clock = e.target.checked; applySettings(); refresh(true); });
+  $("#set-smooth").addEventListener("change", e => { settings.smooth = e.target.checked; applySettings(); });
   $("#set-default-tab").addEventListener("change", e => { settings.defaultTab = e.target.value; applySettings(); });
   $("#set-reset").addEventListener("click", () => { Object.assign(settings, DEFAULTS); localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); applySettings(); refresh(true); });
 
@@ -1658,7 +1662,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function liveView(v) {
     if (!v.follow) return v;
     const veh = map.data && (map.data.vehicles || []).find(x => x.vehicle_id === v.follow);
-    return veh && veh.x != null ? { ...v, x: veh.x, y: veh.y } : null;
+    if (!veh || veh.x == null) return null;
+    const p = typeof vehPos === "function" ? vehPos(veh) : veh;  // the pin rides with the smoothed marker
+    return { ...v, x: p.x, y: p.y };
   }
   function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
@@ -2150,8 +2156,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings(); renderWorkshop();
+    const prevData = map.data;
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
+    motionSample(prevData, map.data);
+    map.baseKey = "";  // the sample changed: the static layer (lines, stations, cargo...) is rebuilt
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -2720,16 +2729,145 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       + row(null, dz != null ? fmtDist(dist + 8 * Math.max(0, dz)) : fmtDist(dist), t("ruler_paid_as"))
       + netRow("road", "#f0a35e", RULER_SPEED.road) + netRow("rail", "#7fb8ff", RULER_SPEED.rail);
   }
+
+  // ---- smooth motion (Settings > "Smooth vehicle motion", off by default)
+  // The mod samples positions every 2 s (and the page polls every 3 s), so a marker jumps 100 m or more at a time.
+  // Between two samples each moving vehicle is advanced along its line: the sample gives its leg (line, stop_index =
+  // the stop it is heading to) and the line paths give that leg as a polyline (the real route from the game's
+  // MOVE_PATH when a vehicle reported it, else the server's prediction over the network). The vehicle is projected on
+  // the polyline and pushed forward by speed x game rate x elapsed time; the game rate is the game time elapsed per
+  // real second between the two last samples (0 while paused, 1, 2, 4 at the game's speeds), nothing else is needed.
+  // A fresh sample does not teleport the marker: the drawn point blends to the new one over 400 ms. Vehicles without
+  // a leg (no line, no path, projection farther than 60 m from the route) glide in a straight line between the two
+  // samples instead; stopped ones, and all of them while the data is stale or the game paused, stay put.
+  const motion = { by: new Map(), rate: 0, t0: 0, dtSample: 3000, raf: null, last: 0, frames: 0, ms: 0 };
+  const MOTION = { FPS: 30, BLEND_MS: 400, SNAP_M: 60, STALE_MS: 15000, MIN_SPEED: 0.3 };
+  const legOf = (v) => { if (v.line_id == null || v.stop_index == null) return null; const legs = linePolylines(v.line_id); return legs && legs.length ? legs[Math.min(v.stop_index, legs.length - 1)] || null : null; };
+  // polyline helpers: cumulative lengths, nearest point (abscissa), point at an abscissa
+  function legMeasure(leg) {
+    if (leg.cum) return leg;
+    const c = [0]; for (let i = 1; i < leg.pts.length; i++) c.push(c[i - 1] + Math.hypot(leg.pts[i][0] - leg.pts[i - 1][0], leg.pts[i][1] - leg.pts[i - 1][1]));
+    leg.cum = c; leg.len = c[c.length - 1]; return leg;
+  }
+  function legProject(leg, x, y, hintSeg) {
+    legMeasure(leg); const p = leg.pts; let best = { d: Infinity, s: 0, seg: 0 };
+    const scan = (i) => { const [ax, ay] = p[i], [bx, by] = p[i + 1]; const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy; let u = l2 ? ((x - ax) * dx + (y - ay) * dy) / l2 : 0; u = u < 0 ? 0 : u > 1 ? 1 : u; const d = Math.hypot(ax + u * dx - x, ay + u * dy - y); if (d < best.d) best = { d, s: leg.cum[i] + u * Math.sqrt(l2), seg: i }; };
+    if (hintSeg != null) { for (let i = Math.max(0, hintSeg - 6); i <= Math.min(p.length - 2, hintSeg + 6); i++) scan(i); if (best.d < MOTION.SNAP_M) return best; }
+    for (let i = 0; i < p.length - 1; i++) scan(i);
+    return best;
+  }
+  function legPoint(leg, s) {
+    const p = leg.pts, c = leg.cum; if (s <= 0) return p[0]; if (s >= leg.len) return p[p.length - 1];
+    let lo = 0, hi = c.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
+    const u = (s - c[lo]) / ((c[hi] - c[lo]) || 1); return [p[lo][0] + (p[hi][0] - p[lo][0]) * u, p[lo][1] + (p[hi][1] - p[lo][1]) * u];
+  }
+  // a new sample: the game rate, and for each vehicle its leg, abscissa and direction (the drawn point starts blending)
+  function motionSample(prev, cur) {
+    const now = performance.now();
+    const ps = prev && prev.snap, cs = cur && cur.snap;
+    // the same sample again (the page polls faster than the mod writes): keep extrapolating, do not pull the markers back
+    if (ps && cs && ps.received_at && ps.received_at === cs.received_at && ps.game_time_ms === cs.game_time_ms && motion.by.size) { motionKick(); return; }
+    if (ps && cs && cs.game_time_ms != null && ps.game_time_ms != null && cs.received_at && ps.received_at && cs.received_at !== ps.received_at) {
+      const dReal = new Date(cs.received_at).getTime() - new Date(ps.received_at).getTime();
+      if (dReal > 200) { motion.rate = Math.max(0, Math.min(8, (cs.game_time_ms - ps.game_time_ms) / dReal)); motion.dtSample = Math.min(15000, dReal); }
+    } else if (cs && cs.speed != null) motion.rate = cs.speed;  // first sample: the game's own speed setting (0 paused)
+    if (cs && cs.speed === 0) motion.rate = 0;
+    motion.t0 = now;
+    const seen = new Set();
+    (cur && cur.vehicles || []).forEach(v => {
+      seen.add(v.vehicle_id);
+      let m = motion.by.get(v.vehicle_id);
+      const from = m ? { x: m.dx, y: m.dy } : { x: v.x, y: v.y };  // where the marker is drawn right now
+      const moving = v.state === "EN_ROUTE" && v.speed_ms >= MOTION.MIN_SPEED;
+      if (!m) { m = { dx: v.x, dy: v.y }; motion.by.set(v.vehicle_id, m); }
+      Object.assign(m, { x: v.x, y: v.y, speed: moving ? v.speed_ms : 0, from, fromT: now, leg: null, s: 0, dir: 1, seg: null, legKey: null, lin: null });
+      if (!moving) return;
+      const leg = legOf(v);
+      const key = leg ? v.line_id + "/" + v.stop_index + "/" + linePaths.builtFor : null;
+      if (leg && leg.pts.length > 1) {
+        const pr = legProject(leg, v.x, v.y, m.legKey === key ? m.seg : null);
+        if (pr.d < MOTION.SNAP_M) {
+          // direction: the leg polyline runs towards stop_index by construction; when the previous sample sat on the
+          // same leg, trust the sign of the progress instead (a leg chained backwards would send the vehicle back)
+          let dir = 1; if (m.prevKey === key && m.prevS != null && Math.abs(pr.s - m.prevS) > 1) dir = pr.s > m.prevS ? 1 : -1;
+          Object.assign(m, { leg, s: pr.s, dir, seg: pr.seg, legKey: key, prevKey: key, prevS: pr.s });
+          return;
+        }
+      }
+      m.prevKey = null; m.prevS = null;
+      // no usable leg: straight line from the previous sample towards this one, over one sample interval
+      if (m.lx != null && (m.lx !== v.x || m.ly !== v.y)) m.lin = { x0: m.lx, y0: m.ly };
+    });
+    motion.by.forEach((m, id) => { if (!seen.has(id)) motion.by.delete(id); });
+    (cur && cur.vehicles || []).forEach(v => { const m = motion.by.get(v.vehicle_id); if (m) { m.lx = v.x; m.ly = v.y; } });
+    motionKick();
+  }
+  // stale = no new sample for a while (measured on the browser's clock, since the last one arrived: the page may run on another machine)
+  const motionActive = () => !!settings.smooth && state.tab === "map" && document.visibilityState === "visible" && $("#map-veh").checked && map.data && motion.rate > 0 && performance.now() - motion.t0 < MOTION.STALE_MS;
+  // where a vehicle is drawn now: the sample position unless smooth motion is on and the vehicle has somewhere to go
+  function vehPos(v) {
+    const m = settings.smooth && motion.by.get(v.vehicle_id); if (!m) return v;
+    const now = performance.now(), dt = (now - motion.t0) / 1000;
+    let tx = m.x, ty = m.y;
+    if (m.speed > 0 && motion.rate > 0 && motionActive()) {
+      const adv = m.speed * motion.rate * dt;
+      if (m.leg) { const s = m.dir > 0 ? Math.min(m.leg.len, m.s + adv) : Math.max(0, m.s - adv); [tx, ty] = legPoint(m.leg, s); }
+      else if (m.lin) {
+        // straight on along the heading of the last two samples, no farther than one sample interval would carry it
+        const hx = m.x - m.lin.x0, hy = m.y - m.lin.y0, hl = Math.hypot(hx, hy) || 1;
+        const run = Math.min(adv, m.speed * motion.rate * motion.dtSample / 1000);
+        tx = m.x + hx / hl * run; ty = m.y + hy / hl * run;
+      }
+    }
+    // the blend from where the marker was when the sample arrived to where the model says it is
+    const b = Math.min(1, (now - m.fromT) / MOTION.BLEND_MS), e = b * (2 - b);
+    m.dx = m.from.x + (tx - m.from.x) * e; m.dy = m.from.y + (ty - m.from.y) * e;
+    return { x: m.dx, y: m.dy };
+  }
+  // the animation loop: only while there is something to move; capped at MOTION.FPS; stops by itself otherwise
+  function motionKick() {
+    if (motion.raf || !motionActive()) return;
+    const tick = () => {
+      motion.raf = null;
+      if (!motionActive()) { if (map.data && state.tab === "map") drawMap($("#map")); return; }  // last frame on the sample positions
+      const now = performance.now();
+      if (now - motion.last >= 1000 / MOTION.FPS - 1) { motion.last = now; const t = performance.now(); drawMap($("#map")); motion.ms = motion.ms * 0.9 + (performance.now() - t) * 0.1; motion.frames++; }
+      motion.raf = requestAnimationFrame(tick);
+    };
+    motion.raf = requestAnimationFrame(tick);
+  }
+  document.addEventListener("visibilitychange", motionKick);
+  window.TF3_MOTION = motion; motion.cfg = MOTION;  // console: TF3_MOTION.ms = average ms per frame, .rate = game rate, .by.size = vehicles tracked
+
+  // The map is two pictures: the base (page, grid, geography, lines, towns, stations, industries, depots, cargo
+  // layers) drawn into an offscreen canvas and kept while nothing it depends on changes, and the frame (vehicles,
+  // alerts, camera, pins, ruler, scale) drawn over a blit of it. Without smooth motion both happen together on each
+  // refresh as before; with it, the frame runs 30 times a second and the base costs nothing.
   function drawMap(canvas) {
     const d = map.data; if (!d) return;
     const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
-    canvas.width = w * dpr; canvas.height = h * dpr;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
     const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!map.fitted) { if (map.restoreKey !== viewKey()) { map.restoreKey = viewKey(); if (!restoreView(canvas)) fitMap(canvas); } else fitMap(canvas); }
     if (!map.zoomedOnce) { map.zoomedOnce = true; const z = +new URLSearchParams(location.search).get("mapzoom"); const tw = z && d.towns.find(x => x.town_id === z); if (tw) { map.scale = 0.25; map.ox = w / 2 - tw.x * map.scale; map.oy = h / 2 + tw.y * map.scale; } }
-    const lf = map.lineFilter;
     const font = getComputedStyle(document.documentElement).getPropertyValue("--font");
-    const th = mapTheme(), lw = mapPrefs().lines, ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015", k = isz();
+    const th = mapTheme(), ink = th.ink || "#e6edf3", halo = th.halo || "#0b1015", k = isz();
+    const toggles = $$("#tab-map input[type=checkbox]").map(i => i.checked ? 1 : 0).join(""), mp = mapPrefs();
+    // everything the base is drawn from; renderMap also clears the key when a new sample arrived
+    const icons = Object.values(map.icons).filter(im => im.complete && im.naturalWidth).length;  // icons still loading: redraw once they are
+    const baseKey = [w, h, dpr, map.scale, map.ox, map.oy, map.lineFilter, toggles, mp.theme, mp.relief, mp.net, mp.lines, i18n.lang, k, font, linePaths.stamp, geo.seq, hmap.revs, mapCargo.at, icons].join("|");
+    if (!map.baseLayer || map.baseKey !== baseKey) {
+      if (!map.baseLayer) map.baseLayer = document.createElement("canvas");
+      if (map.baseLayer.width !== w * dpr || map.baseLayer.height !== h * dpr) { map.baseLayer.width = w * dpr; map.baseLayer.height = h * dpr; }
+      const bc = map.baseLayer.getContext("2d"); bc.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawBase(bc, d, w, h, dpr, font, th, ink, halo, k);
+      map.baseKey = baseKey;
+    }
+    ctx.drawImage(map.baseLayer, 0, 0, w, h);
+    drawFrame(ctx, d, w, h, font, th, ink, halo, k);
+  }
+  function drawBase(ctx, d, w, h, dpr, font, th, ink, halo, k) {
+    const lf = map.lineFilter, lw = mapPrefs().lines;
     ctx.fillStyle = th.page; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = th.frame; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
     const step = 1000 * map.scale; if (step > 12) { for (let x = map.ox % step; x < w; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); } for (let y = map.oy % step; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); } } ctx.globalAlpha = 1;
@@ -2745,9 +2883,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); const kd = stKind(s); ctx.fillStyle = kd.pax ? "#58a6ff" : "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill();
       if (kd.pax && kd.cargo) { ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 3.5 * k); ctx.lineTo(x + 3.5 * k, y); ctx.lineTo(x, y + 3.5 * k); ctx.lineTo(x - 3.5 * k, y); ctx.closePath(); ctx.fill(); } });
     drawCargoLayers(ctx, d);
+  }
+  function drawFrame(ctx, d, w, h, font, th, ink, halo, k) {
+    const lf = map.lineFilter, big = map.scale > 0.08;
+    ctx.font = "12px " + font;
     const showLabels = $("#map-labels").checked;
     if ($("#map-veh").checked) d.vehicles.forEach(v => {
-      if (lf != null && v.line_id !== lf) return; const [x, y] = P(v.x, v.y); const col = v.color_r != null ? rgbLit(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
+      if (lf != null && v.line_id !== lf) return; const vp = vehPos(v); const [x, y] = P(vp.x, vp.y); const col = v.color_r != null ? rgbLit(v.color_r, v.color_g, v.color_b) : CARRIER_COLOR[v.carrier] || "#fff"; const moving = v.state === "EN_ROUTE" && v.speed_ms > 0.3;
       const stopped = v.state === "EN_ROUTE" && !moving;
       if (big || lf != null) {
         ctx.fillStyle = "#0b1015"; ctx.beginPath(); ctx.arc(x, y, 12 * k, 0, 7); ctx.fill(); ctx.lineWidth = stopped ? 2.5 : 1.5; ctx.strokeStyle = stopped ? "#f85149" : col; ctx.stroke();
@@ -2797,7 +2939,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const vehCargoTip = (v) => { const e = Object.entries(v.cargo || {}); return e.length ? `<div class="tipcargo"><div class="tr">${e.map(([k, n]) => `<span class="tc">${cargoIcon({ cargo_key: k }, "sm")}<b>${n}</b></span>`).join("")}</div></div>` : ""; };
     const consider = (obj, kind, entity, txt, extra) => { const [x, y] = P(obj.x, obj.y); const dd = (x - mx) ** 2 + (y - my) ** 2; if (dd < bd) { bd = dd; best = { kind, entity, txt, x, y, ...extra }; } };
     if ($("#map-views").checked) camViews.list.forEach((v0, i) => { const v = liveView(v0) || v0; consider(v, "view", null, `<b>${i + 1} · ${esc(v.name)}</b><br>${t("cam_go_hint", { n: i + 1 })}`, { view: v0 }); });
-    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(v, "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${STI(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
+    if ($("#map-veh").checked) d.vehicles.forEach(v => { if (map.lineFilter != null && v.line_id !== map.lineFilter) return; consider(vehPos(v), "vehicle", v.vehicle_id, `<b>${modelImg(v, "sm")}${esc(v.name)}</b><br>${esc(v.line_name || t("no_line"))} · ${STI(v.state)}<br>${kmh(v.speed_ms)} · ${t("load_n", { a: v.load ?? 0, b: v.capacity ?? "?" })}${vehCargoTip(v)}`); });
     if ($("#map-st").checked) d.stations.forEach(s => consider(s, "station", s.station_id, `<b>${esc(s.name)}</b><br>${stKind(s).label()}`));
     // the cargo figures behind the layers: rate as a percentage, stocks as amounts (the map only shows icons)
     const cargoTip = (kind, id) => {

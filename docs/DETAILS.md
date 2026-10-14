@@ -303,6 +303,24 @@ Three independent parts:
      (gaps under 150 m are bridged), which is good enough on the map. The line tour sends this polyline (thinned to
      60 m) with the stops marked (`args.stops`, 0-based) so the camera follows the rails; the mod adds a high
      waypoint every 2 x alt on long legs.
+   - **Smooth vehicle motion** (companion 0.12.0, Settings, off by default): the mod samples positions every 2 s and
+     the page polls every 3 s, so a marker jumps 100 m or more at a time. With the option on, the map is drawn as two
+     pictures - a base (geography, lines, stations, industries, cargo layers) kept in an offscreen canvas while nothing
+     it depends on changes, and a frame (vehicles, alerts, camera, pins, ruler) drawn over a blit of it at most 30 times a
+     second - and each moving vehicle (`EN_ROUTE`, speed >= 0.3 m/s) is advanced along its leg between two samples: the
+     sample gives `(line_id, stop_index)`, the line routes above give that leg as a polyline, the vehicle is projected
+     on it (nearest segment, searched around the previous one first) and pushed forward by `speed_ms x rate x elapsed`,
+     clamped at the leg's end. `rate` is the game time elapsed per real second between the two last samples
+     (`snap.game_time_ms` / `snap.received_at`, now in `/api/map`): 0 while paused, 1, 2, 4 at the game's speeds - no
+     separate pause logic. A new sample never teleports the marker: the drawn point blends from where it was to the
+     model over 400 ms (ease-out), which absorbs the dead-reckoning drift (a few metres). Vehicles whose projection is
+     more than 60 m from the leg (no line, no path yet, a leg chained the wrong way) go straight on along the heading of
+     their last two samples, no farther than one sample interval would carry them; the leg direction itself is checked
+     against the previous sample's abscissa when both sit on the same leg. The loop stops by itself when the game is
+     paused, the tab is not the map, the page is hidden, the vehicle layer is off, or no sample has arrived for 15 s
+     (last frame on the sample positions). Hover, click and the attached camera pins use the drawn position. Measured in
+     headless Edge on a 302-vehicle save (113 on a leg, 189 stopped): 0.8 ms per frame at 30 fps, about 2.5 % of a
+     core; the game, the mod and the collector are untouched. `TF3_MOTION` in the console shows the live figures.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`. Since mod rev 18 the motion follows textbook rules instead of per-leg tweaks: a Catmull-Rom

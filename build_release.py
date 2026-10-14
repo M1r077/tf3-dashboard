@@ -15,6 +15,7 @@ Stdlib only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import subprocess
@@ -32,6 +33,9 @@ import tf3paths  # noqa: E402
 PYVER = "3.12.10"
 PYZIP = f"python-{PYVER}-embed-amd64.zip"
 PYURL = f"https://www.python.org/ftp/python/{PYVER}/{PYZIP}"
+# checksum published by python.org for PYZIP (release page / api/v2/downloads/release_file; only MD5 is published for
+# this file). Checked on the download and on the cached copy before it goes into the release; update with PYVER.
+PYZIP_MD5 = "fe8ef205f2e9c3ba44d0cf9954e1abd3"
 OUT = ROOT / "release"
 TOP = "TF3-Dashboard"                      # top folder inside both companion archives
 MOD = ROOT / "mod" / "tf3_dashboard_export"
@@ -113,6 +117,10 @@ def _mode(arcname: str) -> int:
     return 0o755 if arcname.endswith(".sh") else 0o644
 
 
+def _md5(p: Path) -> str:
+    return hashlib.md5(p.read_bytes(), usedforsecurity=False).hexdigest()
+
+
 def python_embedded() -> Path:
     cached = OUT / "cache" / PYZIP
     if not cached.exists():
@@ -121,7 +129,12 @@ def python_embedded() -> Path:
         tmp = cached.with_suffix(".part")
         with urllib.request.urlopen(PYURL, timeout=60) as r, open(tmp, "wb") as f:
             f.write(r.read())
+        if _md5(tmp) != PYZIP_MD5:
+            tmp.unlink()
+            sys.exit(f"[build] {PYZIP}: checksum mismatch with python.org's published MD5, download discarded")
         tmp.replace(cached)
+    elif _md5(cached) != PYZIP_MD5:
+        sys.exit(f"[build] {cached}: checksum mismatch with python.org's published MD5; delete it to download again")
     return cached
 
 

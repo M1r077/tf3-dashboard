@@ -4,7 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased (mod revision 21 unchanged)
 
-- Smooth vehicle motion (Settings, off by default): vehicles glide along their line between two samples instead of jumping every 3 s. The map keeps its static layers in an offscreen picture and redraws only the markers, up to 30 times a second; each moving vehicle is advanced along the leg it is on by its speed and the game's rate (paused, x1, x2, x4 come from the samples' clocks, nothing to configure), a new sample blends in over 400 ms. Measured 0.8 ms per frame with 302 vehicles; the game and the collector do nothing more. `?smooth=1` in the URL turns it on for a link. `/api/map` now carries `stop_index` per vehicle and the sample's clocks (`snap`).
+- Smooth vehicle motion (Settings, off by default): vehicles glide along their line between two samples instead of jumping every 3 s. The map keeps its static layers in an offscreen picture and redraws only the markers on every display frame; each moving vehicle is advanced along the leg it is on by its speed and the game's rate (paused, x1, x2, x4 come from the samples' clocks, nothing to configure); a new sample corrects the marker without a visible step (the offset fades while the marker keeps its pace). Measured 0.9 ms per frame with 302 vehicles; the game and the collector do nothing more. `?smooth=1` in the URL turns it on for a link. `/api/map` now carries `stop_index` per vehicle and the sample's clocks (`snap`).
 
 ## Companion 0.11.1 - 14 October 2026 (mod revision 21)
 

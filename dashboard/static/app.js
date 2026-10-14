@@ -2160,7 +2160,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
     motionSample(prevData, map.data);
-    map.baseKey = "";  // the sample changed: the static layer (lines, stations, cargo...) is rebuilt
+    // the static layer is rebuilt only when what it draws changed (not on every sample: a 15-30 ms rebuild inside the
+    // animation would be a visible hitch every 3 s). Towns' size and depots' counts move slowly; cargo has its own stamp.
+    const d = map.data, sg = (arr, f) => (arr || []).map(f).join(",");
+    map.dataSig = [sg(d.lines, l => l.line_id + ":" + l.name + ":" + l.color_r + l.color_g + l.color_b + ":" + l.points.length), sg(d.stations, s => s.station_id + s.is_cargo + s.is_pax), sg(d.industries, i => i.industry_id), sg(d.depots, x => x.depot_id + ":" + x.vehicles + ":" + x.incoming), sg(d.towns, x => x.town_id + ":" + x.name + ":" + Math.round(x.size / 50)), d.headquarters && d.headquarters.x].join("|");
     const canvas = $("#map");
     if (!map.init) { initMap(canvas); map.init = true; }
     const sel = $("#map-line-filter");
@@ -2741,7 +2744,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // a leg (no line, no path, projection farther than 60 m from the route) glide in a straight line between the two
   // samples instead; stopped ones, and all of them while the data is stale or the game paused, stay put.
   const motion = { by: new Map(), rate: 0, t0: 0, dtSample: 3000, raf: null, last: 0, frames: 0, ms: 0 };
-  const MOTION = { FPS: 30, BLEND_MS: 400, SNAP_M: 60, STALE_MS: 15000, MIN_SPEED: 0.3 };
+  const MOTION = { FPS: 60, BLEND_MS: 600, SNAP_M: 60, STALE_MS: 15000, MIN_SPEED: 0.3 };
   const legOf = (v) => { if (v.line_id == null || v.stop_index == null) return null; const legs = linePolylines(v.line_id); return legs && legs.length ? legs[Math.min(v.stop_index, legs.length - 1)] || null : null; };
   // polyline helpers: cumulative lengths, nearest point (abscissa), point at an abscissa
   function legMeasure(leg) {
@@ -2767,11 +2770,20 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const ps = prev && prev.snap, cs = cur && cur.snap;
     // the same sample again (the page polls faster than the mod writes): keep extrapolating, do not pull the markers back
     if (ps && cs && ps.received_at && ps.received_at === cs.received_at && ps.game_time_ms === cs.game_time_ms && motion.by.size) { motionKick(); return; }
+    // the rate: measured between the two samples, then smoothed (received_at has whole seconds, so one measure is
+    // +-30 % off); a pause (speed 0) applies at once
+    let rate = null;
     if (ps && cs && cs.game_time_ms != null && ps.game_time_ms != null && cs.received_at && ps.received_at && cs.received_at !== ps.received_at) {
       const dReal = new Date(cs.received_at).getTime() - new Date(ps.received_at).getTime();
-      if (dReal > 200) { motion.rate = Math.max(0, Math.min(8, (cs.game_time_ms - ps.game_time_ms) / dReal)); motion.dtSample = Math.min(15000, dReal); }
-    } else if (cs && cs.speed != null) motion.rate = cs.speed;  // first sample: the game's own speed setting (0 paused)
+      if (dReal > 200) { rate = Math.max(0, Math.min(8, (cs.game_time_ms - ps.game_time_ms) / dReal)); motion.dtSample = Math.min(15000, dReal); }
+    }
+    if (rate == null && cs && cs.speed != null) rate = cs.speed;  // first sample: the game's own speed setting
+    if (rate != null) motion.rate = rate === 0 || motion.rate === 0 ? rate : motion.rate * 0.6 + rate * 0.4;
     if (cs && cs.speed === 0) motion.rate = 0;
+    // the model's abscissa right now, before the clocks are reset: a sample is 0.5-3.5 s old when it arrives (mod
+    // interval, collector poll, page poll) while the model kept going, so the model is normally a little ahead
+    const age = (now - motion.t0) / 1000;
+    motion.by.forEach(m => { m.modelS = m.leg && m.speed > 0 ? (m.dir > 0 ? Math.min(m.leg.len, m.s + m.speed * motion.rate * age) : Math.max(0, m.s - m.speed * motion.rate * age)) : null; });
     motion.t0 = now;
     const seen = new Set();
     (cur && cur.vehicles || []).forEach(v => {
@@ -2780,17 +2792,24 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const from = m ? { x: m.dx, y: m.dy } : { x: v.x, y: v.y };  // where the marker is drawn right now
       const moving = v.state === "EN_ROUTE" && v.speed_ms >= MOTION.MIN_SPEED;
       if (!m) { m = { dx: v.x, dy: v.y }; motion.by.set(v.vehicle_id, m); }
-      Object.assign(m, { x: v.x, y: v.y, speed: moving ? v.speed_ms : 0, from, fromT: now, leg: null, s: 0, dir: 1, seg: null, legKey: null, lin: null });
+      const wasKey = m.legKey, wasModelS = m.modelS;
+      Object.assign(m, { x: v.x, y: v.y, speed: moving ? v.speed_ms : 0, from, fromT: now, off: null, leg: null, s: 0, dir: 1, seg: null, legKey: null, lin: null, modelS: null });
       if (!moving) return;
       const leg = legOf(v);
-      const key = leg ? v.line_id + "/" + v.stop_index + "/" + linePaths.builtFor : null;
+      const key = leg ? v.line_id + "/" + v.stop_index : null;  // the leg, not its polyline object: a rebuilt route keeps the model
       if (leg && leg.pts.length > 1) {
-        const pr = legProject(leg, v.x, v.y, m.legKey === key ? m.seg : null);
+        const pr = legProject(leg, v.x, v.y, wasKey === key && m.legRef === leg ? m.seg : null);
+        if (wasKey === key && m.legRef !== leg && wasModelS != null && m.legRef) { const [mx, my] = legPoint(m.legRef, wasModelS); const q = legProject(leg, mx, my, null); m.modelS = q.d < MOTION.SNAP_M ? q.s : null; }  // same leg, new polyline: carry the model over
+        m.legRef = leg;
         if (pr.d < MOTION.SNAP_M) {
           // direction: the leg polyline runs towards stop_index by construction; when the previous sample sat on the
           // same leg, trust the sign of the progress instead (a leg chained backwards would send the vehicle back)
           let dir = 1; if (m.prevKey === key && m.prevS != null && Math.abs(pr.s - m.prevS) > 1) dir = pr.s > m.prevS ? 1 : -1;
-          Object.assign(m, { leg, s: pr.s, dir, seg: pr.seg, legKey: key, prevKey: key, prevS: pr.s });
+          // same leg and the model is ahead of the sample by no more than two sample intervals: keep the model (its
+          // lead is the data latency, it does not grow); behind, or too far ahead: take the sample and blend to it
+          let s = pr.s; const ms = m.modelS != null ? m.modelS : wasModelS;
+          if (wasKey === key && ms != null) { const lead = (ms - pr.s) * dir; if (lead >= 0 && lead <= m.speed * Math.max(motion.rate, 1) * 2 * motion.dtSample / 1000) s = ms; }
+          Object.assign(m, { leg, s, dir, seg: pr.seg, legKey: key, prevKey: key, prevS: pr.s });
           return;
         }
       }
@@ -2819,9 +2838,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         tx = m.x + hx / hl * run; ty = m.y + hy / hl * run;
       }
     }
-    // the blend from where the marker was when the sample arrived to where the model says it is
-    const b = Math.min(1, (now - m.fromT) / MOTION.BLEND_MS), e = b * (2 - b);
-    m.dx = m.from.x + (tx - m.from.x) * e; m.dy = m.from.y + (ty - m.from.y) * e;
+    // the correction: the marker keeps moving at the model's pace while the offset it had when the sample arrived
+    // (drawn point minus model point at that instant) fades out - blending the positions themselves would freeze the
+    // marker for the first frames and let it catch up at double speed, a hiccup on every sample
+    if (m.off == null) m.off = { x: m.from.x - tx, y: m.from.y - ty };
+    const b = Math.min(1, (now - m.fromT) / MOTION.BLEND_MS), e = b * b * (3 - 2 * b);  // smoothstep: no kick at either end
+    m.dx = tx + m.off.x * (1 - e); m.dy = ty + m.off.y * (1 - e);
     return { x: m.dx, y: m.dy };
   }
   // the animation loop: only while there is something to move; capped at MOTION.FPS; stops by itself otherwise
@@ -2831,6 +2853,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       motion.raf = null;
       if (!motionActive()) { if (map.data && state.tab === "map") drawMap($("#map")); return; }  // last frame on the sample positions
       const now = performance.now();
+      // every display frame: skipping frames against a 60 Hz display alternates 33 / 50 ms steps, which reads as judder
       if (now - motion.last >= 1000 / MOTION.FPS - 1) { motion.last = now; const t = performance.now(); drawMap($("#map")); motion.ms = motion.ms * 0.9 + (performance.now() - t) * 0.1; motion.frames++; }
       motion.raf = requestAnimationFrame(tick);
     };
@@ -2855,7 +2878,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const toggles = $$("#tab-map input[type=checkbox]").map(i => i.checked ? 1 : 0).join(""), mp = mapPrefs();
     // everything the base is drawn from; renderMap also clears the key when a new sample arrived
     const icons = Object.values(map.icons).filter(im => im.complete && im.naturalWidth).length;  // icons still loading: redraw once they are
-    const baseKey = [w, h, dpr, map.scale, map.ox, map.oy, map.lineFilter, toggles, mp.theme, mp.relief, mp.net, mp.lines, i18n.lang, k, font, linePaths.stamp, geo.seq, hmap.revs, mapCargo.at, icons].join("|");
+    const baseKey = [w, h, dpr, map.scale, map.ox, map.oy, map.lineFilter, toggles, mp.theme, mp.relief, mp.net, mp.lines, i18n.lang, k, font, linePaths.stamp, geo.seq, hmap.revs, mapCargo.at, icons, map.dataSig].join("|");
     if (!map.baseLayer || map.baseKey !== baseKey) {
       if (!map.baseLayer) map.baseLayer = document.createElement("canvas");
       if (map.baseLayer.width !== w * dpr || map.baseLayer.height !== h * dpr) { map.baseLayer.width = w * dpr; map.baseLayer.height = h * dpr; }

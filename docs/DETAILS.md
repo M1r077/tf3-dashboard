@@ -306,21 +306,27 @@ Three independent parts:
    - **Smooth vehicle motion** (companion 0.12.0, Settings, off by default): the mod samples positions every 2 s and
      the page polls every 3 s, so a marker jumps 100 m or more at a time. With the option on, the map is drawn as two
      pictures - a base (geography, lines, stations, industries, cargo layers) kept in an offscreen canvas while nothing
-     it depends on changes, and a frame (vehicles, alerts, camera, pins, ruler) drawn over a blit of it at most 30 times a
-     second - and each moving vehicle (`EN_ROUTE`, speed >= 0.3 m/s) is advanced along its leg between two samples: the
+     it depends on changes (view, toggles, theme, routes, the entities themselves - not the mere arrival of a sample: a
+     15-30 ms rebuild inside the animation would be a visible hitch every 3 s), and a frame (vehicles, alerts, camera,
+     pins, ruler) drawn over a blit of it on every display frame - and each moving vehicle (`EN_ROUTE`, speed >= 0.3 m/s) is advanced along its leg between two samples: the
      sample gives `(line_id, stop_index)`, the line routes above give that leg as a polyline, the vehicle is projected
      on it (nearest segment, searched around the previous one first) and pushed forward by `speed_ms x rate x elapsed`,
      clamped at the leg's end. `rate` is the game time elapsed per real second between the two last samples
      (`snap.game_time_ms` / `snap.received_at`, now in `/api/map`): 0 while paused, 1, 2, 4 at the game's speeds - no
-     separate pause logic. A new sample never teleports the marker: the drawn point blends from where it was to the
-     model over 400 ms (ease-out), which absorbs the dead-reckoning drift (a few metres). Vehicles whose projection is
+     separate pause logic, smoothed over samples since `received_at` has whole seconds. A sample is 0.5-3.5 s old when it
+     arrives (mod interval, collector poll, page poll) while the model kept going, so the model is normally a little
+     ahead: when the vehicle is still on the same leg and the model leads the sample by less than two sample
+     intervals, the model is kept (its lead is the data latency, it does not grow); otherwise the sample wins. A new
+     sample never teleports the marker: the marker keeps moving at the model's pace while the offset it had at that
+     instant fades out over 600 ms (smoothstep) - blending positions instead would freeze the marker for a few frames
+     and let it catch up at double speed, a hiccup on every sample. Vehicles whose projection is
      more than 60 m from the leg (no line, no path yet, a leg chained the wrong way) go straight on along the heading of
      their last two samples, no farther than one sample interval would carry them; the leg direction itself is checked
      against the previous sample's abscissa when both sit on the same leg. The loop stops by itself when the game is
      paused, the tab is not the map, the page is hidden, the vehicle layer is off, or no sample has arrived for 15 s
      (last frame on the sample positions). Hover, click and the attached camera pins use the drawn position. Measured in
-     headless Edge on a 302-vehicle save (113 on a leg, 189 stopped): 0.8 ms per frame at 30 fps, about 2.5 % of a
-     core; the game, the mod and the collector are untouched. `TF3_MOTION` in the console shows the live figures.
+     headless Edge on a 302-vehicle save (113 on a leg, 189 stopped): 0.9 ms per frame at 60 fps, about 5 % of a core,
+     frame-to-frame speed steady at the vehicle's own (largest jump 0.7 m over four samples); the game, the mod and the collector are untouched. `TF3_MOTION` in the console shows the live figures.
    - **Travelling** (mod rev 10): the dashboard sends `camera_path {points, duration, loop, ease}` once; the mod
      keeps the path and, on every `guiUpdate` (= every rendered frame), interpolates and calls
      `setCameraData`. Since mod rev 18 the motion follows textbook rules instead of per-leg tweaks: a Catmull-Rom

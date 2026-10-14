@@ -68,6 +68,20 @@ ALLOWED_CMDS = {
 }
 
 
+# camera_cutscene: a keyframe file is Lua, so only a resource of the game or of an active mod ("<modid>::/path.lua")
+# is passed on, never a file path. The mod applies the same rule (cutsceneFile in dashboard_export.script.lua); this
+# copy only gives a clear error before anything is written.
+CUTSCENE_RESOURCE = re.compile(r"[A-Za-z0-9_-]*::/[A-Za-z0-9_\-/.]+\.lua")
+
+
+def cutscene_file(f) -> str:
+    if not isinstance(f, str) or not f or len(f) > 200:
+        raise ValueError("missing argument: file")
+    if ".." in f or "\\" in f or not CUTSCENE_RESOURCE.fullmatch(f):
+        raise ValueError("camera_cutscene: file must be a resource path, <modid>::/path.lua")
+    return f
+
+
 def lua_literal(v) -> str:
     if v is None:
         return "nil"
@@ -112,6 +126,8 @@ def write_command(cmd: str, args: dict) -> dict:
     for k in ALLOWED_CMDS[cmd]:
         if k not in args:
             raise ValueError(f"missing argument: {k}")
+    if cmd == "camera_cutscene":
+        cutscene_file(args["file"])
     clean = {}
     # the camera commands carry a ground track: up to a few thousand points / indices (a line along its rails);
     # everything else stays small

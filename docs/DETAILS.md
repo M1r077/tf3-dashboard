@@ -371,7 +371,14 @@ Three independent parts:
      1.5..2.5 in its own code). Industries tab: chip "+x %" (product of the active factors) or "0/n", card "Boosters"
      with one row per booster.
      `camera_cutscene {file}` is an experiment around `api.gui.mission.playCutscene` (free 6-DOF keyframe files of
-     the Advanced Camera Tool); not exposed in the UI until tested in a free game.
+     the Advanced Camera Tool); not exposed in the UI yet. Tested on build 40420: a keyframe file shipped in a mod
+     plays outside a mission (`tf3_dashboard_export::/dashboard_export/keyframes/<name>.lua`, the game's camera flies
+     the keyframes and `isCutscenePlaying()` answers true). A keyframe file is Lua, so `file`
+     must be a resource of the game or of an active mod (`<modid>::/path.lua`, `::/path.lua` for the base game); any
+     other value (absolute path, `..`, backslash) is refused by the server and by the mod. `playCutscene` only reads
+     the game's resource file system anyway: an absolute path is looked up as `::/<path>` and
+     fails with "File was not cached in filesystem" (plus a minidump), so a file from the userdata `keyframes` folder
+     or a download cannot be played.
    - **Finance journal** (mod 13 / companion 0.6.0, `tf3dash_journal.lua`): the Finances tab shows the game's own
      accounting table, not a reconstruction. Principle: **the past does not need to be measured while playing, it is
      in the savegame**. The engine keeps the complete journal (every booking since the start of the game) and the

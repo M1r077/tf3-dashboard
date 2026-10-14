@@ -2367,6 +2367,18 @@ local function forEachLineVehicle(args, make)
 	return true, nil
 end
 
+-- camera_cutscene: a keyframe file is Lua, so only a resource of the game or of an active mod is accepted
+-- ("<modid>::/path.lua", "::/path.lua" for the base game: code the game loads anyway). playCutscene itself only reads
+-- the game's resource file system (build 40420: an absolute path becomes "::/<path>", "File was not cached in
+-- filesystem", and the game writes a minidump), so this is a second fence and a clear error, not the only one.
+-- Mirrored in server.py (cutscene_file).
+local function cutsceneFile(f)
+	if type(f) ~= "string" or f == "" or #f > 200 then error("missing args.file") end
+	if f:find("..", 1, true) or f:find("\\", 1, true) then error("args.file: '..' and '\\' are not allowed") end
+	if f:match("^[%w_%-]*::/[%w_%-/%.]+%.lua$") then return f end
+	error("args.file must be a resource path: <modid>::/path.lua")
+end
+
 local COMMANDS = {
 	-- game speed: 0 = pause, 1, 2, 4
 	set_speed = function(args)
@@ -2436,11 +2448,10 @@ local COMMANDS = {
 	-- line tour: one path over the stops of a line + its vehicles' positions at this moment (see camTourBuild)
 	camera_tour = function(args) camPathStop("new tour"); return camTourStart(args or {}) end,
 	-- experiment: play a cutscene keyframe file (the Advanced Camera Tool format: free camera, roll, fov,
-	-- vehicle attachment). args.file = resource path ("modid::/path.lua") or absolute path; whether the game accepts
-	-- it outside a mission / from userdata is what this command is here to find out. Answer carries the API result.
+	-- vehicle attachment). args.file = resource path ("modid::/path.lua"), see cutsceneFile; whether the game
+	-- plays it outside a mission is what this command is here to find out.
 	camera_cutscene = function(args)
-		local f = args and args.file
-		if type(f) ~= "string" or f == "" then error("missing args.file") end
+		local f = cutsceneFile(args and args.file)
 		if not (api.gui.mission and api.gui.mission.playCutscene) then error("api.gui.mission.playCutscene not available") end
 		camPathStop("cutscene")
 		local ok, err = pcall(api.gui.mission.playCutscene, f, args.resolve_language == true)

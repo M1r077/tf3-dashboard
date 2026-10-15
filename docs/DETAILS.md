@@ -636,7 +636,17 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
      journal keeps the game's order and structure), column
      widths from the content - 90 lines, no library, nothing on the server (the data is what the API already serves).
      The file name carries the game date (`tf3-finances-1955-10-20.xlsx`). The sheets are labelled in the page's
-     language.- `game`: one row per savegame (key = player entity)
+     language.
+   - **Vehicle catalogue** (mod revision 22, `tf3dash_models.lua`): `api.res.modelRep.getAll()` lists ~4500 resources
+     (vehicles, people, cargo piles...); the ones whose metadata has `transportVehicle` are vehicles (325 with the base game).
+     Per model: `description.name`, `availability.yearFrom/yearTo` (0 = open), `landVehicle/waterVehicle/airVehicle`
+     (top speed, weights, engines with power and tractive effort - ships give `availPower` in W, aircraft `maxThrust` in N),
+     `maintenance.lifespan` (game days), `transportVehicle.compartments` (the biggest load configuration of each
+     compartment = capacity; its `cargoTypeSet` is resolved to cargo ids with `getAllCargoForCargoTypeSet`, or, when that
+     gives nothing, from the set's included/excluded classes against each cargo type's `cargoClasses`), `loadSpeed`, and
+     the price from `api.engine.util.getPartPrice` on a fresh `TransportVehiclePart` - the engine's own figure for the
+     current year (`cost.price` in the files is -1 = computed). Written once after the first slow cycle and again when
+     the game year changes, 40 models per frame. The engine's `placeholders` stand-ins are left out by the server.- `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and
   drawn by the dashboard; what the mod exports and nothing displays is not stored. Columns dropped by the audit

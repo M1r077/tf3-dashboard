@@ -43,7 +43,7 @@ const XLSX = (() => {
         const ref = col(ci) + (ri + 1), head = ri === 0, num = typeof v === "number" && isFinite(v), isNum = ci >= nf;
         // style id = fill x (text | number): see styles in build(); fill 0 plain, 1 header, 2 group, 3 total, 4 band, 5 first column
         const fill = head ? 1 : kinds[ri] === "group" ? 2 : kinds[ri] === "total" ? 3 : (sh.banded && ri % 2 === 0) ? 4 : (ci === 0 && !isNum) ? 5 : 0;  // 0 = plain dark
-        const style = fill * 2 + (isNum ? 1 : 0);
+        const style = fill * 2 + (isNum && (num || v == null || v === "" || head) ? 1 : 0);  // a text in a number column stays text
         if (num) { cells += `<c r="${ref}" s="${style}"><v>${v}</v></c>`; widths[ci] = Math.max(widths[ci], String(Math.round(v)).length * 1.3 + 2); }
         else if (v != null && v !== "") { cells += `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`; widths[ci] = Math.max(widths[ci], Math.min(60, String(v).length + 2)); }
         else cells += `<c r="${ref}" s="${style}"/>`;  // an empty cell still takes the row's fill (dark sheet, no holes)

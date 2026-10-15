@@ -438,6 +438,142 @@ local function modelKey(modelId)
 	return k or nil
 end
 
+-- ---------------------------------------------------------------- vehicle model catalogue (tf3dash_models.lua)
+-- Every vehicle model the game knows (base, DLC, mods), with the metadata the purchase window shows: availability
+-- years, top speed, power, tractive effort, weights, capacity per cargo, lifespan, price. Static for the session
+-- except the price (the engine scales it with the year), so the file is written once after the first slow cycle
+-- and again when the game year changes. Collected in slices of CATALOGUE.STEP models per frame: ~1000 models with
+-- DLC and mods, each a modelRep.get (fast) and a getPartPrice.
+local CATALOGUE = { STEP = 40, FILE = PREFIX .. "models" }
+local catJob, catYear, catDumped = nil, nil, false   -- catJob = { ids, i, items, year }; catYear = the year the last file was written for
+CATALOGUE.ENGINES = { "HORSE", "STEAM", "ELECTRIC", "DIESEL" }  -- api.type.enum.VehicleEngineType
+
+-- the cargo type ids a CargoTypeSet stands for: the engine's own answer when it gives one, else resolved from the
+-- set's declaration (cargo type resource names, cargo classes) against the cargo types' own classes - computed once
+-- per catalogue run (catJob.classes = { [cargo id] = { class = true } })
+function CATALOGUE.cargoOfSet(set)
+	local out = {}
+	local ok = pcall(function()
+		for _, cid in ipairs(arr(api.engine.util.getAllCargoForCargoTypeSet(set))) do local n = num(cid); if n then out[#out + 1] = n end end
+	end)
+	if ok and #out > 0 then return out end
+	local j = catJob
+	if j and not j.classes then
+		j.classes, j.byKey = {}, {}
+		pcall(function()
+			for id, resName in pairs(api.res.cargoTypeRep.getAll()) do
+				local cid = num(id)
+				local cls = {}
+				pcall(function() for _, c in ipairs(arr(api.res.cargoTypeRep.get(id).cargoClasses)) do cls[tostring(c)] = true end end)
+				j.classes[cid] = cls
+				j.byKey[tostring(resName):gsub("^.*/", ""):gsub("%.cargo.*$", ""):lower()] = cid
+			end
+		end)
+	end
+	if not j or not j.classes then return out end
+	local inc, exc, seen = {}, {}, {}
+	pcall(function()
+		for _, rn in ipairs(arr(set.cargoTypesIncluded)) do local cid = j.byKey[tostring(rn):gsub("^.*/", ""):gsub("%.cargo.*$", ""):lower()]; if cid and not seen[cid] then seen[cid] = true; out[#out + 1] = cid end end
+		for _, c in ipairs(arr(set.cargoClassesIncluded)) do inc[tostring(c)] = true end
+		for _, c in ipairs(arr(set.cargoClassesExcluded)) do exc[tostring(c)] = true end
+	end)
+	if next(inc) then
+		for cid, cls in pairs(j.classes) do
+			local hit, bad = false, false
+			for c in pairs(cls) do if inc[c] then hit = true end; if exc[c] then bad = true end end
+			if hit and not bad and not seen[cid] then seen[cid] = true; out[#out + 1] = cid end
+		end
+	end
+	return out
+end
+
+local function catalogueItem(id, resName)
+	local md = api.res.modelRep.get(id)
+	md = md and md.metadata
+	local tv = md and md.transportVehicle
+	if not tv then return nil end
+	local lv = md.landVehicle or md.waterVehicle or md.airVehicle
+	local it = { id = id, key = modelKey(id), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
+	it.category = it.key and it.key:match("^([^/]+)/") or nil
+	local d = md.description
+	if d and d.name and d.name ~= "" then it.name = d.name end
+	local av = md.availability
+	if av then it.year_from = num(av.yearFrom); it.year_to = num(av.yearTo); if it.year_to == 0 then it.year_to = nil end end
+	if lv then
+		local ts = num(lv.topSpeed); if ts and ts > 0 then it.top_speed = math.floor(ts * 3.6 + 0.5) end
+		it.weight_empty = num(lv.weightEmpty); it.weight_payload = num(lv.weightMaxPayload)
+		local power, effort = 0, 0
+		for _, e in ipairs(arr(lv.engines or {})) do power = power + (num(e.power) or 0); effort = effort + (num(e.tractiveEffort) or 0); it.engine = it.engine or enumName("VehicleEngineType", CATALOGUE.ENGINES, e.type) end
+		if md.waterVehicle then power = (num(lv.availPower) or 0) / 1000 end  -- W -> kW
+		if md.airVehicle then effort = (num(lv.maxThrust) or 0) / 1000; it.engine = md.airVehicle.isHelicopter and "HELICOPTER" or nil end  -- N -> kN
+		if power > 0 then it.power = power end
+		if effort > 0 then it.effort = effort end
+	end
+	local mt = md.maintenance
+	if mt then it.lifespan = num(mt.lifespan) end  -- game days
+	-- capacity per cargo (the biggest of the load configurations of each compartment: what the vehicle can carry)
+	local caps, total = {}, 0
+	for _, comp in ipairs(arr(tv.compartments or {})) do
+		local best, bestCargo = 0, nil
+		for _, lc in ipairs(arr(comp.loadConfigs or {})) do
+			local ce = lc.cargoEntry
+			local c = ce and num(ce.capacity) or 0
+			if c > best then best = c; bestCargo = ce.cargoTypeSet end
+		end
+		if best > 0 and bestCargo then
+			total = total + best
+			for _, cid in ipairs(CATALOGUE.cargoOfSet(bestCargo)) do local k = tostring(cid); caps[k] = math.max(caps[k] or 0, best) end
+		end
+	end
+	if total > 0 then it.capacity = total; it.capacities = caps end
+	it.load_speed = num(tv.loadSpeed)
+	-- price at the current year: the engine's own figure for a new part of this model
+	local okP, errP = pcall(function()
+		local part = api.type.TransportVehiclePart.new()
+		local vp = api.type.VehiclePart.new()
+		vp.modelId = id
+		part.part = vp
+		local p = num(api.engine.util.getPartPrice(part))
+		if p and p ~= 0 then it.price = math.abs(p) end
+	end)
+	if not okP and not catDumped then catDumped = true; log("models: getPartPrice failed:", tostring(errP)) end
+	if not it.price then pcall(function() local c = md.cost; local p = c and num(c.price); if p and p > 0 then it.price = p end end) end
+	return it
+end
+
+local function catalogueStart(year)
+	local ids = {}
+	local ok = pcall(function()
+		for id, resName in pairs(api.res.modelRep.getAll()) do ids[#ids + 1] = { num(id), tostring(resName) } end
+	end)
+	if not ok or #ids == 0 then return false end
+	catJob = { ids = ids, i = 1, items = {}, year = year }
+	return true
+end
+
+-- a slice per frame; returns true when the file was written this frame
+local function catalogueStep()
+	local j = catJob
+	if not j then return false end
+	local n = #j.ids
+	local last = math.min(n, j.i + CATALOGUE.STEP - 1)
+	for k = j.i, last do
+		local id, resName = j.ids[k][1], j.ids[k][2]
+		if id and resName:find("vehicle", 1, true) then
+			local ok, it = pcall(catalogueItem, id, resName)
+			if ok and it then j.items[#j.items + 1] = it end
+		end
+	end
+	j.i = last + 1
+	if j.i <= n then return false end
+	catJob = nil
+	local okW, err = pcall(app.saveUserdata, DIR, CATALOGUE.FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), year = j.year, items = j.items })
+	if not okW then log("saveUserdata failed for models:", tostring(err)); return false end
+	catYear = j.year
+	debug(string.format("models written: %d of %d resources, year %s", #j.items, n, tostring(j.year)))
+	return true
+end
+
 -- Vehicles are exported in two parts. Fast (every snapshot, live.lua): what moves — state, line, stop,
 -- position, speed, load, maintenance... Slow (slow_vehicles.lua, one item per step like the other slow sections):
 -- what the game only changes when the player edits the vehicle — name, consist, model, capacity, icon, costs. The
@@ -2798,6 +2934,23 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end)
 		if not okJ then log("journal write failed:", tostring(wroteJ)) end
 		if wroteJ then return end
+	end
+
+	-- vehicle model catalogue: after the first slow cycle, then once per game year (prices follow the year); sliced
+	if slowCache ~= nil then
+		if catJob == nil then
+			local okY, year = pcall(api.engine.util.getYear)
+			year = okY and num(year) or nil
+			if year ~= nil and year ~= catYear then
+				local okS, started = pcall(catalogueStart, year)
+				if not okS then log("models start failed:", tostring(started)); catYear = year end
+			end
+		end
+		if catJob ~= nil then
+			local okC, wroteC = pcall(catalogueStep)
+			if not okC then log("models step failed:", tostring(wroteC)); catJob = nil; catYear = catYear or 0 end
+			if wroteC then return end
+		end
 	end
 
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge

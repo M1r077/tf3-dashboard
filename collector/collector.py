@@ -462,6 +462,27 @@ class Store:
         self.con.commit()
         return len(rows)
 
+    def ingest_models(self, snap: dict, mf: dict) -> int:
+        """Replace the vehicle model catalogue (tf3dash_models.lua) of the game `snap` belongs to: every model the
+        game knows with the purchase window's figures, priced for the year the file was written for."""
+        gid = self.game_id(snap, iso())
+        now, year = iso(), mf.get("year")
+        rows = []
+        for it in as_list(mf.get("items")):
+            if not isinstance(it, dict) or it.get("id") is None:
+                continue
+            caps = it.get("capacities")
+            rows.append((gid, int(it["id"]), it.get("key"), it.get("name"), it.get("carrier"), it.get("category"), it.get("year_from"), it.get("year_to"),
+                         it.get("top_speed"), it.get("power"), it.get("effort"), it.get("engine"), it.get("weight_empty"), it.get("weight_payload"),
+                         it.get("capacity"), json.dumps(caps, separators=(",", ":")) if isinstance(caps, dict) and caps else None,
+                         it.get("load_speed"), it.get("lifespan"), it.get("price"), year, now))
+        self.con.execute("DELETE FROM vehicle_model WHERE game_id=?", (gid,))
+        self.con.executemany("""INSERT INTO vehicle_model(game_id, model_id, key, name, carrier, category, year_from, year_to, top_speed, power, effort,
+                                 engine, weight_empty, weight_payload, capacity, capacities, load_speed, lifespan, price, price_year, received_at)
+                                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", rows)
+        self.con.commit()
+        return len(rows)
+
     def ingest_journal(self, snap: dict, jf: dict) -> int:
         """Replace the game's accounting journal views (tf3dash_journal.lua) for the game `snap` belongs
         to. Returns the number of columns stored over both views."""
@@ -1173,6 +1194,10 @@ class SlowFiles:
         """tf3dash_line_paths.lua: the network edges each line leg runs on."""
         return self._changed_file("line_paths", "items")
 
+    def models(self) -> dict | None:
+        """tf3dash_models.lua: the vehicle model catalogue (once per game year)."""
+        return self._changed_file("models", "items")
+
     def journal(self) -> dict | None:
         """tf3dash_journal.lua: the game's accounting journal since the start of the game."""
         return self._changed_file("journal", "journal")
@@ -1487,6 +1512,14 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"journal ingest failed: {e!r}", "error")
+                        try:
+                            mf = slow_files.models()
+                            if mf is not None:
+                                n = store.ingest_models(snap, mf)
+                                say(f"vehicle catalogue: {n} models (year {mf.get('year')})", "ok")
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"models ingest failed: {e!r}", "error")
                         # full-resolution heightmap: band files -> db/height_<game>.png once complete
                         try:
                             # written band by band (every 3, and at the end): a new map's relief grows on the dashboard

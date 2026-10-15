@@ -1610,22 +1610,22 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const o = await api("/api/overview");
       const [jw, jh, fin, veh] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { limit: 100000, range: "all" }), api("/api/vehicles")]);
       const journalSheet = (j) => {
-        if (!j || !j.cols.length) return [[t("no_data_yet")]];
-        const L = j.lines, n = j.cols.length, row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
+        if (!j || !j.cols.length) return { rows: [[t("no_data_yet")]], kinds: [] };
+        const L = j.lines, n = j.cols.length, kinds = [], row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
         const sum = (keys) => { const out = new Array(n).fill(0); keys.forEach(k => (L[k] || []).forEach((v, i) => out[i] += v)); return out; };
-        const rows = [["", ...j.cols.map(c => c.label)]];
+        const rows = [["", ...j.cols.map(c => c.label)]], push = (kind, r) => { rows.push(r); kinds[rows.length - 1] = kind; };
         JOURNAL_CARRIERS.forEach(([c, name]) => {
           const keys = JOURNAL_LINES.map(([k]) => `transport/${c}/${k}`).filter(k => L[k]);
           if (!keys.length) return;
-          rows.push(row(CA(name), sum(keys)));
-          JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) rows.push(row(`    ${t(label)}`, L[key])); });
+          push("group", row(CA(name), sum(keys)));
+          JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) push("detail", row(`    ${t(label)}`, L[key])); });
         });
         const inv = JOURNAL_INVEST.filter(([k]) => L[`investment/${k}`]);
-        if (inv.length) { rows.push(row(t("journal_investments"), sum(inv.map(([k]) => `investment/${k}`)))); inv.forEach(([k, label]) => rows.push(row(`    ${t(label)}`, L[`investment/${k}`]))); }
-        rows.push(row(t("journal_income"), L.total));
-        rows.push(row(t("journal_loans"), sum(["loanBorrowing", "loanRepayment", "interest"])), row(`    ${t("journal_new_loans")}`, L.loanBorrowing), row(`    ${t("journal_repay")}`, L.loanRepayment), row(`    ${t("journal_interest")}`, L.interest));
-        rows.push(row(t("journal_bank"), L.balance), row(t("journal_debt"), L.loan));
-        return rows;
+        if (inv.length) { push("group", row(t("journal_investments"), sum(inv.map(([k]) => `investment/${k}`)))); inv.forEach(([k, label]) => push("detail", row(`    ${t(label)}`, L[`investment/${k}`]))); }
+        push("total", row(t("journal_income"), L.total));
+        push("group", row(t("journal_loans"), sum(["loanBorrowing", "loanRepayment", "interest"]))); push("detail", row(`    ${t("journal_new_loans")}`, L.loanBorrowing)); push("detail", row(`    ${t("journal_repay")}`, L.loanRepayment)); push("detail", row(`    ${t("journal_interest")}`, L.interest));
+        push("total", row(t("journal_bank"), L.balance)); push("total", row(t("journal_debt"), L.loan));
+        return { rows, kinds };
       };
       const comp = fin.company || [], ser = fin.series || [];
       const companyRows = [[t("kpi_date"), t("xlsx_real_time"), t("assets"), t("debt"), t("score"), t("lines"), t("stations"), `${t("tracks")} (km)`, `${t("roads")} (km)`],
@@ -1634,11 +1634,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const vehRows = [[t("th_vehicle"), t("th_type"), t("th_line"), t("th_cost_year"), t("th_value")],
         ...(veh.vehicles || []).map(v => [v.name, CA(v.carrier), v.line_name || "", v.running_cost != null ? Math.round(v.running_cost) : null, v.value])];
       const blob = XLSX.build([
-        { name: `${t("journal_title")} - ${t("journal_view_window")}`, rows: journalSheet(jw), numberFrom: 1 },
-        { name: `${t("journal_title")} - ${t("journal_view_history")}`, rows: journalSheet(jh), numberFrom: 1 },
-        { name: t("company"), rows: companyRows, numberFrom: 2 },
-        { name: t("transport_cum"), rows: transportRows, numberFrom: 2 },
-        { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3 },
+        { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1 },
+        { name: `${t("journal_title")} - ${t("journal_view_history")}`, ...journalSheet(jh), numberFrom: 1 },
+        { name: t("company"), rows: companyRows, numberFrom: 2, banded: true },
+        { name: t("transport_cum"), rows: transportRows, numberFrom: 2, banded: true },
+        { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3, banded: true },
       ]);
       const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);
       XLSX.download(blob, `tf3-finances-${stamp}.xlsx`);

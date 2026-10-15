@@ -2,8 +2,10 @@
 // header row and first column, column widths from the content. Office Open XML is a zip of a few XML files; the zip
 // is written "stored" (no compression: a whole game's finances is a few hundred KB, and the zip format then needs
 // only a CRC-32), so this runs in any browser with no library.
-//   XLSX.build([{ name, rows: [[...], ...], numberFrom: 1 }]) -> Blob;  XLSX.download(blob, "file.xlsx")
+//   XLSX.build([{ name, rows: [[...], ...], numberFrom: 1, kinds: ["group", ...], banded: true }]) -> Blob;  XLSX.download(blob, "file.xlsx")
 // numberFrom: columns from this index are numbers (cells get the thousands format even when empty).
+// kinds[i]: "group" (bold on grey), "total" (bold on blue-grey) or "detail" for row i; banded: alternate row fills.
+// Numbers: negatives red, positives green, zeros grey (the page's own colours).
 const XLSX = (() => {
   const CRC = new Int32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC[n] = c; }
@@ -31,23 +33,42 @@ const XLSX = (() => {
   }
 
   function sheetXml(sh) {
-    const rows = sh.rows || [], nf = sh.numberFrom == null ? Infinity : sh.numberFrom;
+    const rows = sh.rows || [], nf = sh.numberFrom == null ? Infinity : sh.numberFrom, kinds = sh.kinds || [];
     const ncol = rows.reduce((n, r) => Math.max(n, r.length), 0), widths = new Array(ncol).fill(6);
     let body = "";
     rows.forEach((r, ri) => {
       let cells = "";
       r.forEach((v, ci) => {
-        const ref = col(ci) + (ri + 1), head = ri === 0, num = typeof v === "number" && isFinite(v);
-        const style = head ? (ci >= nf ? 3 : 1) : (ci >= nf ? 2 : 0);
+        const ref = col(ci) + (ri + 1), head = ri === 0, num = typeof v === "number" && isFinite(v), isNum = ci >= nf;
+        // style id = fill x (text | number): see styles in build(); fill 0 plain, 1 header, 2 group, 3 total, 4 band, 5 first column
+        const fill = head ? 1 : kinds[ri] === "group" ? 2 : kinds[ri] === "total" ? 3 : (sh.banded && ri % 2 === 0) ? 4 : (ci === 0 && !isNum) ? 5 : 0;
+        const style = fill * 2 + (isNum ? 1 : 0);
         if (num) { cells += `<c r="${ref}" s="${style}"><v>${v}</v></c>`; widths[ci] = Math.max(widths[ci], String(Math.round(v)).length * 1.3 + 2); }
         else if (v != null && v !== "") { cells += `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`; widths[ci] = Math.max(widths[ci], Math.min(60, String(v).length + 2)); }
-        else if (style) cells += `<c r="${ref}" s="${style}"/>`;
+        else if (style) cells += `<c r="${ref}" s="${style}"/>`;  // an empty cell still takes the row's fill
       });
       body += `<row r="${ri + 1}">${cells}</row>`;
     });
     const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1"/>`).join("");
     const freeze = rows.length > 1 ? `<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>` : "";
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${freeze}<cols>${cols}</cols><sheetData>${body}</sheetData></worksheet>`;
+  }
+
+  // fills 0..5 (see sheetXml) x text/number = 12 cell styles. The number format colours the sign: green positive,
+  // red negative, grey zero (the page's pos/neg/zero classes); the header is white on dark.
+  function stylesXml() {
+    const fills = ["none", "2B3340", "E6E9EE", "DCE6F0", "F4F6F8", "F4F6F8"];
+    const fontOf = (f) => f === 1 ? 2 : (f === 2 || f === 3) ? 1 : 0;  // 0 plain, 1 bold, 2 bold white
+    const xfs = [];
+    fills.forEach((_, f) => {
+      for (const num of [0, 1]) {
+        const fmt = num ? 164 : 0, font = fontOf(f), fill = f ? f + 1 : 0;
+        xfs.push(`<xf numFmtId="${fmt}" fontId="${font}" fillId="${fill}" borderId="0" xfId="0" applyFont="1" applyFill="${fill ? 1 : 0}" applyNumberFormat="${num}"${num && f === 1 ? '><alignment horizontal="right"/></xf>' : "/>"}`);
+      }
+    });
+    const fillXml = fills.map(c => c === "none" ? '<fill><patternFill patternType="none"/></fill>' : `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/></patternFill></fill>`);
+    fillXml.splice(1, 0, '<fill><patternFill patternType="gray125"/></fill>');  // Excel requires fill 1 to be gray125
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="[Color17]#,##0;[Red]-#,##0;[Color23]0"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="${fillXml.length}">${fillXml.join("")}</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
   }
 
   function build(sheets) {
@@ -57,8 +78,7 @@ const XLSX = (() => {
       ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
       ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`],
       ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
-      // styles: 0 plain, 1 bold, 2 number with thousands separators (built-in format 3 = #,##0), 3 bold number
-      ["xl/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="3" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"><alignment horizontal="right"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`],
+      ["xl/styles.xml", stylesXml()],
     ];
     sheets.forEach((s, i) => files.push([`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)]));
     return zip(files);

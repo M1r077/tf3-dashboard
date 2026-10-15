@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (mod revision 22)
+## Companion 0.13.0 - 15 October 2026 (mod revision 22)
 
 - Vehicle catalogue (mod revision 22): the mod exports every vehicle model the game knows (base, DLC, mods) with the purchase window's figures - availability years, top speed, power, tractive effort, engine, weights, capacity per cargo, loading speed, lifespan and the price at the current year - once after loading and again when the game year changes (`tf3dash_models.lua`, ~1000 resources sliced over 25 frames). Stored in `vehicle_model`, served by `/api/models` (`?available=1` = purchasable now), and two new sheets in the Excel export: the catalogue of the current year and the whole catalogue.
 - Map: the production, need and stock pills were gone since 0.12.0 (the base picture moved to an offscreen canvas and the off-screen test read its zero width). Fixed.

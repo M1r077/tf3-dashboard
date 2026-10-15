@@ -624,7 +624,19 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
 
 ## Schema (summary)
 
-- `game`: one row per savegame (key = player entity)
+   - **Excel export** (companion 0.13.0, button in the Journal panel header): the finances as a `.xlsx` workbook -
+     the journal in both views with every line unfolded (raw amounts, not the game's "`$-35,6 M`": a spreadsheet
+     formats them itself; thousands separators are set on the number cells), the company figures and cumulative
+     transport over the whole recorded range, and the running cost and value of every vehicle. Written **in the
+     browser** by `static/xlsx.js`: Office Open XML is a zip of a few XML files, the zip is stored uncompressed
+     (CRC-32 only, a whole game is 1-3 MB), inline strings, a dozen cell styles - dark sheets like the page (the empty area too, through column styles;
+     no gridlines), centred header, raised carrier rows, blue-grey totals, banded rows on the long sheets, a number
+     format whose sections colour the sign green/red/grey (the legacy palette entries 3, 4, 16 are overridden: a format
+     can only point into it) - frozen header row and column, filter arrows on the time series (newest first; the
+     journal keeps the game's order and structure), column
+     widths from the content - 90 lines, no library, nothing on the server (the data is what the API already serves).
+     The file name carries the game date (`tf3-finances-1955-10-20.xlsx`). The sheets are labelled in the page's
+     language.- `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and
   drawn by the dashboard; what the mod exports and nothing displays is not stored. Columns dropped by the audit

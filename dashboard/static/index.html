@@ -279,7 +279,7 @@
     <div class="panels" data-layout="finance">
       <div class="card" data-panel="journal" data-w="12" data-minh="620">
         <h2><i class="ico" data-ico="money"></i><span data-i18n="journal_title"></span> <small id="journal-range"></small>
-          <span class="h2-tools"><span class="seg" id="journal-view"><button data-v="window" class="active" data-i18n="journal_view_window"></button><button data-v="history" data-i18n="journal_view_history"></button></span></span></h2>
+          <span class="h2-tools"><button class="btn sm iconbtn" id="journal-xlsx" data-i18n-title="xlsx_export"><i class="ico sm" data-ico="save"></i></button><span class="seg" id="journal-view"><button data-v="window" class="active" data-i18n="journal_view_window"></button><button data-v="history" data-i18n="journal_view_history"></button></span></span></h2>
         <div class="journal-wrap"><table class="journal" id="journal-table"></table></div>
       </div>
       <div class="card" data-panel="balance" data-home="finance" data-w="7">
@@ -325,6 +325,7 @@
 <script src="i18n.js"></script>
 <script src="vendor/uPlot.iife.min.js"></script>
 <script src="charts.js"></script>
+<script src="xlsx.js"></script>
 <script src="layout.js"></script>
 <script src="app.js"></script>
 </body>

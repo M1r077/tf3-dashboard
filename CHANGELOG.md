@@ -2,10 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (mod revision 23)
+## Companion 0.14.0 - 15 October 2026 (mod revision 23)
 
 - Line finances (mod revision 23): every line's balance over the last 12 months (the "Last Year" figure of the game's line window) in a new column of the Lines table and in the line card; the line card gets an income / running costs / balance chart per calendar year over the whole game (the game keeps the full history and shows 5 periods of it); the Excel export gets a "Lines" sheet, one row per line and year. The mod reads the line's account with the game's own calls (`calculateBalance`, `getAccountChart`), the yearly chart once per game month with the journal (~4 ms for 54 lines). Stored in `line_state.balance_year` and `line_finance`, served by `/api/lines`, `/api/line_history` (`finance`, `finance_years`) and `/api/line_finance`.
-
+- Money in the game's colours: amounts are blue when positive and salmon when negative, as in the game's Finances window (line balance, finance journal, bank balance change, Excel export). In the Excel export the sign colours were swapped since 0.13.0 (positives red, negatives white): a number format's `[ColorN]` reads palette entry N+7, the overrides sat on the wrong entries.
+- Tables: drag a column header onto another to reorder the columns, per table, remembered by the browser like the column widths; double-click a header to restore the default order.
 - Crash fix (mod revision 23): the game could crash to desktop a few seconds after the player upgraded or rebuilt a station that a line calls at. The station group survives the rebuild, but a line stop can be left pointing at a station or platform index the group no longer has; the engine's line utilities dereference that missing platform and abort (native access violation, `pcall` cannot catch it; four identical crash dumps on 14-15 October 2026, all at the first lines of a collection cycle). The mod now checks the stop's station and terminal indices (main and alternative terminals) against the group before calling the engine, and treats a dangling stop like a bulldozed one: the line is exported bare and shown broken. With `debug_log` on, the log names the line being collected before each engine call, so a future native crash can be placed.
 
 ## Companion 0.13.0 - 15 October 2026 (mod revision 22)

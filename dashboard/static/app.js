@@ -2592,7 +2592,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     try { mapCargo.data = await api("/api/map_cargo"); mapCargo.at = Date.now(); } catch (e) { /* keep what we have */ }
   }
   const cargoImg = (key) => mapIcon("cargo/" + (CARGO_ICON_FILES.has(key) ? key : "_mixed"));
-  function drawCargoLayers(ctx, d) {
+  function drawCargoLayers(ctx, d, w, h) {
     const cd = mapCargo.data; if (!cd || !cargoAny() || map.scale <= 0.06) return;
     const prod = $("#map-prod").checked, need = $("#map-need").checked, stock = $("#map-stock").checked;
     // pills already placed this frame: a new one that would overlap an earlier one is skipped (owners are drawn
@@ -2626,7 +2626,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const draw = (kind, list, idKey, offset) => list.forEach(o => {
       const c = cd[kind][String(o[idKey])]; if (!c) return;
       let [x, y] = P(o.x, o.y);
-      if (x < -200 || y < -200 || x > ctx.canvas.clientWidth + 200 || y > ctx.canvas.clientHeight + 200) return;
+      if (x < -200 || y < -200 || x > w + 200 || y > h + 200) return;  // (w, h: the base layer is offscreen, its clientWidth is 0)
       // a town is a crowd of vehicles and stations: its rows hang below the town circle, not on the centre
       const dy = offset ? offset(o) : 0;
       if (prod && c.out.length && row(c.out, x, y, "above", fixed, rateAlpha)) stroke(x, y, "above");
@@ -3029,7 +3029,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if ($("#map-dep").checked) (d.depots || []).forEach(dp => { const [x, y] = P(dp.x, dp.y); if (!big || !drawIcon(ctx, "depot", x, y, 18 * k, "#9aa7b4")) { ctx.fillStyle = "#9aa7b4"; ctx.fillRect(x - 4 * k, y - 4 * k, 8 * k, 8 * k); } });
     if ($("#map-st").checked) d.stations.forEach(s => { const [x, y] = P(s.x, s.y); const kd = stKind(s); ctx.fillStyle = kd.pax ? "#58a6ff" : "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 7 * k); ctx.lineTo(x + 7 * k, y); ctx.lineTo(x, y + 7 * k); ctx.lineTo(x - 7 * k, y); ctx.closePath(); ctx.fill();
       if (kd.pax && kd.cargo) { ctx.fillStyle = "#e8b04b"; ctx.beginPath(); ctx.moveTo(x, y - 3.5 * k); ctx.lineTo(x + 3.5 * k, y); ctx.lineTo(x, y + 3.5 * k); ctx.lineTo(x - 3.5 * k, y); ctx.closePath(); ctx.fill(); } });
-    drawCargoLayers(ctx, d);
+    drawCargoLayers(ctx, d, w, h);
   }
   function drawFrame(ctx, d, w, h, font, th, ink, halo, k) {
     const lf = map.lineFilter, big = map.scale > 0.08;

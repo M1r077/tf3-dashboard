@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (mod revision 21 unchanged)
+
+- Finances: a button in the Journal panel exports the finances as an Excel workbook (.xlsx) - the journal in both views with every line unfolded, the company figures and cumulative transport over the whole recorded range, and the running cost and value of every vehicle. Built in the browser, no library, nothing to install.
+
 ## Companion 0.12.0 - 15 October 2026 (mod revision 21 unchanged)
 
 - Smooth vehicle motion (Settings, off by default): vehicles glide along their line between two samples instead of jumping every 3 s. The map keeps its static layers in an offscreen picture and redraws only the markers on every display frame; each moving vehicle is advanced along the leg it is on at the pace measured from its own samples and the game's rate (paused, x1, x2, x4 come from the samples' clocks, nothing to configure); a new sample corrects the marker without a visible step. Measured 1.3 ms per frame with 330 vehicles; the game and the collector do nothing more. `?smooth=1` in the URL turns it on for a link. `/api/map` now carries `stop_index` per vehicle and the sample's clocks (`snap`).

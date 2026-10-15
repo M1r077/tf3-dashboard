@@ -1601,6 +1601,51 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const wrap = tbl.parentElement; if (wrap && !journalUi.scrolled) { wrap.scrollLeft = wrap.scrollWidth; journalUi.scrolled = journalUi.view; }  // like the game: the latest periods first
   }
 
+  // ---- the finances as a workbook (static/xlsx.js): the journal in both views with every line unfolded, the
+  // bank/debt/result curves point by point, the company figures over the recorded range, and the running costs
+  // per vehicle. Raw amounts (not the game's "$-35,6 M"): a spreadsheet formats them itself.
+  async function exportFinanceXlsx(btn) {
+    btn.disabled = true;
+    try {
+      const o = await api("/api/overview");
+      const [jw, jh, fin, veh] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { limit: 100000, range: "all" }), api("/api/vehicles")]);
+      const journalSheet = (j) => {
+        if (!j || !j.cols.length) return [[t("no_data_yet")]];
+        const L = j.lines, n = j.cols.length, row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
+        const sum = (keys) => { const out = new Array(n).fill(0); keys.forEach(k => (L[k] || []).forEach((v, i) => out[i] += v)); return out; };
+        const rows = [["", ...j.cols.map(c => c.label)]];
+        JOURNAL_CARRIERS.forEach(([c, name]) => {
+          const keys = JOURNAL_LINES.map(([k]) => `transport/${c}/${k}`).filter(k => L[k]);
+          if (!keys.length) return;
+          rows.push(row(CA(name), sum(keys)));
+          JOURNAL_LINES.forEach(([k, label]) => { const key = `transport/${c}/${k}`; if (L[key]) rows.push(row(`    ${t(label)}`, L[key])); });
+        });
+        const inv = JOURNAL_INVEST.filter(([k]) => L[`investment/${k}`]);
+        if (inv.length) { rows.push(row(t("journal_investments"), sum(inv.map(([k]) => `investment/${k}`)))); inv.forEach(([k, label]) => rows.push(row(`    ${t(label)}`, L[`investment/${k}`]))); }
+        rows.push(row(t("journal_income"), L.total));
+        rows.push(row(t("journal_loans"), sum(["loanBorrowing", "loanRepayment", "interest"])), row(`    ${t("journal_new_loans")}`, L.loanBorrowing), row(`    ${t("journal_repay")}`, L.loanRepayment), row(`    ${t("journal_interest")}`, L.interest));
+        rows.push(row(t("journal_bank"), L.balance), row(t("journal_debt"), L.loan));
+        return rows;
+      };
+      const comp = fin.company || [], ser = fin.series || [];
+      const companyRows = [[t("kpi_date"), t("xlsx_real_time"), t("assets"), t("debt"), t("score"), t("lines"), t("stations"), `${t("tracks")} (km)`, `${t("roads")} (km)`],
+        ...comp.map(x => [dateLabel(x), (x.real_time || "").replace("T", " ").slice(0, 16), x.total_assets, x.debt, x.total_score, x.number_of_lines, x.total_stations, x.track_length_m != null ? Math.round(x.track_length_m / 1000) : null, x.road_length_m != null ? Math.round(x.road_length_m / 1000) : null])];
+      const transportRows = [[t("kpi_date"), t("xlsx_real_time"), t("passengers"), t("th_cargo_filter")], ...ser.map(x => [dateLabel(x), (x.real_time || x.bucket || "").replace("T", " ").slice(0, 16), x.passengers_transported, x.cargo_transported])];
+      const vehRows = [[t("th_vehicle"), t("th_type"), t("th_line"), t("th_cost_year"), t("th_value")],
+        ...(veh.vehicles || []).map(v => [v.name, CA(v.carrier), v.line_name || "", v.running_cost != null ? Math.round(v.running_cost) : null, v.value])];
+      const blob = XLSX.build([
+        { name: `${t("journal_title")} - ${t("journal_view_window")}`, rows: journalSheet(jw), numberFrom: 1 },
+        { name: `${t("journal_title")} - ${t("journal_view_history")}`, rows: journalSheet(jh), numberFrom: 1 },
+        { name: t("company"), rows: companyRows, numberFrom: 2 },
+        { name: t("transport_cum"), rows: transportRows, numberFrom: 2 },
+        { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3 },
+      ]);
+      const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);
+      XLSX.download(blob, `tf3-finances-${stamp}.xlsx`);
+    } finally { btn.disabled = false; }
+  }
+  $("#journal-xlsx").addEventListener("click", (e) => exportFinanceXlsx(e.currentTarget));
+
   async function renderFinance(o) {
     const fin = await api("/api/finance", { limit: Math.max(600, settings.history), range: settings.range });
     const ser = fin.series || [], labels = ser.map(x => dateLabel(x));

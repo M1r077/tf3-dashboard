@@ -4,6 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased (mod revision 21 unchanged)
 
+- Map: the production, need and stock pills were gone since 0.12.0 (the base picture moved to an offscreen canvas and the off-screen test read its zero width). Fixed.
 - Finances: a button in the Journal panel exports the finances as an Excel workbook (.xlsx) - the journal in both views with every line unfolded, the company figures and cumulative transport over the whole recorded range, and the running cost and value of every vehicle. Built in the browser, no library, nothing to install.
 
 ## Companion 0.12.0 - 15 October 2026 (mod revision 21 unchanged)

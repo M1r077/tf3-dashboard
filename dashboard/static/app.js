@@ -662,7 +662,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     $("#k-cargo").textContent = int(f.cargo_transported) + " " + t("cargo");
     $("#k-balance").textContent = money(f.balance);
     const bd = $("#k-balance-delta");
-    if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "pos" : "neg"); } else bd.textContent = "";
+    if (o.balance_prev && o.balance_prev.balance != null) { const d = f.balance - o.balance_prev.balance; bd.textContent = (d >= 0 ? "+" : "") + money(d) + " / " + ago(o.balance_prev.real_time); bd.className = "s " + (d >= 0 ? "mpos" : "mneg"); } else bd.textContent = "";
     const ec = $("#errors-card"); if (o.errors && o.errors.length) { ec.style.display = ""; $("#errors-list").textContent = o.errors.map(x => `${x.section}: ${x.error}`).join("\n"); } else ec.style.display = "none";
     updateCmdUi(o);
     renderOffline(o); renderCollectorErrors(o); renderNewMap(o);
@@ -958,7 +958,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
       // the game's line "Last Year" balance: income - running costs over the last 12 months (mod rev 23+)
-      { key: "balance_year", label: t("th_line_balance"), num: true, render: l => l.balance_year == null ? NA : `<span class="${l.balance_year < 0 ? "neg" : "pos"}">${money(l.balance_year)}</span>`, sortValue: l => l.balance_year },
+      { key: "balance_year", label: t("th_line_balance"), num: true, render: l => l.balance_year == null ? NA : `<span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span>`, sortValue: l => l.balance_year },
       // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
       { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
@@ -980,7 +980,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}
         <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
         <tr><td>${t("det_throughput")}</td><td>${int(l.throughput)}</td></tr>
-        ${l.balance_year != null ? `<tr><td>${t("th_line_balance")}</td><td><span class="${l.balance_year < 0 ? "neg" : "pos"}">${money(l.balance_year)}</span></td></tr>` : ""}
+        ${l.balance_year != null ? `<tr><td>${t("th_line_balance")}</td><td><span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span></td></tr>` : ""}
         <tr><td>${t("det_vehicles")}</td><td>${int(l.vehicles)}${l.live ? ` <span class="muted">· ${int(l.live.en_route)} ${t("state.EN_ROUTE").toLowerCase()} · ${kmh(l.live.speed)}</span>` : ""}</td></tr>
         ${carriesPax(l) ? `<tr><td>${t("det_on_line")}</td><td>${int(l.persons_on_line)}</td></tr><tr><td>${t("th_pax_unhappy")}</td><td>${l.pax_total ? barQuality(l.pax_bad || 0, l.pax_total) : "–"}${l.pax_avg_quality != null && l.pax_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.pax_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
         ${carriesCargo(l) ? `<tr><td>${t("th_cargo_late")}</td><td>${l.cargo_total ? barQuality(l.cargo_bad || 0, l.cargo_total) : "–"}${l.cargo_avg_quality != null && l.cargo_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.cargo_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
@@ -1583,7 +1583,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     for (let i = 0; i < n; i++) idx.push(i);
     const L = j.lines, zero = new Array(n).fill(0);
     const row = (vals) => vals || zero;
-    const cells = (vals, strong) => idx.map(i => { const v = row(vals)[i]; return `<td class="${v === 0 ? "zero" : v < 0 ? "neg" : "pos"}">${moneyGame(v)}</td>`; }).join("");
+    const cells = (vals, strong) => idx.map(i => { const v = row(vals)[i]; return `<td class="${v === 0 ? "zero" : v < 0 ? "mneg" : "mpos"}">${moneyGame(v)}</td>`; }).join("");
     const sum = (keys) => { const out = new Array(n).fill(0); keys.forEach(k => (L[k] || []).forEach((v, i) => out[i] += v)); return out; };
     let h = `<thead><tr><th></th>${idx.map(i => `<th>${esc(j.cols[i].label)}</th>`).join("")}</tr></thead><tbody>`;
     // transport, one block per carrier with lines in the game's order; carriers without a single entry are skipped

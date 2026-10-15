@@ -153,7 +153,8 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
 - **Finances** — balance, yearly result, transported, network size and company value over time, and the **game's own
   finance journal** (mod revision 13): the same table as the game's Finances window, by financial year, with every
   line (running costs and maintenance by carrier, upkeep of roads, tracks, buildings, income, construction and
-  vehicle purchases), kept for the whole savegame, and a button that exports the lot as an Excel workbook. Cards can
+  vehicle purchases), kept for the whole savegame, and a button that exports the lot as an Excel workbook - with the vehicle catalogue
+  (every model the game knows, mod revision 22: years, speed, power, capacity per cargo, lifespan, price). Cards can
   be dragged and resized; the layout is saved per browser.
 - **Layouts** — the arrangement of every tab plus the display sizes, as presets: *Default*, *Vertical screen* (for a
   portrait monitor) and your own; *Personal 1* always follows what you arrange. Copy a layout to the clipboard to share

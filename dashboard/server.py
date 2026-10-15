@@ -372,6 +372,29 @@ def api_journal(q: dict) -> dict:
             arr[r["col"]] = r["amount"]
     return {"view": view, "cols": out_cols, "lines": lines}
 
+def api_models(q: dict) -> dict:
+    """The vehicle model catalogue (mod rev 22): every model the game knows with the purchase window's figures,
+    priced for `price_year`. ?available=1 keeps only the models purchasable at the latest snapshot's year."""
+    gid = _gid()
+    sql = "SELECT * FROM vehicle_model WHERE game_id=? AND (category IS NULL OR category <> 'placeholders')"  # the engine's stand-ins
+    args: list = [gid]
+    y = one("SELECT year FROM snapshot WHERE game_id=? ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+    year = y["year"] if y else None
+    if (q.get("available") or ["0"])[0] == "1":
+        if year is not None:
+            sql += " AND (year_from IS NULL OR year_from <= ?) AND (year_to IS NULL OR year_to >= ?)"
+            args += [year, year]
+    models = rows(sql + " ORDER BY carrier, category, year_from, name", tuple(args))
+    for m in models:
+        if m.get("capacities"):
+            try:
+                m["capacities"] = json.loads(m["capacities"])
+            except ValueError:
+                m["capacities"] = None
+    cargo = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
+    return {"models": models, "year": year, "cargo_types": cargo}
+
+
 def api_alerts(q: dict) -> dict:
     snap = one("SELECT snapshot_id FROM snapshot ORDER BY snapshot_id DESC LIMIT 1")
     if not snap:
@@ -1996,7 +2019,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/heightmap": api_heightmap, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
-    "/api/games": api_games, "/api/music": api_music,
+    "/api/games": api_games, "/api/music": api_music, "/api/models": api_models,
 }
 
 POST_MAX_BYTES = 2 * 1024 * 1024  # request body limit; a line tour with its whole ground track stays well below

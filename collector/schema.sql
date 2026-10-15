@@ -135,6 +135,33 @@ CREATE TABLE IF NOT EXISTS company (
 );
 
 -- ---------------------------------------------------------------- reference data
+-- the vehicle model catalogue (mod rev 22, tf3dash_models.lua): every model the game knows (base, DLC, mods) with the
+-- purchase window's figures; replaced whole once per game year (the price follows the year)
+CREATE TABLE IF NOT EXISTS vehicle_model (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    model_id       INTEGER NOT NULL,
+    key            TEXT,                         -- language-neutral "train/alco_hh600" -> icons/vehicles/
+    name           TEXT,                         -- localized model name
+    carrier        TEXT,                         -- ROAD / RAIL / TRAM / AIR / WATER
+    category       TEXT,                         -- bus / truck / tram / train / waggon / plane / helicopter / zeppelin / ship / car
+    year_from      INTEGER,
+    year_to        INTEGER,
+    top_speed      INTEGER,                      -- km/h
+    power          REAL,                         -- kW (sum of the engines; ships: available power)
+    effort         REAL,                         -- kN tractive effort (aircraft: thrust)
+    engine         TEXT,                         -- STEAM / DIESEL / ELECTRIC / HELICOPTER...
+    weight_empty   REAL,                         -- kg
+    weight_payload REAL,                         -- kg
+    capacity       INTEGER,                      -- total over the compartments
+    capacities     TEXT,                         -- JSON {"<cargo id>": capacity}
+    load_speed     REAL,
+    lifespan       INTEGER,                      -- game days
+    price          INTEGER,                      -- at price_year
+    price_year     INTEGER,
+    received_at    TEXT NOT NULL,
+    PRIMARY KEY (game_id, model_id)
+);
+
 CREATE TABLE IF NOT EXISTS cargo_type (
     game_id   INTEGER NOT NULL REFERENCES game(game_id),
     cargo_id  INTEGER NOT NULL,

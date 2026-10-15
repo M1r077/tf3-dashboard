@@ -1608,7 +1608,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     btn.disabled = true;
     try {
       const o = await api("/api/overview");
-      const [jw, jh, fin, veh] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { limit: 100000, range: "all" }), api("/api/vehicles")]);
+      const [jw, jh, fin, veh, cat] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { limit: 100000, range: "all" }), api("/api/vehicles"), api("/api/models")]);
       const journalSheet = (j) => {
         if (!j || !j.cols.length) return { rows: [[t("no_data_yet")]], kinds: [] };
         const L = j.lines, n = j.cols.length, kinds = [], row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
@@ -1633,12 +1633,21 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const transportRows = [[t("kpi_date"), t("xlsx_real_time"), t("passengers"), t("th_cargo_filter")], ...ser.map(x => [dateLabel(x), (x.real_time || x.bucket || "").replace("T", " ").slice(0, 16), x.passengers_transported, x.cargo_transported])];
       const vehRows = [[t("th_vehicle"), t("th_type"), t("th_line"), t("th_cost_year"), t("th_value")],
         ...(veh.vehicles || []).map(v => [v.name, CA(v.carrier), v.line_name || "", v.running_cost != null ? Math.round(v.running_cost) : null, v.value])];
+      // the vehicle model catalogue (mod rev 22): what can be bought now, then every model the game knows
+      const cargoName = new Map((cat.cargo_types || []).map(c => [String(c.cargo_id), c.name]));
+      const catHead = [t("th_vehicle"), t("th_type"), t("xlsx_category"), t("xlsx_year_from"), t("xlsx_year_to"), t("top_speed") + " (km/h)", t("xlsx_power") + " (kW)", t("xlsx_effort") + " (kN)", t("xlsx_engine"), t("xlsx_weight") + " (t)", t("th_capacity"), t("th_cargo_filter"), t("xlsx_load_speed"), t("xlsx_lifespan"), t("xlsx_price")];
+      const catRow = (m) => [m.name || m.key, CA(m.carrier), m.category || "", m.year_from, m.year_to, m.top_speed, m.power, m.effort, m.engine ? t("xlsx_engine_" + m.engine.toLowerCase()) : "", m.weight_empty != null ? Math.round(m.weight_empty / 1000) : null, m.capacity, m.capacities ? Object.keys(m.capacities).map(k => cargoName.get(k) || k).join(", ") : "", m.load_speed, m.lifespan != null ? Math.round(m.lifespan / 365.25) : null, m.price];
+      const catSheets = (cat.models || []).length ? [
+        { name: `${t("xlsx_catalogue")} ${cat.year || ""}`.trim(), rows: [catHead, ...(cat.models || []).filter(m => (m.year_from == null || m.year_from <= cat.year) && (m.year_to == null || m.year_to >= cat.year)).map(catRow)], numberFrom: 3, banded: true },
+        { name: t("xlsx_catalogue_all"), rows: [catHead, ...(cat.models || []).map(catRow)], numberFrom: 3, banded: true },
+      ] : [];
       const blob = XLSX.build([
         { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1, filter: false },
         { name: `${t("journal_title")} - ${t("journal_view_history")}`, ...journalSheet(jh), numberFrom: 1, filter: false },
         { name: t("company"), rows: companyRows, numberFrom: 2, banded: true },
         { name: t("transport_cum"), rows: transportRows, numberFrom: 2, banded: true },
         { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3, banded: true },
+        ...catSheets,
       ]);
       const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);
       XLSX.download(blob, `tf3-finances-${stamp}.xlsx`);

@@ -778,18 +778,18 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // the bars of the three rankings open the vehicle / the line
     const toVeh = { onClick: it => { state.selVeh = it.id; showTab("vehicles"); } };
     const toLine = { onClick: it => { state.selLine = it.id; showTab("lines"); } };
-    Charts.hbars($("#chart-worn"), (fleet.worn || []).slice(0, 10).map(v => ({ id: v.vehicle_id, label: v.name, value: 1 - (v.maintenance ?? 1), max: 1, color: maintCls(v.maintenance) === "bad" ? "#f85149" : maintCls(v.maintenance) === "warn" ? "#e8b04b" : "#3fb950", text: t("state_cond", { n: Math.round((v.maintenance ?? 1) * 100) }) })), toVeh);
+    Charts.hbars($("#chart-worn"), (fleet.worn || []).slice(0, 10).map(v => ({ id: v.vehicle_id, label: v.name, value: 1 - (v.maintenance ?? 1), max: 1, color: maintCls(v.maintenance) === "bad" ? "#f85149" : maintCls(v.maintenance) === "warn" ? "#e8b04b" : "#8ab4f8", text: t("state_cond", { n: Math.round((v.maintenance ?? 1) * 100) }) })), toVeh);
     const lines = state.cache.lines;
     const bad = lines.map(l => { const tot = (l.pax_total || 0) + (l.cargo_total || 0), b = (l.pax_bad || 0) + (l.cargo_bad || 0); return { l, tot, b, p: tot ? 100 * b / tot : 0 }; }).filter(x => x.tot >= 5).sort((a, b) => b.p - a.p).slice(0, 10);
-    Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
+    Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#8ab4f8", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
     const load = lines.map(l => { const c = l.capacities.reduce((a, x) => ({ u: a.u + (x.used || 0), c: a.c + (x.capacity || 0) }), { u: 0, c: 0 }); return { l, p: c.c ? 100 * c.u / c.c : 0, u: c.u, c: c.c }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
     // a line above 90 % is short of vehicles (people left on the platform), not a success: red; 80-90 orange
-    Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 80 ? "#e8b04b" : x.p < 25 ? "#8b98a8" : "#3fb950", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);
+    Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 80 ? "#e8b04b" : x.p < 25 ? "#8b98a8" : "#8ab4f8", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);
     // busiest stations: waiting items against the station's capacity (platforms + pool), the Stations table's thresholds
     const busy = (sd.stations || []).map(st => { const c = (st.terminal_capacity || 0) + (st.pool_capacity || 0); return { st, c, p: c ? 100 * (st.used || 0) / c : 0 }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
     // cards pinned here from another tab (Layout.pin): render that tab's data too, it fills them in place
     if (o && window.Layout) for (const home of Layout.pinnedHomes()) if (RENDER[home] && home !== "overview") await RENDER[home](o);
-    Charts.hbars($("#chart-stations-busy"), busy.map(x => ({ id: x.st.station_id, label: x.st.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 70 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${int(x.st.used)}/${int(x.c)})` })), { onClick: it => { state.selSt = it.id; showTab("stations"); } });
+    Charts.hbars($("#chart-stations-busy"), busy.map(x => ({ id: x.st.station_id, label: x.st.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 70 ? "#e8b04b" : "#8ab4f8", text: `${Math.round(x.p)} % (${int(x.st.used)}/${int(x.c)})` })), { onClick: it => { state.selSt = it.id; showTab("stations"); } });
   }
 
   function renderAlerts(el, alerts) {
@@ -1434,7 +1434,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (outs.length) Charts.lineChart($("#chart-ind-out"), cargoSeries(outs, t("ind_produced"), t("shipped")), labels, { zeroBase: true, ...tx });
     if (ins.length) Charts.lineChart($("#chart-ind-in"), cargoSeries(ins, t("ind_consumed"), t("delivered")), labels, { zeroBase: true, ...tx });
     Charts.lineChart($("#chart-ind-lvl"), [
-      { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#3fb950", unit: "%" },
+      { name: t("th_yield"), values: hist.map(x => x.production_rating != null ? x.production_rating * 100 : null), color: "#8ab4f8", unit: "%" },
       { name: t("th_level"), values: hist.map(x => x.level), color: "#bc8cff", axis: "right", step: true },
     ], labels, { percent: true, rightAxis: true, rightUnit: "", ...tx });
     keepScroll(el, top);
@@ -1702,7 +1702,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { name: t("stations"), values: comp.map(x => x.total_stations), color: "#bc8cff", axis: "right", step: true },
     ], clabels, { rightAxis: true, zeroBase: true, unit: "km", rightUnit: "", ...ctx });
     Charts.lineChart($("#chart-company"), [
-      { name: t("score"), values: comp.map(x => x.total_score), color: "#3fb950" },
+      { name: t("score"), values: comp.map(x => x.total_score), color: "#8ab4f8" },
       { name: t("assets"), values: comp.map(x => x.total_assets), color: "#4f8a8a", axis: "right", unit: "$" },
       { name: t("debt"), values: comp.map(x => x.debt), color: "#d62560", axis: "right", dash: [6, 4], unit: "$" },
     ], clabels, { rightAxis: true, zeroBase: true, rightUnit: "$", ...ctx });

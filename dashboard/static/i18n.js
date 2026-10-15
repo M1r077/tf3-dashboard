@@ -50,6 +50,7 @@ window.I18N = {
     // lines
     filter: "filter…", problems_only: "problems only", click_line_hint: "click a line for its history", select_line: "Select a line.",
     th_stops: "Stops", th_headway: "Headway", th_onboard: "On board", th_pax_unhappy: "Unhappy pax", th_cargo_late: "Late cargo", th_per_year: "Per year", th_unhappy: "Unhappy / late", th_carries: "Carries",
+    col_drag_hint: "Drag to move the column, double-click to restore the default order",
     xlsx_year: "Year",
     th_line_balance: "Balance (12 mo.)", line_finance_title: "Income and costs per year", line_income: "Income", line_costs: "Running costs", line_balance: "Balance", xlsx_sheet_lines: "Lines",
     unknown_stops: "unknown stops", line_broken: "A stop of this line has no station any more (bulldozed)", line_broken_hint: "A station of this line was removed: the game cannot run it until the stop is deleted or replaced in the line manager. Load, headway and quality are not available meanwhile.", stop_gone: "Station removed; the line still lists this stop", veh_and_pax: "Vehicles & passengers on board", service_quality: "Service quality", see_on_map: "see on map",
@@ -209,6 +210,7 @@ window.I18N = {
     // lines
     filter: "фильтр…", problems_only: "только проблемы", click_line_hint: "щёлкните линию, чтобы увидеть её историю", select_line: "Выберите линию.",
     th_stops: "Остановки", th_headway: "Интервал", th_onboard: "На борту", th_pax_unhappy: "Недовольные пасс.", th_cargo_late: "Опоздавший груз", th_per_year: "В год", th_unhappy: "Недовольные / опоздания", th_carries: "Перевозит",
+    col_drag_hint: "Перетащите, чтобы переместить столбец; двойной щелчок — порядок по умолчанию",
     xlsx_year: "Год",
     th_line_balance: "Баланс (12 мес.)", line_finance_title: "Доходы и расходы по годам", line_income: "Доход", line_costs: "Расходы на содержание", line_balance: "Баланс", xlsx_sheet_lines: "Линии",
     unknown_stops: "неизвестные остановки", line_broken: "У одной из остановок линии больше нет станции (снесена)", line_broken_hint: "Станция этой линии была удалена: игра не может её обслуживать, пока остановка не удалена или не заменена в менеджере линий. Загрузка, интервал и качество до тех пор недоступны.", stop_gone: "Станция удалена; линия всё ещё перечисляет эту остановку", veh_and_pax: "Транспорт и пассажиры на борту", service_quality: "Качество обслуживания", see_on_map: "показать на карте",
@@ -360,6 +362,7 @@ window.I18N = {
     commands_off: "Commandes désactivées dans les réglages du mod", commands_off_hint: "Commandes désactivées. Pour les activer : gestionnaire de mods de la partie → Second Screen Dashboard → « Autoriser le pilotage » → On, puis recharger la partie.", commands_na: "Commandes indisponibles (serveur lancé avec --no-cmd)",
     filter: "filtrer…", problems_only: "problèmes seulement", click_line_hint: "clic sur une ligne pour l'historique", select_line: "Sélectionne une ligne.",
     th_stops: "Arrêts", th_headway: "Intervalle", th_onboard: "À bord", th_pax_unhappy: "Pax mécontents", th_cargo_late: "Cargo en retard", th_per_year: "Par an", th_unhappy: "Mécontents / retards", th_carries: "Transporte",
+    col_drag_hint: "Glisser pour déplacer la colonne, double-clic pour revenir à l'ordre par défaut",
     xlsx_year: "Année",
     th_line_balance: "Bilan (12 mois)", line_finance_title: "Revenus et coûts par année", line_income: "Revenus", line_costs: "Coûts d'exploitation", line_balance: "Bilan", xlsx_sheet_lines: "Lignes",
     unknown_stops: "arrêts inconnus", line_broken: "Un arrêt de cette ligne n'a plus de gare (détruite)", line_broken_hint: "Une gare de cette ligne a été détruite : le jeu ne peut plus l'exploiter tant que l'arrêt n'est pas supprimé ou remplacé dans le gestionnaire de lignes. Charge, cadence et qualité ne sont pas disponibles en attendant.", stop_gone: "Gare détruite ; la ligne liste encore cet arrêt", veh_and_pax: "Véhicules & passagers à bord", service_quality: "Qualité de service", see_on_map: "voir sur la carte",
@@ -503,6 +506,7 @@ window.I18N = {
     commands_off: "Befehle in den Mod-Einstellungen deaktiviert", commands_off_hint: "Befehle sind deaktiviert. Zum Aktivieren: Mod-Verwaltung des Spielstands → Second Screen Dashboard → „Spielsteuerung erlauben“ → An, dann den Spielstand neu laden.", commands_na: "Befehle nicht verfügbar (Server mit --no-cmd gestartet)",
     filter: "filtern…", problems_only: "nur Probleme", click_line_hint: "Linie anklicken für Verlauf", select_line: "Linie auswählen.",
     th_stops: "Halte", th_headway: "Takt", th_onboard: "An Bord", th_pax_unhappy: "Unzufriedene", th_cargo_late: "Verspätete Fracht", th_per_year: "Pro Jahr", th_unhappy: "Unzufrieden / verspätet", th_carries: "Befördert",
+    col_drag_hint: "Ziehen, um die Spalte zu verschieben; Doppelklick stellt die Standardreihenfolge wieder her",
     xlsx_year: "Jahr",
     th_line_balance: "Bilanz (12 Mon.)", line_finance_title: "Einnahmen und Kosten pro Jahr", line_income: "Einnahmen", line_costs: "Betriebskosten", line_balance: "Bilanz", xlsx_sheet_lines: "Linien",
     unknown_stops: "Halte unbekannt", line_broken: "Ein Halt dieser Linie hat keine Station mehr (abgerissen)", line_broken_hint: "Eine Station dieser Linie wurde abgerissen: das Spiel kann sie erst wieder betreiben, wenn der Halt im Linienmanager gelöscht oder ersetzt ist. Auslastung, Takt und Qualität sind solange nicht verfügbar.", stop_gone: "Station abgerissen; die Linie führt diesen Halt noch", veh_and_pax: "Fahrzeuge & Passagiere an Bord", service_quality: "Servicequalität", see_on_map: "auf Karte zeigen",
@@ -672,6 +676,7 @@ window.I18N = {
     // lines
     filter: "filtrar…", problems_only: "somente problemas", click_line_hint: "clique em uma linha para ver o histórico", select_line: "Selecione uma linha.",
     th_stops: "Paradas", th_headway: "Intervalo", th_onboard: "A bordo", th_pax_unhappy: "Passag. insatisfeitos", th_cargo_late: "Carga atrasada", th_per_year: "Por ano", th_unhappy: "Insatisfeitos / atrasos", th_carries: "Transporta",
+    col_drag_hint: "Arraste para mover a coluna; clique duplo restaura a ordem padrão",
     xlsx_year: "Ano",
     th_line_balance: "Saldo (12 meses)", line_finance_title: "Receitas e custos por ano", line_income: "Receitas", line_costs: "Custos operacionais", line_balance: "Saldo", xlsx_sheet_lines: "Linhas",
     unknown_stops: "paradas desconhecidas", line_broken: "Uma parada desta linha não tem mais estação (demolida)", line_broken_hint: "Uma estação desta linha foi demolida: o jogo não pode operá-la até que a parada seja removida ou substituída no gerenciador de linhas. Carga, intervalo e qualidade não estão disponíveis enquanto isso.", stop_gone: "Estação demolida; a linha ainda lista esta parada", veh_and_pax: "Veículos e passageiros a bordo", service_quality: "Qualidade do serviço", see_on_map: "ver no mapa",
@@ -803,6 +808,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   // lines
   filter: "筛选…", problems_only: "仅显示问题", click_line_hint: "点击线路查看历史", select_line: "选择一条线路。",
   th_stops: "停靠点", th_headway: "间隔", th_onboard: "在车上", th_pax_unhappy: "不满乘客", th_cargo_late: "延误货物", th_per_year: "每年", th_unhappy: "不满 / 延误", th_carries: "运载",
+    col_drag_hint: "拖动以移动列，双击恢复默认顺序",
     xlsx_year: "年份",
     th_line_balance: "收支（12个月）", line_finance_title: "每年收入与成本", line_income: "收入", line_costs: "运营成本", line_balance: "收支", xlsx_sheet_lines: "线路",
   veh_and_pax: "载具与在车乘客", service_quality: "服务质量", see_on_map: "在地图上查看",

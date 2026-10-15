@@ -1025,8 +1025,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // current year is partial, as in the game
     const fy = h.finance_years || [];
     if (fy.length) Charts.lineChart($("#chart-line-3"), [
-      { name: t("line_income"), values: fy.map(y => y.income), color: "#3fb950", step: true, unit: "$" },
-      { name: t("line_costs"), values: fy.map(y => y.cost), color: "#d62560", step: true, unit: "$" },
+      // the game's Finances colours: income blue, expenses salmon
+      { name: t("line_income"), values: fy.map(y => y.income), color: "#8ab4f8", step: true, unit: "$" },
+      { name: t("line_costs"), values: fy.map(y => y.cost), color: "#f08080", step: true, unit: "$" },
       { name: t("line_balance"), values: fy.map(y => y.balance), color: "#e8b04b", dash: [5, 4], unit: "$" },
     ], fy.map(y => String(y.year)), { gameOnly: true });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });

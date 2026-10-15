@@ -540,8 +540,27 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const COLW_KEY = "tf3.colw";
   const colWidths = (tableId) => { try { return (JSON.parse(localStorage.getItem(COLW_KEY) || "{}")[tableId]) || {}; } catch (e) { return {}; } };
   const saveColWidths = (tableId, w) => { let all = {}; try { all = JSON.parse(localStorage.getItem(COLW_KEY) || "{}"); } catch (e) { /* ignore */ } if (Object.keys(w).length) all[tableId] = w; else delete all[tableId]; localStorage.setItem(COLW_KEY, JSON.stringify(all)); };
+  // column order chosen by the user (drag a header onto another), per table, in this browser. Pinned columns and the
+  // action column stay where the table puts them; a column the saved order does not know (new in a later version)
+  // keeps its default place.
+  const COLO_KEY = "tf3.colorder";
+  const colOrder = (tableId) => { try { return (JSON.parse(localStorage.getItem(COLO_KEY) || "{}")[tableId]) || null; } catch (e) { return null; } };
+  const saveColOrder = (tableId, order) => { let all = {}; try { all = JSON.parse(localStorage.getItem(COLO_KEY) || "{}"); } catch (e) { /* ignore */ } if (order) all[tableId] = order; else delete all[tableId]; localStorage.setItem(COLO_KEY, JSON.stringify(all)); };
+  const movable = (c) => !c.sticky && c.key !== "act";
+  function orderCols(tableId, cols) {
+    const saved = colOrder(tableId); if (!saved) return cols;
+    const rank = new Map(saved.map((k, i) => [k, i]));
+    const mov = cols.filter(movable);
+    // known columns sorted by the saved rank; unknown ones slot in after the known column that precedes them by default
+    const known = mov.filter(c => rank.has(c.key)).sort((a, b) => rank.get(a.key) - rank.get(b.key));
+    mov.filter(c => !rank.has(c.key)).forEach(c => { const before = cols.slice(0, cols.indexOf(c)).reverse().find(x => rank.has(x.key)); known.splice(before ? known.indexOf(before) + 1 : 0, 0, c); });
+    let i = 0;
+    return cols.map(c => movable(c) ? known[i++] : c);
+  }
   function renderTable(table, cols, rows, opts = {}) {
     const key = table.id;
+    const baseCols = cols;
+    cols = orderCols(key, cols);
     const sort = state.sort[key] || { col: opts.defaultSort || cols[0].key, asc: opts.defaultAsc ?? true };
     state.sort[key] = sort;
     const col = cols.find(c => c.key === sort.col) || cols[0];
@@ -556,7 +575,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const cls = (c, i) => `${c.num ? "num" : ""} ${c.gauge ? "gauge" : ""} ${c.noicon ? "noicon" : ""} ${c.key === "act" ? "act" : ""} ${c.sticky ? "stick" : ""} ${i === lastStick ? "stick-last" : ""}`;
     // column widths chosen by the user (drag the right edge of a header), per table, in this browser
     const widths = colWidths(key);
-    const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ""}${widths[c.key] ? ` style="width:${widths[c.key]}px;min-width:${widths[c.key]}px;max-width:${widths[c.key]}px"` : ""}><span class="thl">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</span>${c.key === "act" ? "" : '<span class="colgrip"></span>'}</th>`).join("")}</tr></thead>`;
+    const thead = `<thead><tr>${cols.map((c, i) => `<th class="${cls(c, i)} ${c.key === sort.col ? "sorted " + (sort.asc ? "asc" : "") : ""}" data-key="${c.key}"${movable(c) ? ' draggable="true"' : ""} title="${esc((c.title ? c.title + "\n" : "") + (movable(c) ? t("col_drag_hint") : ""))}"${widths[c.key] ? ` style="width:${widths[c.key]}px;min-width:${widths[c.key]}px;max-width:${widths[c.key]}px"` : ""}><span class="thl">${c.icon ? ico(c.icon, "sm") : ""}${esc(c.label)}</span>${c.key === "act" ? "" : '<span class="colgrip"></span>'}</th>`).join("")}</tr></thead>`;
     const tbody = `<tbody>${sorted.map(r => `<tr class="${opts.rowClass ? opts.rowClass(r) : ""} ${opts.onRow ? "clickable" : ""}" data-id="${opts.id ? r[opts.id] : ""}">${cols.map((c, i) => `<td class="${cls(c, i)} ${c.wrap ? "wrap" : ""}">${c.render ? c.render(r) : esc(r[c.key])}</td>`).join("")}</tr>`).join("")}</tbody>`;
     table.innerHTML = thead + tbody;
     // in a table card the title is sticky at 0 and the column headers stick right under it: tell CSS how tall the
@@ -582,12 +601,35 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     $$("th", table).forEach(th => th.addEventListener("click", (e) => {
       if (e.target.classList.contains("colgrip") || table._resizing) return;
       const k = th.dataset.key; if (sort.col === k) sort.asc = !sort.asc; else { sort.col = k; sort.asc = !(cols.find(c => c.key === k)?.num); }
-      renderTable(table, cols, rows, opts);
+      renderTable(table, baseCols, rows, opts);
     }));
+    // reorderable columns: drag a header and drop it on another; double-click a header resets the table's order
+    $$("th[draggable]", table).forEach(th => {
+      th.addEventListener("dragstart", (e) => { if (table._resizing) { e.preventDefault(); return; } table._drag = th.dataset.key; e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", th.dataset.key); th.classList.add("dragging"); });
+      th.addEventListener("dragend", () => { table._drag = null; th.classList.remove("dragging"); $$("th.dropbefore, th.dropafter", table).forEach(x => x.classList.remove("dropbefore", "dropafter")); });
+      th.addEventListener("dragover", (e) => {
+        if (!table._drag || table._drag === th.dataset.key) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = "move";
+        const r = th.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+        th.classList.toggle("dropafter", after); th.classList.toggle("dropbefore", !after);
+      });
+      th.addEventListener("dragleave", () => th.classList.remove("dropbefore", "dropafter"));
+      th.addEventListener("drop", (e) => {
+        e.preventDefault();
+        const from = table._drag, to = th.dataset.key, after = th.classList.contains("dropafter");
+        th.classList.remove("dropbefore", "dropafter");
+        if (!from || from === to) return;
+        const order = cols.filter(movable).map(c => c.key).filter(k => k !== from);
+        order.splice(order.indexOf(to) + (after ? 1 : 0), 0, from);
+        saveColOrder(key, order);
+        renderTable(table, baseCols, rows, opts);
+      });
+      th.addEventListener("dblclick", (e) => { if (e.target.classList.contains("colgrip")) return; if (colOrder(key)) { saveColOrder(key, null); renderTable(table, baseCols, rows, opts); } });
+    });
     // resizable columns: drag the grip at the right edge of a header; double-click it to reset that column
     $$("th .colgrip", table).forEach(g => {
       const th = g.parentElement;
-      g.addEventListener("dblclick", (e) => { e.stopPropagation(); const w = colWidths(key); delete w[th.dataset.key]; saveColWidths(key, w); renderTable(table, cols, rows, opts); });
+      g.addEventListener("dblclick", (e) => { e.stopPropagation(); const w = colWidths(key); delete w[th.dataset.key]; saveColWidths(key, w); renderTable(table, baseCols, rows, opts); });
       g.addEventListener("pointerdown", (e) => {
         e.preventDefault(); e.stopPropagation();
         const x0 = e.clientX, w0 = th.getBoundingClientRect().width; let moved = false;

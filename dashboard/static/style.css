@@ -206,6 +206,11 @@ table.data td.num { text-align: left; font-variant-numeric: tabular-nums; }
 /* resizable columns: grip on the right edge of each header (drag; double-click resets the column) */
 table.data th .colgrip { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; z-index: 1; }
 table.data th .colgrip:hover, table.data.resizing th .colgrip { background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+/* column reordering: the dragged header dims, a bar marks where it will land */
+table.data th[draggable] { cursor: grab; }
+table.data th.dragging { opacity: .4; }
+table.data th.dropbefore { box-shadow: inset 3px 0 0 var(--accent); }
+table.data th.dropafter { box-shadow: inset -3px 0 0 var(--accent); }
 table.data.resizing { user-select: none; cursor: col-resize; }
 table.data td { overflow: hidden; text-overflow: ellipsis; }
 table.data tbody tr:hover { background: var(--panel2); }

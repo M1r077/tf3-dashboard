@@ -782,13 +782,34 @@ end
 -- Checking the group is therefore not enough; the stop is "whole" only when every station of its group exists.
 -- Verified in game on 13 October 2026: checkLineStopForVehicleOverlength on such a stop is the fatal assertion of
 -- the mod.io crash report (GetComponentDataIndex, pcall cannot catch it).
-local function stopWhole(groupEntity)
-	local sg = comp(groupEntity, api.type.ComponentType.STATION_GROUP)
+-- Rev 23: the stop's own indices too. A line stop is (group, station index, terminal index); upgrading or rebuilding
+-- a station keeps the group but can leave the line pointing at a station or terminal index the group no longer has
+-- (fewer platforms, a different module layout). Every station exists, yet the engine's line utils dereference the
+-- missing terminal: four identical native crashes on 14-15 October 2026 (TransportFever3.exe+0x318885, a null
+-- vector read inside a Lua callback, at the start of the lines section, right after the player modified a station).
+-- The main terminal and every alternative terminal must point inside the group, else the stop is not whole.
+local function stopWhole(stop)
+	local sg = comp(stop.stationGroup, api.type.ComponentType.STATION_GROUP)
 	if not sg then return false end
 	local stations = arr(sg.stations)
 	if #stations == 0 then return false end
 	for _, stationEntity in ipairs(stations) do
 		if not exists(stationEntity) then return false end
+	end
+	local function termOk(si, ti)
+		si, ti = num(si), num(ti)
+		if si == nil or ti == nil or si < 0 or si >= #stations then return false end
+		local station = comp(stations[si + 1], api.type.ComponentType.STATION)
+		if not station then return false end
+		local n = count(station.terminals)
+		return ti >= 0 and ti < n
+	end
+	if not termOk(stop.station, stop.terminal) then return false end
+	local okA, alts = pcall(arr, stop.alternativeTerminals)
+	if okA then
+		for _, a in ipairs(alts) do
+			if not termOk(a.station, a.terminal) then return false end
+		end
 	end
 	return true
 end
@@ -881,8 +902,11 @@ local function lineItem(l, ctx)
 		-- 12 October 2026: removing a served station crashed the game. Such a line is exported bare: id, name,
 		-- colour, vehicles and the stop list, nothing that walks the stops.
 		local broken = false
-		for _, s in ipairs(arr(line.stops)) do
-			if not stopWhole(s.stationGroup) then broken = true end
+		local wholeStop = {}
+		for i, s in ipairs(arr(line.stops)) do
+			local okW, whole = pcall(stopWhole, s)
+			wholeStop[i] = okW and whole == true
+			if not wholeStop[i] then broken = true end
 		end
 		if broken then rec.broken = true end
 		pcall(function() local c = comp(l, api.type.ComponentType.COLOR); if c then rec.color = vec3(c.color) end end)
@@ -949,7 +973,7 @@ local function lineItem(l, ctx)
 				end)
 				-- a stop whose station was bulldozed while the line still lists it: the engine utils below walk the
 				-- station's terminals and the transport network and assert on the dead entity. Export the bare stop.
-				if not stopWhole(s.stationGroup) then st.gone = true end
+				if not wholeStop[i] then st.gone = true end
 				if not st.gone then pcall(function()
 					-- terminals of the station group + which ones this stop may use (main = station/terminal above)
 					local alts = {}
@@ -1470,6 +1494,9 @@ local function slowJobStep()
 	-- (the engine's util functions assert on a dead entity, see comp())
 	local ent = type(e) == "table" and e[1] or e
 	if type(ent) == "number" and not exists(ent) then return false end
+	-- breadcrumb for native crashes (the log survives, the Lua state does not): which line was being collected.
+	-- Lines only - a few dozen per cycle, and the crashes of October 2026 all landed in this section.
+	if def.name == "lines" then debug("step lines#" .. tostring(ent)) end
 	local ok, rec = pcall(def.item, e, job.ctx)
 	noteStep(job, def.name .. "#" .. (def.label and def.label(e) or tostring(e)), os.clock() - t0)
 	if ok then

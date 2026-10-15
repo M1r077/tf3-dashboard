@@ -1,6 +1,6 @@
 :root {
   --bg: #0f1419; --panel: #161c23; --panel2: #1c242d; --border: #273140; --text: #e6edf3; --muted: #8b98a8;
-  --accent: #4f8a8a; --accent2: #d62560; --ok: #8ab4f8; --money-pos: #8ab4f8; --money-neg: #f08080; --warn: #e8b04b; --bad: #f85149; --info: #58a6ff;
+  --accent: #4f8a8a; --accent2: #d62560; --ok: #3fb950; --warn: #e8b04b; --bad: #f85149; --info: #58a6ff;
   --font: "Segoe UI", system-ui, sans-serif; --mono: Consolas, "Cascadia Mono", monospace;
   --isz: 28px;          /* base icon size (settings slider 12-48) */
   --fs: 14px;           /* base font size */
@@ -54,7 +54,7 @@ small { color: var(--muted); font-weight: normal; }
 .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 .dot.stale { background: var(--warn); }
 .dot.dead { background: var(--bad); }
-.pos { color: var(--money-pos); } .neg { color: var(--money-neg); }  /* the game's Finances colours */
+.pos { color: var(--ok); } .neg { color: var(--bad); }
 
 /* ---------------- tabs */
 /* the tab strip scrolls sideways on a narrow window instead of wrapping onto a second row */
@@ -761,4 +761,4 @@ table.journal td.zero { color: var(--muted); opacity: .55; }
 /* industry boosters (the game's "Boosters" card): needs vs piles, factor, active */
 table.kv.boosters td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.kv.boosters td:first-child { white-space: nowrap; }
-table.kv.boosters .bar.ok > i { background: var(--ok); }
+table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }

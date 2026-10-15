@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (mod revision 23)
+
+- Crash fix (mod revision 23): the game could crash to desktop a few seconds after the player upgraded or rebuilt a station that a line calls at. The station group survives the rebuild, but a line stop can be left pointing at a station or platform index the group no longer has; the engine's line utilities dereference that missing platform and abort (native access violation, `pcall` cannot catch it; four identical crash dumps on 14-15 October 2026, all at the first lines of a collection cycle). The mod now checks the stop's station and terminal indices (main and alternative terminals) against the group before calling the engine, and treats a dangling stop like a bulldozed one: the line is exported bare and shown broken. With `debug_log` on, the log names the line being collected before each engine call, so a future native crash can be placed.
+
 ## Companion 0.13.0 - 15 October 2026 (mod revision 22)
 
 - Vehicle catalogue (mod revision 22): the mod exports every vehicle model the game knows (base, DLC, mods) with the purchase window's figures - availability years, top speed, power, tractive effort, engine, weights, capacity per cargo, loading speed, lifespan and the price at the current year - once after loading and again when the game year changes (`tf3dash_models.lua`, ~1000 resources sliced over 25 frames). Stored in `vehicle_model`, served by `/api/models` (`?available=1` = purchasable now), and two new sheets in the Excel export: the catalogue of the current year and the whole catalogue.

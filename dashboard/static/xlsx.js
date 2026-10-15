@@ -60,7 +60,7 @@ const XLSX = (() => {
 
   // fills 0..5 (see sheetXml) x text/number = 12 cell styles, dark like the page: plain 13171C, header 1E232B,
   // group rows 2B3340, totals 24303D, bands 1A1F26, first column 171B21. Text D6DAE0, bold on groups/totals, white
-  // on the header. Number cells get a format whose sections colour the sign: green / red / grey.
+  // on the header. Number cells get a format whose sections colour the sign like the game: blue / salmon / grey.
   function stylesXml() {
     const fills = ["13171C", "1E232B", "2B3340", "24303D", "1A1F26", "171B21"];
     const fontOf = (f) => f === 1 ? 2 : (f === 2 || f === 3) ? 1 : 0;  // 0 plain light, 1 bold light, 2 bold white
@@ -74,9 +74,11 @@ const XLSX = (() => {
     const fonts = ['<font><sz val="11"/><color rgb="FFD6DAE0"/><name val="Calibri"/></font>', '<font><b/><sz val="11"/><color rgb="FFD6DAE0"/><name val="Calibri"/></font>', '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'];
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="[Color4]#,##0;[Color3]-#,##0;[Color16]0"/></numFmts><fonts count="3">${fonts.join("")}</fonts><fills count="${fillXml.length}">${fillXml.join("")}</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><colors><indexedColors>${INDEXED.map(c => `<rgbColor rgb="FF${c}"/>`).join("")}</indexedColors></colors></styleSheet>`;
   }
-  // the 56-entry legacy palette: [ColorN] in a number format can only point into it, so entries 3, 4 and 16 are
-  // overridden with the page's red, green and grey (everything else stays Excel's default)
-  const INDEXED = ["000000", "FFFFFF", "FF0000", "F85149", "3FB950", "0000FF", "FFFF00", "FF00FF", "00FFFF", "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "7D8590", "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "808080", "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF", "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF", "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99", "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696", "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333"];
+  // the 64-entry legacy palette: [ColorN] in a number format points at indexed entry N + 7 (entries 0-7 are the
+  // fixed EGA duplicates), so [Color4] = index 11, [Color3] = index 10, [Color16] = index 23. Before 0.14 the
+  // overrides sat at 3/4/16 and Excel read 10/11 instead: positives came out red, negatives white.
+  // Colours of the game's Finances charts: income blue 8AB4F8, expenses salmon F08080, zero grey 7D8590.
+  const INDEXED = ["000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF", "000000", "FFFFFF", "F08080", "8AB4F8", "0000FF", "FFFF00", "FF00FF", "00FFFF", "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "7D8590", "808080", "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF", "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF", "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99", "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696", "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333"];
 
   function build(sheets) {
     const names = sheets.map((s, i) => xml(String(s.name || `Sheet${i + 1}`).replace(/[\\/*?:[\]]/g, " ").slice(0, 31)));

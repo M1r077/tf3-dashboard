@@ -310,11 +310,54 @@ local function collectJournal(player, gameTimeMs)
 	cfg.interval = JOURNAL_YEAR_MS
 	cfg.count = math.max(1, math.floor(gameTimeMs / JOURNAL_YEAR_MS) + 2)
 	out.history = journalTable(player, cfg)
+	-- per line: the game's line "Balance" chart (income / running costs) at one column per financial year since the
+	-- start, i.e. the line window's chart with the time slider all the way out (the window caps it at 50 years and
+	-- shows 5 by default). The engine gives series[i] = { {x...}, {y...} } (checked in game 15 October 2026: series 1
+	-- = income, 2 = running costs, both positive); exported as points { x, y, label } with the game's column label.
+	pcall(function()
+		local lines = {}
+		local labels = {}
+		for _, l in ipairs(arr(api.engine.system.lineSystem.getLinesForPlayer(player))) do
+			pcall(function()
+				local ch = api.engine.util.finance.getAccountChart(l, cfg)
+				local s = {}
+				for i, ser in ipairs(arr(ch.series)) do
+					local sa = arr(ser)
+					local xs, ys = arr(sa[1]), arr(sa[2])
+					local pts = {}
+					for k = 1, math.min(#xs, #ys) do
+						local x = num(xs[k])
+						if x and labels[x] == nil then
+							local okL, lab = pcall(api.engine.util.chart.getChartLabel, cfg, math.floor(x), false)
+							labels[x] = okL and tostring(lab) or false
+						end
+						pts[#pts + 1] = { x, num(ys[k]), x and labels[x] or nil }
+					end
+					s[i] = pts
+				end
+				local xm = {}
+				for _, x in ipairs(arr(ch.xMarkers)) do xm[#xm + 1] = num(x) end
+				lines[#lines + 1] = { id = num(l), series = s, x_markers = xm, groups = num(ch.numPotentialGroups) }
+			end)
+		end
+		out.lines = lines
+	end)
 	out.duration_ms = (os.clock() - t0) * 1000
 	if not journalDumped and options().debug_log then
 		journalDumped = true
 		log(string.format("journal: window %d cols, history %d cols (%s .. %s), %.0fms, year %s", out.window.count, out.history.count,
 			tostring(out.history.periods[1]), tostring(out.history.periods[out.history.count]), out.duration_ms, tostring(out.year)))
+		local f = out.lines and out.lines[1]
+		if f then
+			local parts = {}
+			for i, ser in ipairs(f.series) do
+				local pts = {}
+				for k = math.max(1, #ser - 3), #ser do pts[#pts + 1] = tostring(ser[k][3] or ser[k][1]) .. ":" .. tostring(ser[k][2]) end
+				parts[#parts + 1] = "s" .. i .. "(" .. #ser .. ") " .. table.concat(pts, " ")
+			end
+			log(string.format("journal: %d line charts; line %s groups %s, x markers %d (%s .. %s); %s", #out.lines, tostring(f.id), tostring(f.groups),
+				#f.x_markers, tostring(f.x_markers[1]), tostring(f.x_markers[#f.x_markers]), table.concat(parts, " | ")))
+		end
 	end
 	return out
 end
@@ -935,6 +978,14 @@ local function lineItem(l, ctx)
 			end
 		end) end
 		pcall(function() rec.persons_on_line = count(sys.simPersonSystem.getSimPersonsForLine(l)) end)
+		-- the line's balance over the last 12 months (income - running costs): the "Last Year" figure of the game's
+		-- line window, same call (gui/line_vehicle_mgmt/line_react_util.tl). Reads the line's account only.
+		pcall(function()
+			local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
+			local toTime = gt.gameTime
+			local fromTime = math.max(toTime - api.util.getDefaultYearDuration(), 0)
+			rec.balance_year = num(api.engine.util.finance.calculateBalance({ l }, fromTime, toTime, true))
+		end)
 		if not broken then pcall(function()
 			local modes = {}
 			for m, on in pairs(api.engine.util.line.getLineTransportModesUnion(l)) do if on then modes[#modes + 1] = num(m) or tostring(m) end end

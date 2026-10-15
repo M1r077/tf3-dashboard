@@ -55,6 +55,8 @@ small { color: var(--muted); font-weight: normal; }
 .dot.stale { background: var(--warn); }
 .dot.dead { background: var(--bad); }
 .pos { color: var(--ok); } .neg { color: var(--bad); }
+/* money: the game's own colours for amounts (Finances window: income blue, expenses salmon) */
+.mpos { color: #8ab4f8; } .mneg { color: #f08080; }
 
 /* ---------------- tabs */
 /* the tab strip scrolls sideways on a narrow window instead of wrapping onto a second row */

@@ -496,7 +496,63 @@ def api_line_history(q: dict) -> dict:
                   LEFT JOIN line_stop st ON st.game_id=v.game_id AND st.line_id=vs.line_id AND st.stop_index=vs.stop_index+1  -- game stopIndex is 0-based, line_stop is 1-based
                   WHERE v.game_id=? AND vs.line_id=? AND vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})
                   ORDER BY vs.stop_index, v.name""", (gid, lid))
-    return {"history": hist, "vehicles": veh}
+    fin = _line_finance(gid, lid)
+    return {"history": hist, "vehicles": veh, "finance": fin, "finance_years": _finance_years(fin)}
+
+
+def api_line_finance(q: dict) -> dict:
+    """Every line's yearly income / running costs (mod rev 23+), for the Excel export."""
+    gid = _gid()
+    names = {r["line_id"]: r for r in rows("SELECT line_id, name, gone FROM line WHERE game_id=?", (gid,))}
+    out = []
+    for lid, pts in _line_finance(gid).items():
+        n = names.get(lid) or {}
+        if n.get("gone") is not None:
+            continue
+        out.append({"line_id": lid, "name": n.get("name") or f"#{lid}", "years": _finance_years(pts)})
+    out.sort(key=lambda r: str(r["name"]).lower())
+    return {"lines": out}
+
+
+def _finance_years(points: list) -> list:
+    """Sum the engine's columns (quarters, "m/yyyy" labels; a bare "yyyy" on older games) per calendar year."""
+    years: dict[int, dict] = {}
+    for p in points:
+        lab = str(p.get("label") or "")
+        y = lab[-4:]
+        if not y.isdigit():
+            continue
+        d = years.setdefault(int(y), {"year": int(y), "income": 0, "cost": 0, "columns": 0})
+        d["income"] += p["income"] or 0
+        d["cost"] += p["cost"] or 0
+        d["columns"] += 1
+    out = sorted(years.values(), key=lambda d: d["year"])
+    for d in out:
+        d["balance"] = d["income"] - d["cost"]
+    return out
+
+
+def _line_finance(gid: int, lid: int | None = None) -> list | dict:
+    """The game's line Balance chart, one point per financial year (mod rev 23+): [{x, income, cost, balance}],
+    oldest first. Series 0 = income, 1 = running costs; costs are returned positive whatever sign the engine uses.
+    With lid None: {line_id: [...]} for every line of the game."""
+    try:
+        pts = rows("SELECT line_id, series, idx, x, label, amount FROM line_finance WHERE game_id=?"
+                   + (" AND line_id=?" if lid is not None else "") + " ORDER BY line_id, idx, series",
+                   (gid, lid) if lid is not None else (gid,))
+    except Exception:  # database older than the table (collector not restarted yet)
+        return [] if lid is not None else {}
+    by: dict[int, dict[int, dict]] = {}
+    for p in pts:
+        d = by.setdefault(p["line_id"], {}).setdefault(p["idx"], {"x": p["x"], "label": p["label"], "income": 0, "cost": 0})
+        if p["series"] == 0:
+            d["income"] = p["amount"]
+        elif p["series"] == 1:
+            d["cost"] = abs(p["amount"])
+    out = {}
+    for l, m in by.items():
+        out[l] = [dict(v, balance=v["income"] - v["cost"]) for _, v in sorted(m.items())]
+    return out.get(lid, []) if lid is not None else out
 
 
 def api_fleet(q: dict) -> dict:
@@ -2019,7 +2075,7 @@ ROUTES = {
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/heightmap": api_heightmap, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,
-    "/api/games": api_games, "/api/music": api_music, "/api/models": api_models,
+    "/api/games": api_games, "/api/music": api_music, "/api/models": api_models, "/api/line_finance": api_line_finance,
 }
 
 POST_MAX_BYTES = 2 * 1024 * 1024  # request body limit; a line tour with its whole ground track stays well below

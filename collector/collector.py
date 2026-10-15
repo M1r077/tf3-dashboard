@@ -214,6 +214,8 @@ class Store:
         ("station", "gone", "INTEGER"),  # snapshot in which a station stopped being exported (bulldozed); NULL = alive
         ("industry", "gone", "INTEGER"),  # same for an industry (closed and removed from the map)
         ("depot", "gone", "INTEGER"),  # same for a depot
+        ("line_state", "balance_year", "INTEGER"),  # income - running costs over the last 12 months (mod rev 23+)
+        ("line_finance", "label", "TEXT"),  # the engine's column label of a yearly line finance point
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -525,6 +527,23 @@ class Store:
                 "INSERT INTO finance_journal_col(game_id, view, col, label, received_at, game_year) VALUES (?,?,?,?,?,?)",
                 [(gid, view, i, p, now, year) for i, p in enumerate(periods)])
             total += count
+        # per-line yearly income / running costs (mod rev 23+): the engine keeps the full account, replace it whole
+        lines = j.get("lines")
+        if isinstance(lines, list) or isinstance(lines, dict):
+            rows = []
+            for ln in as_list(lines):
+                if not isinstance(ln, dict) or not isinstance(ln.get("id"), (int, float)):
+                    continue
+                lid = int(ln["id"])
+                for si, ser in enumerate(as_list(ln.get("series"))):
+                    for k, p in enumerate(as_list(ser)):
+                        p = as_list(p)
+                        if len(p) >= 2 and isinstance(p[1], (int, float)):
+                            rows.append((gid, lid, si, k, p[0] if isinstance(p[0], (int, float)) else None,
+                                         str(p[2]) if len(p) > 2 and p[2] not in (None, False) else None, int(p[1]), now))
+            self.con.execute("DELETE FROM line_finance WHERE game_id=?", (gid,))
+            self.con.executemany(
+                "INSERT OR REPLACE INTO line_finance(game_id, line_id, series, idx, x, label, amount, received_at) VALUES (?,?,?,?,?,?,?,?)", rows)
         self.con.commit()
         return total
     def ingest(self, snap: dict) -> int | None:
@@ -692,9 +711,10 @@ class Store:
             )
             q = l.get("quality") or {}
             self.con.execute(
-                "INSERT OR REPLACE INTO line_state(snapshot_id, line_id, stops, vehicles, max_frequency, throughput, persons_on_line, pax_bad, pax_total, pax_avg_quality, cargo_bad, cargo_total, cargo_avg_quality) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO line_state(snapshot_id, line_id, stops, vehicles, max_frequency, throughput, persons_on_line, pax_bad, pax_total, pax_avg_quality, cargo_bad, cargo_total, cargo_avg_quality, balance_year) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (sid, lid, l.get("stops"), l.get("vehicles"), hz_to_headway(l.get("max_frequency")), l.get("throughput"), l.get("persons_on_line"),
-                 q.get("pax_bad"), q.get("pax_total"), q.get("pax_avg"), q.get("cargo_bad"), q.get("cargo_total"), q.get("cargo_avg")),
+                 q.get("pax_bad"), q.get("pax_total"), q.get("pax_avg"), q.get("cargo_bad"), q.get("cargo_total"), q.get("cargo_avg"),
+                 int(l["balance_year"]) if isinstance(l.get("balance_year"), (int, float)) else None),
             )
             # mod schema 1 exported these cargo ids off by one (see _migrate)
             shift = -1 if (self._schema or 1) < 2 else 0

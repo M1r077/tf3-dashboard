@@ -237,7 +237,24 @@ CREATE TABLE IF NOT EXISTS line_state (
     cargo_bad       INTEGER,
     cargo_total     INTEGER,
     cargo_avg_quality REAL,
+    balance_year    INTEGER,                         -- income - running costs over the last 12 months (mod rev 23+)
     PRIMARY KEY (snapshot_id, line_id)
+);
+
+-- The game's line "Balance" chart (income / running costs) at one point per financial year since the start of the
+-- game, as getAccountChart gives it (mod rev 23+, written with the journal once per game month, replaced each time:
+-- the engine keeps the whole account history, so nothing needs to accumulate here).
+--   series: 0 = income, 1 = running costs (both positive); x = the engine's chart column (financial year index)
+CREATE TABLE IF NOT EXISTS line_finance (
+    game_id        INTEGER NOT NULL REFERENCES game(game_id),
+    line_id        INTEGER NOT NULL,
+    series         INTEGER NOT NULL,
+    idx            INTEGER NOT NULL,                -- point index, 0 = oldest
+    x              REAL,
+    label          TEXT,                            -- the engine's column label ("1963")
+    amount         INTEGER NOT NULL,
+    received_at    TEXT NOT NULL,
+    PRIMARY KEY (game_id, line_id, series, idx)
 );
 
 CREATE TABLE IF NOT EXISTS line_capacity (

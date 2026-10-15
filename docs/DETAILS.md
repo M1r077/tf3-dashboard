@@ -646,7 +646,17 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
      gives nothing, from the set's included/excluded classes against each cargo type's `cargoClasses`), `loadSpeed`, and
      the price from `api.engine.util.getPartPrice` on a fresh `TransportVehiclePart` - the engine's own figure for the
      current year (`cost.price` in the files is -1 = computed). Written once after the first slow cycle and again when
-     the game year changes, 40 models per frame. The engine's `placeholders` stand-ins are left out by the server.- `game`: one row per savegame (key = player entity)
+     the game year changes, 40 models per frame. The engine's `placeholders` stand-ins are left out by the server.
+   - **Line finances** (mod revision 23): the same calls as the game's line window (`gui/line_vehicle_mgmt/line_react_util.tl`,
+     `gui/entity_window/line/line_eow.script.tl`). Per slow cycle, each line's balance over the last 12 months =
+     `api.engine.util.finance.calculateBalance({line}, now - getDefaultYearDuration(), now, true)` (income minus running
+     costs, `line_state.balance_year`). With the journal (once per game month), `getAccountChart(line, cfg)` with the
+     journal's yearly `ChartConfig`: the engine ignores the interval and returns its own columns - quarters ("2/1963"),
+     coarser in the far past - as `series[i] = { {x...}, {y...} }`, series 1 = income and 2 = running costs, both
+     positive; the column labels come from `api.engine.util.chart.getChartLabel(cfg, x, false)` like the game's axis.
+     Stored as given in `line_finance` (replaced each time: the engine keeps the whole account); the server sums the
+     columns per calendar year (the label's last 4 digits; the current year is partial, as in the game). ~4 ms for 54 lines.
+- `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and
   drawn by the dashboard; what the mod exports and nothing displays is not stored. Columns dropped by the audit
@@ -659,7 +669,8 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
   `town_state`, `town_cargo`, `town_supply` (supplied / needed; land_use 0 = whole town, rows 1/2 only from mod rev 4), `town_top_line`,
   `industry_state`, `industry_cargo`, `depot_state`
 - per game, not per snapshot: `geo` (map geography), `line_path` (legs driven), `finance_journal` / `finance_journal_col`
-  (the game's finance table, replaced at each monthly write of the mod, never purged)
+  (the game's finance table, replaced at each monthly write of the mod, never purged), `line_finance` (each line's
+  income / running costs per engine column, same rhythm)
 - dimensions (current attributes, upsert): `vehicle`, `line`, `line_stop`, `station`, `town`, `industry`, `depot`, `cargo_type`
 - views: `v_latest_snapshot`, `v_finance_series`
 - versions: `snapshot.schema` on the mod side (1 = initial; 2 = cargo ids of line capacities fixed);

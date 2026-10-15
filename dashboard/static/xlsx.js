@@ -67,7 +67,7 @@ const XLSX = (() => {
     const xfs = [];
     fills.forEach((_, f) => {
       for (const num of [0, 1]) {
-        xfs.push(`<xf numFmtId="${num ? 164 : 0}" fontId="${fontOf(f)}" fillId="${f + 2}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="${num}"${num && f === 1 ? '><alignment horizontal="right"/></xf>' : "/>"}`);
+        xfs.push(`<xf numFmtId="${num ? 164 : 0}" fontId="${fontOf(f)}" fillId="${f + 2}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="${num}"${f === 1 ? ' applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' : "/>"}`);  // header cells centred
       }
     });
     const fillXml = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>', ...fills.map(c => `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/><bgColor rgb="FF${c}"/></patternFill></fill>`)];

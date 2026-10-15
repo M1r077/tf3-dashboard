@@ -1627,15 +1627,15 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         push("total", row(t("journal_bank"), L.balance)); push("total", row(t("journal_debt"), L.loan));
         return { rows, kinds };
       };
-      const comp = fin.company || [], ser = fin.series || [];
+      const comp = (fin.company || []).slice().reverse(), ser = (fin.series || []).slice().reverse();  // newest first
       const companyRows = [[t("kpi_date"), t("xlsx_real_time"), t("assets"), t("debt"), t("score"), t("lines"), t("stations"), `${t("tracks")} (km)`, `${t("roads")} (km)`],
         ...comp.map(x => [dateLabel(x), (x.real_time || "").replace("T", " ").slice(0, 16), x.total_assets, x.debt, x.total_score, x.number_of_lines, x.total_stations, x.track_length_m != null ? Math.round(x.track_length_m / 1000) : null, x.road_length_m != null ? Math.round(x.road_length_m / 1000) : null])];
       const transportRows = [[t("kpi_date"), t("xlsx_real_time"), t("passengers"), t("th_cargo_filter")], ...ser.map(x => [dateLabel(x), (x.real_time || x.bucket || "").replace("T", " ").slice(0, 16), x.passengers_transported, x.cargo_transported])];
       const vehRows = [[t("th_vehicle"), t("th_type"), t("th_line"), t("th_cost_year"), t("th_value")],
         ...(veh.vehicles || []).map(v => [v.name, CA(v.carrier), v.line_name || "", v.running_cost != null ? Math.round(v.running_cost) : null, v.value])];
       const blob = XLSX.build([
-        { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1 },
-        { name: `${t("journal_title")} - ${t("journal_view_history")}`, ...journalSheet(jh), numberFrom: 1 },
+        { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1, filter: false },
+        { name: `${t("journal_title")} - ${t("journal_view_history")}`, ...journalSheet(jh), numberFrom: 1, filter: false },
         { name: t("company"), rows: companyRows, numberFrom: 2, banded: true },
         { name: t("transport_cum"), rows: transportRows, numberFrom: 2, banded: true },
         { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3, banded: true },

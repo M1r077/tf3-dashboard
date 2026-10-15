@@ -4,8 +4,9 @@
 // only a CRC-32), so this runs in any browser with no library.
 //   XLSX.build([{ name, rows: [[...], ...], numberFrom: 1, kinds: ["group", ...], banded: true }]) -> Blob;  XLSX.download(blob, "file.xlsx")
 // numberFrom: columns from this index are numbers (cells get the thousands format even when empty).
-// kinds[i]: "group" (bold on grey), "total" (bold on blue-grey) or "detail" for row i; banded: alternate row fills.
-// Numbers: negatives red, positives green, zeros grey (the page's own colours).
+// kinds[i]: "group" (bold, raised), "total" (bold, blue-grey) or "detail" for row i; banded: alternate row fills;
+// filter: false to leave out the header's filter/sort arrows (default on).
+// Dark sheets like the page: numbers green positive, red negative, grey zero.
 const XLSX = (() => {
   const CRC = new Int32Array(256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; CRC[n] = c; }
@@ -41,42 +42,48 @@ const XLSX = (() => {
       r.forEach((v, ci) => {
         const ref = col(ci) + (ri + 1), head = ri === 0, num = typeof v === "number" && isFinite(v), isNum = ci >= nf;
         // style id = fill x (text | number): see styles in build(); fill 0 plain, 1 header, 2 group, 3 total, 4 band, 5 first column
-        const fill = head ? 1 : kinds[ri] === "group" ? 2 : kinds[ri] === "total" ? 3 : (sh.banded && ri % 2 === 0) ? 4 : (ci === 0 && !isNum) ? 5 : 0;
+        const fill = head ? 1 : kinds[ri] === "group" ? 2 : kinds[ri] === "total" ? 3 : (sh.banded && ri % 2 === 0) ? 4 : (ci === 0 && !isNum) ? 5 : 0;  // 0 = plain dark
         const style = fill * 2 + (isNum ? 1 : 0);
         if (num) { cells += `<c r="${ref}" s="${style}"><v>${v}</v></c>`; widths[ci] = Math.max(widths[ci], String(Math.round(v)).length * 1.3 + 2); }
         else if (v != null && v !== "") { cells += `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`; widths[ci] = Math.max(widths[ci], Math.min(60, String(v).length + 2)); }
-        else if (style) cells += `<c r="${ref}" s="${style}"/>`;  // an empty cell still takes the row's fill
+        else cells += `<c r="${ref}" s="${style}"/>`;  // an empty cell still takes the row's fill (dark sheet, no holes)
       });
       body += `<row r="${ri + 1}">${cells}</row>`;
     });
-    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1"/>`).join("");
-    const freeze = rows.length > 1 ? `<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>` : "";
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${freeze}<cols>${cols}</cols><sheetData>${body}</sheetData></worksheet>`;
+    // column styles make the empty area dark too (used columns and everything beyond); no gridlines on dark
+    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1" style="0"/>`).join("") + `<col min="${ncol + 1}" max="16384" style="0"/>`;
+    const freeze = rows.length > 1 ? `<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>` : "";
+    // the header row gets the filter/sort arrows (sheets with grouped rows keep their structure: no filter there)
+    const filter = sh.filter !== false && rows.length > 1 && ncol > 0 ? `<autoFilter ref="A1:${col(ncol - 1)}${rows.length}"/>` : "";
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${freeze}<cols>${cols}</cols><sheetData>${body}</sheetData>${filter}</worksheet>`;
   }
 
-  // fills 0..5 (see sheetXml) x text/number = 12 cell styles. The number format colours the sign: green positive,
-  // red negative, grey zero (the page's pos/neg/zero classes); the header is white on dark.
+  // fills 0..5 (see sheetXml) x text/number = 12 cell styles, dark like the page: plain 13171C, header 1E232B,
+  // group rows 2B3340, totals 24303D, bands 1A1F26, first column 171B21. Text D6DAE0, bold on groups/totals, white
+  // on the header. Number cells get a format whose sections colour the sign: green / red / grey.
   function stylesXml() {
-    const fills = ["none", "2B3340", "E6E9EE", "DCE6F0", "F4F6F8", "F4F6F8"];
-    const fontOf = (f) => f === 1 ? 2 : (f === 2 || f === 3) ? 1 : 0;  // 0 plain, 1 bold, 2 bold white
+    const fills = ["13171C", "1E232B", "2B3340", "24303D", "1A1F26", "171B21"];
+    const fontOf = (f) => f === 1 ? 2 : (f === 2 || f === 3) ? 1 : 0;  // 0 plain light, 1 bold light, 2 bold white
     const xfs = [];
     fills.forEach((_, f) => {
       for (const num of [0, 1]) {
-        const fmt = num ? 164 : 0, font = fontOf(f), fill = f ? f + 1 : 0;
-        xfs.push(`<xf numFmtId="${fmt}" fontId="${font}" fillId="${fill}" borderId="0" xfId="0" applyFont="1" applyFill="${fill ? 1 : 0}" applyNumberFormat="${num}"${num && f === 1 ? '><alignment horizontal="right"/></xf>' : "/>"}`);
+        xfs.push(`<xf numFmtId="${num ? 164 : 0}" fontId="${fontOf(f)}" fillId="${f + 2}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="${num}"${num && f === 1 ? '><alignment horizontal="right"/></xf>' : "/>"}`);
       }
     });
-    const fillXml = fills.map(c => c === "none" ? '<fill><patternFill patternType="none"/></fill>' : `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/></patternFill></fill>`);
-    fillXml.splice(1, 0, '<fill><patternFill patternType="gray125"/></fill>');  // Excel requires fill 1 to be gray125
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="[Color17]#,##0;[Red]-#,##0;[Color23]0"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="${fillXml.length}">${fillXml.join("")}</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+    const fillXml = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>', ...fills.map(c => `<fill><patternFill patternType="solid"><fgColor rgb="FF${c}"/><bgColor rgb="FF${c}"/></patternFill></fill>`)];
+    const fonts = ['<font><sz val="11"/><color rgb="FFD6DAE0"/><name val="Calibri"/></font>', '<font><b/><sz val="11"/><color rgb="FFD6DAE0"/><name val="Calibri"/></font>', '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'];
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="[Color4]#,##0;[Color3]-#,##0;[Color16]0"/></numFmts><fonts count="3">${fonts.join("")}</fonts><fills count="${fillXml.length}">${fillXml.join("")}</fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join("")}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><colors><indexedColors>${INDEXED.map(c => `<rgbColor rgb="FF${c}"/>`).join("")}</indexedColors></colors></styleSheet>`;
   }
+  // the 56-entry legacy palette: [ColorN] in a number format can only point into it, so entries 3, 4 and 16 are
+  // overridden with the page's red, green and grey (everything else stays Excel's default)
+  const INDEXED = ["000000", "FFFFFF", "FF0000", "F85149", "3FB950", "0000FF", "FFFF00", "FF00FF", "00FFFF", "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "7D8590", "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "808080", "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF", "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF", "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99", "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696", "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333"];
 
   function build(sheets) {
     const names = sheets.map((s, i) => xml(String(s.name || `Sheet${i + 1}`).replace(/[\\/*?:[\]]/g, " ").slice(0, 31)));
     const files = [
       ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>`],
       ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`],
+      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><definedNames>${sheets.map((s, i) => { const rows = s.rows || [], nc = rows.reduce((n, r) => Math.max(n, r.length), 0); return s.filter !== false && rows.length > 1 && nc > 0 ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!$A$1:$${col(nc - 1)}$${rows.length}</definedName>` : ""; }).join("")}</definedNames></workbook>`],
       ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
       ["xl/styles.xml", stylesXml()],
     ];

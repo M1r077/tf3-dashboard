@@ -70,9 +70,12 @@ const XLSX = (() => {
     const legend = ch.series.length > 1 ? `<c:legend><c:legendPos val="${ch.legend || "b"}"/><c:overlay val="0"/>${txPr(900)}</c:legend>` : "";
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><c:roundedCorners val="0"/><c:chart>${title}<c:plotArea><c:layout/>${plot}${catAx}${valAx}<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr></c:plotArea>${legend}<c:plotVisOnly val="1"/><c:dispBlanksAs val="gap"/></c:chart><c:spPr><a:solidFill><a:srgbClr val="171B21"/></a:solidFill><a:ln w="9525"><a:solidFill><a:srgbClr val="2B3340"/></a:solidFill></a:ln></c:spPr>${txPr(1000)}</c:chartSpace>`;
   }
-  function drawingXml(charts) {
+  // colPx: pixel width of each used column (sheetXml fills it); beyond = Excel's default 64 px; rows 20 px
+  function drawingXml(charts, colPx = []) {
     const px = 9525;  // EMU per pixel
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${charts.map((ch, k) => `<xdr:oneCellAnchor><xdr:from><xdr:col>${ch.at.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${ch.at.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${Math.round(ch.w * px)}" cy="${Math.round(ch.h * px)}"/><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${k + 2}" name="Chart ${k + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId${k + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:oneCellAnchor>`).join("")}</xdr:wsDr>`;
+    const cw = (c) => c < colPx.length ? colPx[c] : 64, RH = 20;
+    const end = (start, len, size) => { let i = start; while (len >= size(i)) { len -= size(i); i++; } return [i, Math.round(len * px)]; };
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">${charts.map((ch, k) => { const [c1, co] = end(ch.at.col, ch.w, cw), [r1, ro] = end(ch.at.row, ch.h, () => RH); return `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>${ch.at.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${ch.at.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:to><xdr:col>${c1}</xdr:col><xdr:colOff>${co}</xdr:colOff><xdr:row>${r1}</xdr:row><xdr:rowOff>${ro}</xdr:rowOff></xdr:to><xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="${k + 2}" name="Chart ${k + 1}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr><xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId${k + 1}"/></a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>`; }).join("")}</xdr:wsDr>`;
   }
 
   // Pivot table (+ optional pivot chart) over another sheet's rows, rebuilt by Excel when the file opens
@@ -155,7 +158,8 @@ const XLSX = (() => {
     });
     // column styles make the empty area dark too (used columns and everything beyond); no gridlines on dark
     const hid = new Set(sh.hiddenCols || []);
-    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1" style="0"${hid.has(i) ? ' hidden="1"' : ""}/>`).join("") + `<col min="${ncol + 1}" max="16384" style="0"/>`;
+    sh._colPx = widths.map((w, i) => hid.has(i) ? 0 : Math.trunc(w * 7 + 5));
+    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1" style="0"${hid.has(i) ? ' hidden="1"' : ""}/>`).join("") + `<col min="${ncol + 1}" max="16384" width="8.43" style="0"/>`;
     const freeze = sh.freeze === false ? `<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>` : rows.length > 1 ? `<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>` : "";
     // the header row gets the filter/sort arrows (sheets with grouped rows keep their structure: no filter there)
     const filter = sh.filter !== false && rows.length > 1 && ncol > 0 ? `<autoFilter ref="A1:${col(ncol - 1)}${rows.length}"/>` : "";
@@ -228,14 +232,15 @@ const XLSX = (() => {
       sheetRels[i].push(`<Relationship Id="rId2" Type="${REL}pivotTable" Target="../pivotTables/pivotTable${p}.xml"/>`);
       if (pv.chart) s.charts = [...(s.charts || []), { ...pv.chart, pivotOf: pv, pivotHost: i }];
     });
+    sheets.forEach((s) => { if (s.chartsheet) s.charts = [s.chartsheet]; });
+    const sheetXmls = sheets.map(s => s.chartsheet ? chartsheetXml() : sheetXml(s));
     // drawings and charts: drawing d+1 for each sheet with charts, charts numbered across the workbook
     let nd = 0, nc = 0;
-    sheets.forEach((s) => { if (s.chartsheet) s.charts = [s.chartsheet]; });
     sheets.forEach((s, i) => {
       const charts = s.charts || []; if (!charts.length) return;
       const d = ++nd;
       sheetRels[i].unshift(`<Relationship Id="rId1" Type="${REL}drawing" Target="../drawings/drawing${d}.xml"/>`);
-      extra.push([`xl/drawings/drawing${d}.xml`, s.chartsheet ? chartsheetDrawingXml() : drawingXml(charts)]);
+      extra.push([`xl/drawings/drawing${d}.xml`, s.chartsheet ? chartsheetDrawingXml() : drawingXml(charts, s._colPx)]);
       over.push(`<Override PartName="/xl/drawings/drawing${d}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`);
       const rels = charts.map((ch, k) => {
         const c = ++nc;
@@ -255,7 +260,7 @@ const XLSX = (() => {
       ["xl/styles.xml", stylesXml()],
       ["xl/theme/theme1.xml", themeXml()],
     ];
-    sheets.forEach((s, i) => files.push([`xl/${part(s)}/sheet${i + 1}.xml`, s.chartsheet ? chartsheetXml() : sheetXml(s)]));
+    sheets.forEach((s, i) => files.push([`xl/${part(s)}/sheet${i + 1}.xml`, sheetXmls[i]]));
     return zip(files.concat(extra));
   }
 

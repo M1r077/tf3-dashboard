@@ -810,12 +810,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     renderAlerts($("#alerts-list"), al.alerts || []);
     $("#alerts-count").textContent = (al.alerts || []).length ? `${al.alerts.length}` : t("none");
 
-    const idle = fleet.idle || [];
-    $("#idle-count").textContent = idle.length ? idle.length : "";
-    $("#idle-list").innerHTML = idle.length ? idle.map(v => miniRow(v, `${v.no_path ? `<span class="chip bad">${t("no_path")}</span>` : ""}${v.user_stopped ? `<span class="chip warn">${t("stopped")}</span>` : ""}<span class="chip">${STI(v.state)}</span><br><span class="muted">${v.days_in_depot ? t("idle_days", { n: v.days_in_depot }) : ""}</span>`)).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
+    renderWatch(fleet.idle || []);
     const stuck = fleet.stuck || [];
     $("#stuck-list").innerHTML = stuck.length ? stuck.map(v => miniRow(v, `<span class="chip bad">${t("stuck_n", { n: v.n })}</span>`)).join("") : `<div class="empty">${t("none_stuck")}</div>`;
-    $$("#idle-list .row, #stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
+    $$("#stuck-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
 
     // the bars of the three rankings open the vehicle / the line
     const toVeh = { onClick: it => { state.selVeh = it.id; showTab("vehicles"); } };
@@ -832,6 +830,31 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // cards pinned here from another tab (Layout.pin): render that tab's data too, it fills them in place
     if (o && window.Layout) for (const home of Layout.pinnedHomes()) if (RENDER[home] && home !== "overview") await RENDER[home](o);
     Charts.hbars($("#chart-stations-busy"), busy.map(x => ({ id: x.st.station_id, label: x.st.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 70 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${int(x.st.used)}/${int(x.c)})` })), { onClick: it => { state.selSt = it.id; showTab("stations"); } });
+  }
+
+  // "To watch": vehicles that need the player, each with its reason(s); one toggle per reason in the card header
+  // (empty = all), remembered by the browser. Loading at a stop is never a reason: that is the vehicle doing its job.
+  const noLine = v => v.line_id == null || v.line_id <= 0;  // the game's "no line" is -1
+  const WATCH = [
+    { k: "no_line", cls: "warn", test: v => noLine(v) },
+    { k: "no_path", cls: "bad", test: v => !!v.no_path },
+    { k: "stopped", cls: "warn", test: v => !!v.user_stopped },
+    { k: "depot", cls: "", test: v => (v.days_in_depot || 0) > 2 },
+  ];
+  state.watchOff = new Set((() => { try { return JSON.parse(localStorage.getItem("tf3.watchOff") || "[]"); } catch (e) { return []; } })());
+  function renderWatch(all) {
+    const counts = Object.fromEntries(WATCH.map(r => [r.k, all.filter(r.test).length]));
+    const on = r => !state.watchOff.has(r.k);
+    const list = all.filter(v => WATCH.some(r => on(r) && r.test(v)));
+    const label = k => k === "depot" ? t("watch_depot") : t(k === "no_line" ? "no_line" : k === "no_path" ? "no_path" : "stopped");
+    $("#idle-count").innerHTML = `<span class="typebar watchbar">${WATCH.filter(r => counts[r.k]).map(r => `<button class="tbtn ${on(r) ? "active" : ""}" data-k="${r.k}" style="--c:var(--${r.cls || "muted"})">${esc(label(r.k))}<small>${counts[r.k]}</small></button>`).join("")}</span>`;
+    $$("#idle-count .tbtn").forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      const k = b.dataset.k; if (state.watchOff.has(k)) state.watchOff.delete(k); else state.watchOff.add(k);
+      localStorage.setItem("tf3.watchOff", JSON.stringify([...state.watchOff])); renderWatch(all);
+    }));
+    $("#idle-list").innerHTML = list.length ? list.map(v => miniRow(v, WATCH.filter(r => r.test(v)).map(r => `<span class="chip ${r.cls}">${esc(r.k === "depot" ? t("idle_days", { n: v.days_in_depot }) : label(r.k))}</span>`).join(""))).join("") : `<div class="empty">${t("everyone_moving")}</div>`;
+    $$("#idle-list .row").forEach(r => r.addEventListener("click", () => { state.selVeh = +r.dataset.veh; showTab("vehicles"); }));
   }
 
   function renderAlerts(el, alerts) {
@@ -862,7 +885,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
     renderStateBar($("#veh-states"), veh);
     const q = $("#veh-filter").value.toLowerCase(), worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
-    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || v.days_in_depot > 2));
+    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || noLine(v) || v.days_in_depot > 2));
     $("#veh-count").textContent = `${rows.length} / ${veh.length}`;
     const cols = [
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },
@@ -875,7 +898,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "carries", label: t("th_carries"), gauge: true, noicon: true, render: v => onBoard(v, "sm") || (Array.isArray(v.capacities) && v.capacities.length ? `<span class="onboard dim">${v.capacities.map(c => `<span class="ob" title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}</span>`).join("")}</span>` : ""), sortValue: v => Array.isArray(v.cargo) && v.cargo.length ? cargoName(v.cargo[0].cargo) : null },
       { key: "load", label: t("th_load"), gauge: true, num: true, render: v => v.capacity ? bar(v.load || 0, v.capacity, fillCls(pct(v.load || 0, v.capacity)), `${v.load ?? 0}/${v.capacity}`) : int(v.load), sortValue: v => v.capacity ? (v.load || 0) / v.capacity : null },
       { key: "maintenance", label: t("th_cond_short"), gauge: true, num: true, render: v => v.maintenance == null ? "–" : condIcon(v.maintenance) + bar(v.maintenance, 1, maintCls(v.maintenance)) },
-      { key: "idle", label: t("th_idle_short"), num: true, render: v => { const d = (v.days_in_depot || 0) + (v.days_at_terminal || 0); return d ? `<span class="${d > 3 ? "neg" : ""}">${d} j</span>` : "–"; }, sortValue: v => (v.days_in_depot || 0) + (v.days_at_terminal || 0) },
+      // days standing: in the depot (red after 3: a vehicle forgotten there) or loading at a stop (normal, waiting for a full load)
+      { key: "idle", label: t("th_idle_short"), title: t("th_idle_tip"), num: true, render: v => [v.days_in_depot ? `<span class="${v.days_in_depot > 3 ? "neg" : ""}" title="${esc(t("det_days_depot"))}">${icoState("IN_DEPOT", "sm inline")}${t("days_short", { n: v.days_in_depot })}</span>` : "", v.days_at_terminal ? `<span class="muted" title="${esc(t("det_days_terminal"))}">${icoState("AT_TERMINAL", "sm inline")}${t("days_short", { n: v.days_at_terminal })}</span>` : ""].filter(Boolean).join(" ") || "–", sortValue: v => (v.days_in_depot || 0) * 1000 + (v.days_at_terminal || 0) },
       { key: "running_cost", label: t("th_cost_year"), num: true, render: v => money(v.running_cost) },
       { key: "value", label: t("th_value"), num: true, render: v => money(v.value) },
       { key: "town_name", label: t("th_near"), render: v => esc(v.town_name || "–") },

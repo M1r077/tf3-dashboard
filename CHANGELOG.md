@@ -2,6 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Operations, "To watch" (was "Watch - idle / no line"): every vehicle shows its reason(s) (no line, no path, stopped by you, days in depot), and the card header has one toggle per reason with its count, to hide the reasons you don't care about (remembered by the browser). Vehicles loading at a stop were never listed and still aren't. The list is no longer cut at 15. A vehicle without a line was missed when the game reports "no line" as -1 (it now counts, here and in the Vehicles "Problems" filter). Suggested on mod.io by DysonHeluck.
+- Vehicles: the "Idle" column added the days in the depot and the days loading at a stop, two very different things. It is now "Waiting" and shows both apart, each with its icon (depot days red after 3; loading days muted, waiting for a full load is normal).
+
 ## Companion 0.14.1 - 16 October 2026 (mod revision 23 unchanged)
 
 - Line finances by financial year, not calendar year: 0.14.0 grouped the line chart by calendar year, but one column of the game's account chart is one financial year (1460 s of game time), whose calendar span varies with the calendar speed (about 3 months since 1947 in the test game). The line card's chart, `/api/line_finance` (now `{cols, lines: [{points: [{col, label, income, cost, balance}]}]}`) and the Excel export now go by financial year, labelled with the calendar period it covered, the same labels as the finance journal; `finance_years` is gone from `/api/line_history`. The step in 1947 is gone. "Balance (12 months)" is renamed "Balance (last financial year)": it was always the last financial year.

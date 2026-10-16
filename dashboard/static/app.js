@@ -1742,11 +1742,29 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         lineSheets.push({ name: t("xlsx_sheet_lines_now"), rows: nowRows, numberFrom: 2, banded: true, charts });
         lineSheets.push({ name: t("xlsx_sheet_lines_years"), rows: yearRows, numberFrom: 2, banded: true });
         if (histRows.length > 1) {
-          lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 4, banded: true });
+          // history + its chart: a hidden helper column says whether the row is visible (SUBTOTAL ignores rows the
+          // filter hides), and the "evolution" sheet sums the visible rows per financial year. No filter = every
+          // line; filter one line (or a type, or several) in the history and the chart follows it.
+          const sheetRef = (n) => `'${String(n).replace(/[\\/*?:[\]]/g, " ").slice(0, 31).replace(/'/g, "''")}'`;
+          const hName = sheetRef(t("xlsx_sheet_lines")), nH = histRows.length, rg = (c) => `${hName}!${c}$2:${c}${nH}`;
+          histRows[0].push(t("xlsx_visible"));
+          for (let r = 1; r < nH; r++) histRows[r].push({ f: `_xlfn.AGGREGATE(3,5,A${r + 1})`, v: 1 });
+          lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 4, banded: true, hiddenCols: [7] });
+          const sumIf = (c, r) => `SUMIFS(${rg(c)},${rg("C")},$A${r},${rg("H")},1)`;
+          const evoRows = [[t("xlsx_fin_year"), t("xlsx_period"), t("line_income"), t("line_costs"), t("line_balance"), t("xlsx_lines_count")]];
+          fcols.forEach((c, k) => {
+            const r = k + 2; let inc = 0, cost = 0, n = 0;
+            byCol.forEach(m => { const v = m.get(c.col); if (v) { inc += v.income; cost += v.cost; n++; } });
+            evoRows.push([c.col + 1, c.label, { f: sumIf("E", r), v: inc }, { f: sumIf("F", r), v: cost }, { f: `C${r}-D${r}`, v: inc - cost }, { f: `COUNTIFS(${rg("C")},$A${r},${rg("H")},1)`, v: n }]);
+          });
+          const iEvo = lineSheets.length + 1;  // workbook index (the journal sheet is 0)
+          lineSheets.push({ name: t("xlsx_sheet_lines_evo"), rows: evoRows, numberFrom: 2, banded: true, filter: false,
+            charts: [{ type: "line", title: t("xlsx_chart_lines_evo"), src: iEvo, cat: 1, r0: 2, r1: fcols.length + 1, money: true, at: { col: 7, row: 1 }, w: 900, h: 460,
+              series: [{ col: 2, color: POS }, { col: 3, color: NEG }, { col: 4, color: TOT, width: 31750 }] }] });
           // a pivot table over the history (balance per financial year x line type). Its cells are written already, as
           // Excel lays them out, so the figures show in Protected View too (a downloaded file opens read-only, where
           // Excel neither refreshes a pivot nor lets its fields move); once editing is enabled it is a live pivot
-          const iHist = lineSheets.length, iPivot = iHist + 1;  // workbook indices (the journal sheet is 0)
+          const iHist = lineSheets.length - 1, iPivot = lineSheets.length + 1;  // workbook indices (the journal sheet is 0)
           const types = [...new Set(histRows.slice(1).map(r => r[1] == null ? "" : String(r[1])))].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
           const nY = fcols.length, cell = new Map();
           histRows.slice(1).forEach(r => { const k = r[2] + "|" + r[1]; cell.set(k, (cell.get(k) || 0) + (r[6] || 0)); });
@@ -1755,7 +1773,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           fcols.forEach(c => { let tot = 0; const r = [c.col + 1, ...types.map((ty, j) => { const v = cell.get((c.col + 1) + "|" + ty); if (v == null) return null; tot += v; colTot[j] += v; return v; }), tot]; pRows.push(r); });
           pRows.push([t("xlsx_total"), ...colTot, colTot.reduce((x, y) => x + y, 0)]);
           lineSheets.push({ name: t("xlsx_sheet_lines_pivot"), rows: pRows, numberFrom: 1, filter: false, freeze: false,
-            pivot: { src: iHist, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance") } });
+            pivot: { src: iHist, width: 7, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance") } });
           // the same figures as a chart filling the window, one colour per line type as on the page
           // the page's carrier colours, a second shade where two types share a carrier (bus/truck, aircraft/helicopter)
           const TY_HEX = { Bus: "E8B04B", Truck: "B07A2A", Tram: "BC8CFF", Train: "4F8A8A", Ship: "3FB950", Aircraft: "58A6FF", Helicopter: "D46FB4" };

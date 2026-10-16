@@ -9,6 +9,7 @@ Mod revision and companion version are released together (see README, Install). 
 - Excel export: a "Lines - analysis" pivot table (balance by financial year and line type) and a full-window "Lines - chart" sheet, stacked by line type. The pivot's figures are written into the cells, so they read in Protected View (downloaded files); "Enable Editing" makes the pivot live. The chart reads those cells.
 - Excel export: a "Lines - evolution" sheet and chart: income, running costs, balance and number of lines per financial year, summed over the rows visible in "Lines - history". Unfiltered it shows every line; filter a line, a type or several there and the chart follows (after "Enable Editing"; in Protected View it shows every line).
 - Excel export: the charts inside the sheets could not be clicked (only through the Selection Pane). The columns after the data were written without a width, which Excel reads as 0: the charts sat on zero-width columns. Those columns now have Excel's default width, and the charts are anchored on two cells with their real size, as Excel writes them.
+- Excel export: the pivot's headers ("Row Labels", "Column Labels", "Grand Total") are in the dashboard's language (financial year, type, total) instead of Excel's English defaults.
 - Excel export: a dark workbook theme, so Excel's chart style and colour galleries offer dark styles in the dashboard's colours instead of white ones; the pivot keeps the sheet's light-on-dark text (it was black on dark).
 
 ## Companion 0.14.0 - 15 October 2026 (mod revision 23)

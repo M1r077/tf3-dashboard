@@ -1773,7 +1773,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           fcols.forEach(c => { let tot = 0; const r = [c.col + 1, ...types.map((ty, j) => { const v = cell.get((c.col + 1) + "|" + ty); if (v == null) return null; tot += v; colTot[j] += v; return v; }), tot]; pRows.push(r); });
           pRows.push([t("xlsx_total"), ...colTot, colTot.reduce((x, y) => x + y, 0)]);
           lineSheets.push({ name: t("xlsx_sheet_lines_pivot"), rows: pRows, numberFrom: 1, filter: false, freeze: false,
-            pivot: { src: iHist, width: 7, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance") } });
+            pivot: { src: iHist, width: 7, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance"), rowCaption: t("xlsx_fin_year"), colCaption: t("th_type"), totalCaption: t("xlsx_total") } });
           // the same figures as a chart filling the window, one colour per line type as on the page
           // the page's carrier colours, a second shade where two types share a carrier (bus/truck, aircraft/helicopter)
           const TY_HEX = { Bus: "E8B04B", Truck: "B07A2A", Tram: "BC8CFF", Train: "4F8A8A", Ship: "3FB950", Aircraft: "58A6FF", Helicopter: "D46FB4" };

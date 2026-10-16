@@ -79,12 +79,17 @@ const XLSX = (() => {
   //   sheet.pivot = { src: sheet index, rows: field, cols: field, data: field, dataName, name, chart: { title, w, h } }
   // Fields are column indices of the source sheet (header row = field names). Text columns become item lists,
   // number columns stay numbers.
-  function pivotCache(src) {
+  // axis = the field indices placed on rows/columns: they get item lists (numbers too, as <n> items, sorted)
+  function pivotCache(src, axis) {
     const rows = src.rows || [], head = rows[0] || [], body = rows.slice(1);
     const fields = head.map((h, c) => {
       const vals = body.map(r => r[c]);
       const isNum = vals.every(v => v == null || v === "" || (typeof v === "number" && isFinite(v)));
-      if (isNum) { const ns = vals.filter(v => typeof v === "number"); return { name: String(h), num: true, int: ns.every(Number.isInteger), min: ns.length ? Math.min(...ns) : 0, max: ns.length ? Math.max(...ns) : 0, blank: ns.length < vals.length }; }
+      if (isNum && !axis.includes(c)) { const ns = vals.filter(v => typeof v === "number"); return { name: String(h), num: true, int: ns.every(Number.isInteger), min: ns.length ? Math.min(...ns) : 0, max: ns.length ? Math.max(...ns) : 0, blank: ns.length < vals.length }; }
+      if (isNum) {
+        const items = [...new Set(vals.filter(v => typeof v === "number"))].sort((a, b) => a - b);
+        return { name: String(h), num: false, numItems: true, items, index: new Map(items.map((v, i) => [v, i])) };
+      }
       const items = [...new Set(vals.map(v => v == null ? "" : String(v)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
       return { name: String(h), num: false, items, index: new Map(items.map((v, i) => [v, i])) };
     });
@@ -93,11 +98,13 @@ const XLSX = (() => {
   function pivotCacheDefXml(pc, srcName) {
     const cf = pc.fields.map(f => f.num
       ? `<cacheField name="${xml(f.name)}" numFmtId="0"><sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1"${f.int ? ' containsInteger="1"' : ""}${f.blank ? ' containsBlank="1"' : ""} minValue="${f.min}" maxValue="${f.max}"/></cacheField>`
-      : `<cacheField name="${xml(f.name)}" numFmtId="0"><sharedItems count="${f.items.length}">${f.items.map(v => `<s v="${xml(v)}"/>`).join("")}</sharedItems></cacheField>`).join("");
+      : f.numItems
+        ? `<cacheField name="${xml(f.name)}" numFmtId="0"><sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1" containsInteger="1" minValue="${f.items[0] ?? 0}" maxValue="${f.items[f.items.length - 1] ?? 0}" count="${f.items.length}">${f.items.map(v => `<n v="${v}"/>`).join("")}</sharedItems></cacheField>`
+        : `<cacheField name="${xml(f.name)}" numFmtId="0"><sharedItems count="${f.items.length}">${f.items.map(v => `<s v="${xml(v)}"/>`).join("")}</sharedItems></cacheField>`).join("");
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><pivotCacheDefinition xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="rId1" refreshOnLoad="1" createdVersion="6" refreshedVersion="6" minRefreshableVersion="3" recordCount="${pc.body.length}"><cacheSource type="worksheet"><worksheetSource ref="A1:${col(pc.ncol - 1)}${pc.nrow}" sheet="${xml(srcName)}"/></cacheSource><cacheFields count="${pc.fields.length}">${cf}</cacheFields></pivotCacheDefinition>`;
   }
   function pivotRecordsXml(pc) {
-    const recs = pc.body.map(r => `<r>${pc.fields.map((f, c) => { const v = r[c]; return f.num ? (typeof v === "number" ? `<n v="${v}"/>` : "<m/>") : `<x v="${f.index.get(v == null ? "" : String(v))}"/>`; }).join("")}</r>`).join("");
+    const recs = pc.body.map(r => `<r>${pc.fields.map((f, c) => { const v = r[c]; return f.num ? (typeof v === "number" ? `<n v="${v}"/>` : "<m/>") : `<x v="${f.index.get(f.numItems ? v : v == null ? "" : String(v)) ?? 0}"/>`; }).join("")}</r>`).join("");
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><pivotCacheRecords xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${pc.body.length}">${recs}</pivotCacheRecords>`;
   }
   function pivotTableXml(pv, pc, cacheId) {
@@ -168,31 +175,55 @@ const XLSX = (() => {
   // Colours of the game's Finances charts: income blue 8AB4F8, expenses salmon F08080, zero grey 7D8590.
   const INDEXED = ["000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF", "000000", "FFFFFF", "F08080", "8AB4F8", "0000FF", "FFFF00", "FF00FF", "00FFFF", "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "7D8590", "808080", "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF", "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF", "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99", "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696", "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333"];
 
-  function build(sheets) {
+  // fileName: the name the workbook is saved under (a pivot chart names its pivot table as [file]sheet!table)
+  function build(sheets, fileName = "book.xlsx") {
     const rawNames = sheets.map((s, i) => String(s.name || `Sheet${i + 1}`).replace(/[\\/*?:[\]]/g, " ").slice(0, 31));
     const names = rawNames.map(xml);
+    const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/";
+    const rels = (list) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.join("")}</Relationships>`;
+    // pivot tables: one cache per pivot, the pivot chart joins the sheet's charts
+    const extra = [], over = [], wbPivot = [], wbRels = [];
+    let np = 0;
+    const sheetRels = sheets.map(() => []);
+    sheets.forEach((s, i) => {
+      const pv = s.pivot; if (!pv) return;
+      const p = ++np, pc = pivotCache(sheets[pv.src], [pv.rows, pv.cols].filter(v => v != null));
+      const rid = `rId${sheets.length + 1 + p}`;
+      extra.push([`xl/pivotCache/pivotCacheDefinition${p}.xml`, pivotCacheDefXml(pc, rawNames[pv.src])]);
+      extra.push([`xl/pivotCache/pivotCacheRecords${p}.xml`, pivotRecordsXml(pc)]);
+      extra.push([`xl/pivotCache/_rels/pivotCacheDefinition${p}.xml.rels`, rels([`<Relationship Id="rId1" Type="${REL}pivotCacheRecords" Target="pivotCacheRecords${p}.xml"/>`])]);
+      extra.push([`xl/pivotTables/pivotTable${p}.xml`, pivotTableXml(pv, pc, p)]);
+      extra.push([`xl/pivotTables/_rels/pivotTable${p}.xml.rels`, rels([`<Relationship Id="rId1" Type="${REL}pivotCacheDefinition" Target="../pivotCache/pivotCacheDefinition${p}.xml"/>`])]);
+      over.push(`<Override PartName="/xl/pivotCache/pivotCacheDefinition${p}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml"/>`,
+        `<Override PartName="/xl/pivotCache/pivotCacheRecords${p}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheRecords+xml"/>`,
+        `<Override PartName="/xl/pivotTables/pivotTable${p}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.pivotTable+xml"/>`);
+      wbPivot.push(`<pivotCache cacheId="${p}" r:id="${rid}"/>`);
+      wbRels.push(`<Relationship Id="${rid}" Type="${REL}pivotCacheDefinition" Target="pivotCache/pivotCacheDefinition${p}.xml"/>`);
+      sheetRels[i].push(`<Relationship Id="rId2" Type="${REL}pivotTable" Target="../pivotTables/pivotTable${p}.xml"/>`);
+      if (pv.chart) s.charts = [...(s.charts || []), { ...pv.chart, pivotOf: pv }];
+    });
     // drawings and charts: drawing d+1 for each sheet with charts, charts numbered across the workbook
-    const extra = [], over = [];
     let nd = 0, nc = 0;
     sheets.forEach((s, i) => {
       const charts = s.charts || []; if (!charts.length) return;
       const d = ++nd;
-      extra.push([`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${d}.xml"/></Relationships>`]);
+      sheetRels[i].unshift(`<Relationship Id="rId1" Type="${REL}drawing" Target="../drawings/drawing${d}.xml"/>`);
       extra.push([`xl/drawings/drawing${d}.xml`, drawingXml(charts)]);
       over.push(`<Override PartName="/xl/drawings/drawing${d}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`);
       const rels = charts.map((ch, k) => {
         const c = ++nc;
-        extra.push([`xl/charts/chart${c}.xml`, chartXml(ch, i, sheets, rawNames)]);
+        extra.push([`xl/charts/chart${c}.xml`, ch.pivotOf ? pivotChartXml(ch.pivotOf, rawNames[i], fileName) : chartXml(ch, i, sheets, rawNames)]);
         over.push(`<Override PartName="/xl/charts/chart${c}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`);
         return `<Relationship Id="rId${k + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart${c}.xml"/>`;
       });
       extra.push([`xl/drawings/_rels/drawing${d}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join("")}</Relationships>`]);
     });
+    sheetRels.forEach((r, i) => { if (r.length) extra.push([`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, rels(r)]); });
     const files = [
       ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}${over.join("")}</Types>`],
       ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><definedNames>${sheets.map((s, i) => { const rows = s.rows || [], nc = rows.reduce((n, r) => Math.max(n, r.length), 0); return s.filter !== false && rows.length > 1 && nc > 0 ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!$A$1:$${col(nc - 1)}$${rows.length}</definedName>` : ""; }).join("")}</definedNames></workbook>`],
-      ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><definedNames>${sheets.map((s, i) => { const rows = s.rows || [], nc = rows.reduce((n, r) => Math.max(n, r.length), 0); return s.filter !== false && rows.length > 1 && nc > 0 ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!$A$1:$${col(nc - 1)}$${rows.length}</definedName>` : ""; }).join("")}</definedNames>${wbPivot.length ? `<pivotCaches>${wbPivot.join("")}</pivotCaches>` : ""}</workbook>`],
+      ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${wbRels.join("")}</Relationships>`],
       ["xl/styles.xml", stylesXml()],
     ];
     sheets.forEach((s, i) => files.push([`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)]));

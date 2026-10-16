@@ -1716,8 +1716,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const byCol = finLines.map(l => new Map((l.points || []).map(p => [p.col, p])));
       const yearRows = [[t("xlsx_fin_year"), t("xlsx_period"), `${t("line_income")} (${t("xlsx_total")})`, `${t("line_costs")} (${t("xlsx_total")})`, `${t("line_balance")} (${t("xlsx_total")})`, ...finLines.map(l => l.name)],
         ...fcols.map(c => { let inc = 0, cost = 0; byCol.forEach(m => { const v = m.get(c.col); if (v) { inc += v.income; cost += v.cost; } }); return [c.col + 1, c.label, inc, cost, inc - cost, ...byCol.map(m => m.get(c.col) ? m.get(c.col).balance : null)]; })];
-      const histRows = [[t("th_line"), t("xlsx_fin_year"), t("xlsx_period"), t("line_income"), t("line_costs"), t("line_balance")]];
-      finLines.forEach(l => (l.points || []).slice().reverse().forEach(p => histRows.push([l.name, p.col + 1, p.label, p.income, p.cost, p.balance])));
+      const typeOf = new Map((ln.lines || []).map(l => { const ty = lineType(l); return [l.line_id, ty ? t("line_type." + ty) : ""]; }));
+      const histRows = [[t("th_line"), t("th_type"), t("xlsx_fin_year"), t("xlsx_period"), t("line_income"), t("line_costs"), t("line_balance")]];
+      finLines.forEach(l => (l.points || []).slice().reverse().forEach(p => histRows.push([l.name, typeOf.get(l.line_id) || "", p.col + 1, p.label, p.income, p.cost, p.balance])));
       const lineSheets = [];
       if (nowLines.length || finLines.length) {
         const iNow = 1, iYears = 2;  // sheet indices in the workbook below (journal is 0)
@@ -1740,8 +1741,18 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           series: [{ col: 7, color: POS, pointColors: nowLines.slice(0, withBal).map(l => l.balance_year < 0 ? NEG : null) }] });
         lineSheets.push({ name: t("xlsx_sheet_lines_now"), rows: nowRows, numberFrom: 2, banded: true, charts });
         lineSheets.push({ name: t("xlsx_sheet_lines_years"), rows: yearRows, numberFrom: 2, banded: true });
-        if (histRows.length > 1) lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 3, banded: true });
+        if (histRows.length > 1) {
+          lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 4, banded: true });
+          // a pivot table over the history (balance per financial year x line type) and its pivot chart: Excel
+          // rebuilds it on opening, the player can then drag other fields (line, income, costs) in
+          const iHist = 1 + lineSheets.length - 1;
+          lineSheets.push({ name: t("xlsx_sheet_lines_pivot"), rows: [[t("xlsx_pivot_hint")]], filter: false,
+            pivot: { src: iHist, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance"),
+              chart: { title: t("xlsx_chart_lines_pivot"), at: { col: 12, row: 2 }, w: 900, h: 420 } } });
+        }
       }
+      const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);
+      const fileName = `tf3-finances-${stamp}.xlsx`;
       const blob = XLSX.build([
         { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1, filter: false },
         ...lineSheets,
@@ -1750,9 +1761,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         { name: t("transport_cum"), rows: transportRows, numberFrom: 3, banded: true },
         { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3, banded: true },
         ...catSheets,
-      ]);
-      const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);
-      XLSX.download(blob, `tf3-finances-${stamp}.xlsx`);
+      ], fileName);
+      XLSX.download(blob, fileName);
     } finally { btn.disabled = false; }
   }
   $("#journal-xlsx").addEventListener("click", (e) => exportFinanceXlsx(e.currentTarget));

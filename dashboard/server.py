@@ -276,7 +276,8 @@ def api_overview(q: dict) -> dict:
 
 
 def api_finance(q: dict) -> dict:
-    limit = _limit(q, 600)
+    # ?all=1 (the Excel export): every row of the game, neither capped nor thinned
+    limit = 10 ** 9 if (q.get("all") or ["0"])[0] == "1" else _limit(q, 600)
     gid = _gid()
     rng = _range(q)
     series = _merged_series(
@@ -496,12 +497,12 @@ def api_line_history(q: dict) -> dict:
                   LEFT JOIN line_stop st ON st.game_id=v.game_id AND st.line_id=vs.line_id AND st.stop_index=vs.stop_index+1  -- game stopIndex is 0-based, line_stop is 1-based
                   WHERE v.game_id=? AND vs.line_id=? AND vs.snapshot_id=(SELECT MAX(x.snapshot_id) FROM vehicle_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})
                   ORDER BY vs.stop_index, v.name""", (gid, lid))
-    fin = _line_finance(gid, lid)
-    return {"history": hist, "vehicles": veh, "finance": fin, "finance_years": _finance_years(fin)}
+    return {"history": hist, "vehicles": veh, "finance": _line_finance(gid, lid)}
 
 
 def api_line_finance(q: dict) -> dict:
-    """Every line's yearly income / running costs (mod rev 23+), for the Excel export."""
+    """Every line's income / running costs per financial year (mod rev 23+), for the Excel export:
+    {cols: [{col, label}], lines: [{line_id, name, points: [{col, label, income, cost, balance}]}]}."""
     gid = _gid()
     names = {r["line_id"]: r for r in rows("SELECT line_id, name, gone FROM line WHERE game_id=?", (gid,))}
     out = []
@@ -509,32 +510,29 @@ def api_line_finance(q: dict) -> dict:
         n = names.get(lid) or {}
         if n.get("gone") is not None:
             continue
-        out.append({"line_id": lid, "name": n.get("name") or f"#{lid}", "years": _finance_years(pts)})
+        out.append({"line_id": lid, "name": n.get("name") or f"#{lid}", "points": pts})
     out.sort(key=lambda r: str(r["name"]).lower())
-    return {"lines": out}
+    cols = sorted({p["col"] for l in out for p in l["points"]})
+    labels = _fy_labels(gid)
+    return {"cols": [{"col": c, "label": labels.get(c) or str(c + 1)} for c in cols], "lines": out}
 
 
-def _finance_years(points: list) -> list:
-    """Sum the engine's columns (quarters, "m/yyyy" labels; a bare "yyyy" on older games) per calendar year."""
-    years: dict[int, dict] = {}
-    for p in points:
-        lab = str(p.get("label") or "")
-        y = lab[-4:]
-        if not y.isdigit():
-            continue
-        d = years.setdefault(int(y), {"year": int(y), "income": 0, "cost": 0, "columns": 0})
-        d["income"] += p["income"] or 0
-        d["cost"] += p["cost"] or 0
-        d["columns"] += 1
-    out = sorted(years.values(), key=lambda d: d["year"])
-    for d in out:
-        d["balance"] = d["income"] - d["cost"]
-    return out
+def _fy_labels(gid: int) -> dict:
+    """Financial year (game time, 1460 s of simulation each; 0 = the first) -> the game's own header for it, from the
+    journal history (same ChartConfig as the line charts, so column i is the same year). The line chart's own labels
+    (getChartLabel) name the calendar month at which the column starts, one column off from the journal's."""
+    try:
+        return {r["col"]: r["label"] for r in rows("SELECT col, label FROM finance_journal_col WHERE game_id=? AND view='history'", (gid,))}
+    except Exception:
+        return {}
 
 
 def _line_finance(gid: int, lid: int | None = None) -> list | dict:
-    """The game's line Balance chart, one point per financial year (mod rev 23+): [{x, income, cost, balance}],
-    oldest first. Series 0 = income, 1 = running costs; costs are returned positive whatever sign the engine uses.
+    """The game's line Balance chart, one point per financial year of game time (mod rev 23+), oldest first:
+    [{col, label, income, cost, balance}], col = financial year since the start (0 = first; the chart's x), label = the
+    journal's header for that year. Never regrouped by calendar year: the calendar can be slowed or paused while the
+    simulation (and the money) goes on, so a calendar year holds anything from 0 to many financial years.
+    Series 0 = income, 1 = running costs; costs are returned positive whatever sign the engine uses.
     With lid None: {line_id: [...]} for every line of the game."""
     try:
         pts = rows("SELECT line_id, series, idx, x, label, amount FROM line_finance WHERE game_id=?"
@@ -549,9 +547,16 @@ def _line_finance(gid: int, lid: int | None = None) -> list | dict:
             d["income"] = p["amount"]
         elif p["series"] == 1:
             d["cost"] = abs(p["amount"])
+    labels = _fy_labels(gid)
     out = {}
     for l, m in by.items():
-        out[l] = [dict(v, balance=v["income"] - v["cost"]) for _, v in sorted(m.items())]
+        out[l] = []
+        for _, v in sorted(m.items()):
+            if v["x"] is None:
+                continue
+            c = int(round(v["x"]))
+            out[l].append({"col": c, "label": labels.get(c) or v["label"], "income": v["income"], "cost": v["cost"],
+                           "balance": v["income"] - v["cost"]})
     return out.get(lid, []) if lid is not None else out
 
 

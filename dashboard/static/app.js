@@ -1034,7 +1034,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <div id="line-veh-wrap">${(h.vehicles || []).length ? "" : `<p class="muted">${t("no_line_vehicles")}</p>`}</div>
       <h2 data-sec="trend" style="margin-top:12px">${ico("vehicles")}${t(carriesPax(l) ? "veh_and_pax" : "kpi_vehicles")}</h2><canvas id="chart-line-1" data-h="170"></canvas>
       <h2 data-sec="quality">${ico("unhappy")}${t("service_quality")}</h2><canvas id="chart-line-2" data-h="150"></canvas>
-      ${(h.finance_years || []).length ? `<h2 data-sec="finance">${ico("money")}${t("line_finance_title")} <small>${h.finance_years[0].year}–${h.finance_years[h.finance_years.length - 1].year}</small></h2><canvas id="chart-line-3" data-h="170"></canvas>` : ""}`;
+      ${(h.finance || []).length ? `<h2 data-sec="finance">${ico("money")}${t("line_finance_title")} <small>${esc(h.finance[0].label)} – ${esc(h.finance[h.finance.length - 1].label)}</small></h2><canvas id="chart-line-3" data-h="170"></canvas>` : ""}`;
     if ((h.vehicles || []).length) {
       const vcols = [
         { key: "name", label: t("th_vehicle"), render: v => `${modelImg(v, "sm")}${esc(v.name)}` },
@@ -1063,15 +1063,15 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (carriesCargo(l)) s2.push({ name: t("th_cargo_late"), values: hist.map(x => x.cargo_total ? pct(x.cargo_bad, x.cargo_total) : null), color: "#e8b04b", unit: "%" },
       { name: t("line_cargo_rating"), values: hist.map(x => x.cargo_avg_quality != null && x.cargo_total ? x.cargo_avg_quality * 100 : null), color: "#bc8cff", dash: [5, 4], unit: "%" });
     Charts.lineChart($("#chart-line-2"), s2, labels, { percent: true, ...tsOpts(hist, "line") });
-    // the whole game, one point per calendar year (the game's line Balance chart, summed from its quarters); the
-    // current year is partial, as in the game
-    const fy = h.finance_years || [];
+    // the whole game, one point per financial year of game time (the game's line Balance chart, as is), labelled with
+    // the journal's header for that year; never regrouped by calendar year. The current year is partial, as in the game
+    const fy = h.finance || [];
     if (fy.length) Charts.lineChart($("#chart-line-3"), [
       // the game's Finances colours: income blue, expenses salmon
       { name: t("line_income"), values: fy.map(y => y.income), color: "#8ab4f8", step: true, unit: "$" },
       { name: t("line_costs"), values: fy.map(y => y.cost), color: "#f08080", step: true, unit: "$" },
       { name: t("line_balance"), values: fy.map(y => y.balance), color: "#e8b04b", dash: [5, 4], unit: "$" },
-    ], fy.map(y => String(y.year)), { gameOnly: true });
+    ], fy.map(y => y.label), { gameOnly: true });
     $("#line-on-map").addEventListener("click", () => { map.lineFilter = id; showTab("map"); });
     musicTracks();  // prefetch, so "Any" can pick a track synchronously inside the click
     $("#line-travel").addEventListener("click", async () => { trvDraft({ kind: "line", line: l.line_id }); await lineTravelling(l, trv.draft); renderLineDetail(id); });
@@ -1663,7 +1663,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     btn.disabled = true;
     try {
       const o = await api("/api/overview");
-      const [jw, jh, fin, veh, cat, lf] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { limit: 100000, range: "all" }), api("/api/vehicles"), api("/api/models"), api("/api/line_finance").catch(() => ({ lines: [] }))]);
+      const [jw, jh, fin, veh, cat, lf] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { all: 1, range: "all" }), api("/api/vehicles"), api("/api/models"), api("/api/line_finance").catch(() => ({ lines: [] }))]);
+      const ln = await api("/api/lines").catch(() => ({ lines: [] }));
       const journalSheet = (j) => {
         if (!j || !j.cols.length) return { rows: [[t("no_data_yet")]], kinds: [] };
         const L = j.lines, n = j.cols.length, kinds = [], row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
@@ -1683,9 +1684,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         return { rows, kinds };
       };
       const comp = (fin.company || []).slice().reverse(), ser = (fin.series || []).slice().reverse();  // newest first
-      const companyRows = [[t("kpi_date"), t("xlsx_real_time"), t("assets"), t("debt"), t("score"), t("lines"), t("stations"), `${t("tracks")} (km)`, `${t("roads")} (km)`],
-        ...comp.map(x => [dateLabel(x), (x.real_time || "").replace("T", " ").slice(0, 16), x.total_assets, x.debt, x.total_score, x.number_of_lines, x.total_stations, x.track_length_m != null ? Math.round(x.track_length_m / 1000) : null, x.road_length_m != null ? Math.round(x.road_length_m / 1000) : null])];
-      const transportRows = [[t("kpi_date"), t("xlsx_real_time"), t("passengers"), t("th_cargo_filter")], ...ser.map(x => [dateLabel(x), (x.real_time || x.bucket || "").replace("T", " ").slice(0, 16), x.passengers_transported, x.cargo_transported])];
+      // three clocks, kept apart: game time (financial years of simulation, 1460 s each: what the money follows), the
+      // calendar date shown in game (can be slowed or paused), and the real time of the recording
+      const gy = (x) => x.gt != null ? Math.round(x.gt / 1460 * 1000) / 1000 : null;
+      const clockHead = [t("xlsx_game_years"), t("kpi_date"), t("xlsx_real_time")];
+      const clock = (x) => [gy(x), dateLabel(x), (x.real_time || "").replace("T", " ").slice(0, 16)];
+      const companyRows = [[...clockHead, t("assets"), t("debt"), t("score"), t("lines"), t("stations"), `${t("tracks")} (km)`, `${t("roads")} (km)`],
+        ...comp.map(x => [...clock(x), x.total_assets, x.debt, x.total_score, x.number_of_lines, x.total_stations, x.track_length_m != null ? Math.round(x.track_length_m / 1000) : null, x.road_length_m != null ? Math.round(x.road_length_m / 1000) : null])];
+      const transportRows = [[...clockHead, t("passengers"), t("th_cargo_filter")], ...ser.map(x => [...clock(x), x.passengers_transported, x.cargo_transported])];
       const vehRows = [[t("th_vehicle"), t("th_type"), t("th_line"), t("th_cost_year"), t("th_value")],
         ...(veh.vehicles || []).map(v => [v.name, CA(v.carrier), v.line_name || "", v.running_cost != null ? Math.round(v.running_cost) : null, v.value])];
       // the vehicle model catalogue (mod rev 22): what can be bought now, then every model the game knows
@@ -1696,15 +1702,52 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         { name: `${t("xlsx_catalogue")} ${cat.year || ""}`.trim(), rows: [catHead, ...(cat.models || []).filter(m => (m.year_from == null || m.year_from <= cat.year) && (m.year_to == null || m.year_to >= cat.year)).map(catRow)], numberFrom: 3, banded: true },
         { name: t("xlsx_catalogue_all"), rows: [catHead, ...(cat.models || []).map(catRow)], numberFrom: 3, banded: true },
       ] : [];
-      // per line, one row per calendar year over the whole game (mod rev 23+): the game's line Balance chart
-      const lineRows = [[t("th_line"), t("xlsx_year"), t("line_income"), t("line_costs"), t("line_balance")]];
-      (lf.lines || []).forEach(l => (l.years || []).forEach(y => lineRows.push([l.name, String(y.year), y.income, y.cost, y.balance])));
+      // Lines (mod rev 23+), three sheets: the lines today (one row each, best balance first, with the charts), the
+      // balance per year (one column per line, totals first: what the charts read), and the long history (one row
+      // per line and year, for filters and pivot tables).
+      const hex = (r, g, b) => [r, g, b].map(v => Math.round(Math.max(0, Math.min(1, v || 0)) * 255).toString(16).padStart(2, "0")).join("").toUpperCase();
+      const POS = "8AB4F8", NEG = "F08080", TOT = "D6DAE0";
+      const nowLines = (ln.lines || []).slice().sort((a, b) => (b.balance_year ?? -Infinity) - (a.balance_year ?? -Infinity));
+      const nowRows = [[t("th_line"), t("th_type"), t("th_stops"), t("th_veh"), `${t("th_headway")} (min)`, t("th_per_year"), t("th_onboard"), t("th_line_balance")],
+        ...nowLines.map(l => { const ty = lineType(l); return [l.name, ty ? t("line_type." + ty) : "", l.stops, l.vehicles, l.max_frequency != null ? Math.round(l.max_frequency / 6) / 10 : null, l.throughput, carriesPax(l) ? l.persons_on_line : null, l.balance_year]; })];
+      // one row per financial year of game time (the engine's columns as is, labelled like the journal), never
+      // regrouped by calendar year: the calendar can be slowed or paused while the money goes on
+      const finLines = lf.lines || [], fcols = lf.cols || [];
+      const byCol = finLines.map(l => new Map((l.points || []).map(p => [p.col, p])));
+      const yearRows = [[t("xlsx_fin_year"), t("xlsx_period"), `${t("line_income")} (${t("xlsx_total")})`, `${t("line_costs")} (${t("xlsx_total")})`, `${t("line_balance")} (${t("xlsx_total")})`, ...finLines.map(l => l.name)],
+        ...fcols.map(c => { let inc = 0, cost = 0; byCol.forEach(m => { const v = m.get(c.col); if (v) { inc += v.income; cost += v.cost; } }); return [c.col + 1, c.label, inc, cost, inc - cost, ...byCol.map(m => m.get(c.col) ? m.get(c.col).balance : null)]; })];
+      const histRows = [[t("th_line"), t("xlsx_fin_year"), t("xlsx_period"), t("line_income"), t("line_costs"), t("line_balance")]];
+      finLines.forEach(l => (l.points || []).slice().reverse().forEach(p => histRows.push([l.name, p.col + 1, p.label, p.income, p.cost, p.balance])));
+      const lineSheets = [];
+      if (nowLines.length || finLines.length) {
+        const iNow = 1, iYears = 2;  // sheet indices in the workbook below (journal is 0)
+        const charts = [], at = (row) => ({ col: 9, row }), W = 760;
+        let row = 0;
+        if (fcols.length) {
+          charts.push({ type: "line", title: t("xlsx_chart_lines_total"), src: iYears, cat: 1, r0: 2, r1: fcols.length + 1, money: true, at: at(row), w: W, h: 340,
+            series: [{ col: 2, color: POS }, { col: 3, color: NEG }, { col: 4, color: TOT, width: 31750 }] });
+          row += 18;
+          // the eight lines with the best balance today, in their own colours
+          const top = nowLines.filter(l => l.balance_year != null).slice(0, 8).map(l => finLines.findIndex(f => f.line_id === l.line_id)).filter(i => i >= 0);
+          if (top.length) {
+            charts.push({ type: "line", title: t("xlsx_chart_lines_top", { n: top.length }), src: iYears, cat: 1, r0: 2, r1: fcols.length + 1, money: true, at: at(row), w: W, h: 380,
+              series: top.map(i => { const l = (ln.lines || []).find(x => x.line_id === finLines[i].line_id) || {}; return { col: 5 + i, color: hex(l.color_r, l.color_g, l.color_b) }; }) });
+            row += 20;
+          }
+        }
+        const withBal = nowLines.filter(l => l.balance_year != null).length;
+        if (withBal) charts.push({ type: "bar", barDir: "bar", reverse: true, title: t("th_line_balance"), src: iNow, cat: 0, r0: 2, r1: withBal + 1, money: true, at: at(row), w: W, h: Math.max(240, 60 + withBal * 18),
+          series: [{ col: 7, color: POS, pointColors: nowLines.slice(0, withBal).map(l => l.balance_year < 0 ? NEG : null) }] });
+        lineSheets.push({ name: t("xlsx_sheet_lines_now"), rows: nowRows, numberFrom: 2, banded: true, charts });
+        lineSheets.push({ name: t("xlsx_sheet_lines_years"), rows: yearRows, numberFrom: 2, banded: true });
+        if (histRows.length > 1) lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 3, banded: true });
+      }
       const blob = XLSX.build([
         { name: `${t("journal_title")} - ${t("journal_view_window")}`, ...journalSheet(jw), numberFrom: 1, filter: false },
-        ...(lineRows.length > 1 ? [{ name: t("xlsx_sheet_lines"), rows: lineRows, numberFrom: 2, banded: true }] : []),
+        ...lineSheets,
         { name: `${t("journal_title")} - ${t("journal_view_history")}`, ...journalSheet(jh), numberFrom: 1, filter: false },
-        { name: t("company"), rows: companyRows, numberFrom: 2, banded: true },
-        { name: t("transport_cum"), rows: transportRows, numberFrom: 2, banded: true },
+        { name: t("company"), rows: companyRows, numberFrom: 3, banded: true },
+        { name: t("transport_cum"), rows: transportRows, numberFrom: 3, banded: true },
         { name: t("kpi_vehicles"), rows: vehRows, numberFrom: 3, banded: true },
         ...catSheets,
       ]);

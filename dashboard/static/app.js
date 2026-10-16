@@ -1743,12 +1743,25 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         lineSheets.push({ name: t("xlsx_sheet_lines_years"), rows: yearRows, numberFrom: 2, banded: true });
         if (histRows.length > 1) {
           lineSheets.push({ name: t("xlsx_sheet_lines"), rows: histRows, numberFrom: 4, banded: true });
-          // a pivot table over the history (balance per financial year x line type) and its pivot chart: Excel
-          // rebuilds it on opening, the player can then drag other fields (line, income, costs) in
-          const iHist = 1 + lineSheets.length - 1;
-          lineSheets.push({ name: t("xlsx_sheet_lines_pivot"), rows: [[t("xlsx_pivot_hint")]], filter: false,
-            pivot: { src: iHist, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance"),
-              chart: { title: t("xlsx_chart_lines_pivot"), at: { col: 12, row: 2 }, w: 900, h: 420 } } });
+          // a pivot table over the history (balance per financial year x line type). Its cells are written already, as
+          // Excel lays them out, so the figures show in Protected View too (a downloaded file opens read-only, where
+          // Excel neither refreshes a pivot nor lets its fields move); once editing is enabled it is a live pivot
+          const iHist = lineSheets.length, iPivot = iHist + 1;  // workbook indices (the journal sheet is 0)
+          const types = [...new Set(histRows.slice(1).map(r => r[1] == null ? "" : String(r[1])))].sort((x, y) => x.localeCompare(y, undefined, { numeric: true }));
+          const nY = fcols.length, cell = new Map();
+          histRows.slice(1).forEach(r => { const k = r[2] + "|" + r[1]; cell.set(k, (cell.get(k) || 0) + (r[6] || 0)); });
+          const pRows = [[t("xlsx_pivot_hint")], [], [t("line_balance"), t("th_type")], [t("xlsx_fin_year"), ...types.map(x => x || "–"), t("xlsx_total")]];
+          const colTot = types.map(() => 0);
+          fcols.forEach(c => { let tot = 0; const r = [c.col + 1, ...types.map((ty, j) => { const v = cell.get((c.col + 1) + "|" + ty); if (v == null) return null; tot += v; colTot[j] += v; return v; }), tot]; pRows.push(r); });
+          pRows.push([t("xlsx_total"), ...colTot, colTot.reduce((x, y) => x + y, 0)]);
+          lineSheets.push({ name: t("xlsx_sheet_lines_pivot"), rows: pRows, numberFrom: 1, filter: false, freeze: false,
+            pivot: { src: iHist, rows: 2, cols: 1, data: 6, name: "LinesPivot", dataName: t("line_balance") } });
+          // the same figures as a chart filling the window, one colour per line type as on the page
+          // the page's carrier colours, a second shade where two types share a carrier (bus/truck, aircraft/helicopter)
+          const TY_HEX = { Bus: "E8B04B", Truck: "B07A2A", Tram: "BC8CFF", Train: "4F8A8A", Ship: "3FB950", Aircraft: "58A6FF", Helicopter: "D46FB4" };
+          const tyColor = new Map(Object.keys(TY_HEX).map(k => [t("line_type." + k), TY_HEX[k]]));
+          lineSheets.push({ name: t("xlsx_sheet_lines_chart"), chartsheet: { type: "bar", stacked: true, legend: "r", title: t("xlsx_chart_lines_pivot"), src: iPivot, cat: 0, nameRow: 4, r0: 5, r1: 4 + nY, money: true,
+            series: types.map((ty, j) => ({ col: 1 + j, color: tyColor.get(ty) || "7D8590" })) } });
         }
       }
       const d = o && o.snapshot, stamp = d && d.year ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day || 1).padStart(2, "0")}` : new Date().toISOString().slice(0, 10);

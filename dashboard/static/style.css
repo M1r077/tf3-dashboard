@@ -430,7 +430,7 @@ h2 .ico { color: var(--accent); }
 .cv.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel2)); }
 .cv.on .cv-n { color: var(--warn); font-weight: 600; }
 .cv .cv-go { background: none; border: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv .cv-go:hover { color: var(--accent, #58a6ff); }
+.cv .cv-go:hover { color: var(--info); }
 .cv .cv-go:disabled { cursor: default; color: var(--muted); }
 .cv .cv-tools { display: inline-flex; gap: 2px; opacity: .35; }
 .cv:hover .cv-tools { opacity: 1; }
@@ -456,7 +456,7 @@ h2 .ico { color: var(--accent); }
 .travellings .cv .cv-go .cv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .travellings .cv .cv-go small { font-size: 11px; white-space: nowrap; }
 .camviews .cv-travel .tr-name { background: none; border: 0; cursor: pointer; padding: 0; font: inherit; }
-.camviews .cv-travel .tr-name:hover { color: var(--accent, #58a6ff); }
+.camviews .cv-travel .tr-name:hover { color: var(--info); }
 .camviews .cv-travel .tr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .camviews .cv-travel .lbl { color: var(--muted); display: inline-flex; align-items: center; min-width: 54px; }
 .camviews .cv-travel .seg.wrap { flex-wrap: wrap; }
@@ -769,3 +769,7 @@ table.journal td.zero { color: var(--muted); opacity: .55; }
 table.kv.boosters td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.kv.boosters td:first-child { white-space: nowrap; }
 table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }
+
+/* By carrier: counts that open the Vehicles tab on those vehicles */
+.drill { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.drill:hover { color: var(--info); }

@@ -781,6 +781,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function fmtDur(s) { if (s == null) return "–"; if (s < 90) return t("dur_s", { n: Math.round(s) }); if (s < 5400) return t("dur_m", { n: Math.round(s / 60) }); return t("dur_h", { n: Math.round(s / 360) / 10 }); }
 
   // ------------------------------------------------------------ overview = operations
+  const drillN = (c, kind, n) => n ? `<span class="drill" data-carrier="${esc(c.carrier)}" data-kind="${kind}">${n}</span>` : "0";
+  // the By carrier drill-down: same rule as the server's "stuck" count (/api/fleet by_carrier)
+  const drillMatch = (v, d) => v.carrier === d.carrier && (d.kind === "all" || (d.kind === "stuck" ? v.state === "EN_ROUTE" && (v.speed_ms ?? 1) < 0.5 : v.state === d.kind));
   const miniRow = (v, right) => `<div class="row" data-veh="${v.vehicle_id}"><div><div class="n">${vehIcon(v, "sm")}${esc(v.name)}</div><div class="d">${CA(v.carrier)} · ${esc(v.line_name || t("no_line"))}</div></div><div class="r">${right}</div></div>`;
   async function renderOverview(o) {
     const [fleet, al, ld, sd] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines"), api("/api/stations")]);
@@ -802,10 +805,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     ], labels, { percent: true, rightAxis: true, rightUnit: "km/h", ...tx });
 
     const bc = fleet.by_carrier || [];
-    $("#fleet-carrier").innerHTML = `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${icoState("AT_TERMINAL", "sm inline")}${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num">${t("th_idle")}</th></tr></thead><tbody>` +
-      bc.map(c => `<tr><td><span class="vehicon" style="color:${CARRIER_COLOR[c.carrier] || "#888"}">${ico(ICON_BY_CARRIER[c.carrier] || "veh_car")}<span>${CA(c.carrier)}</span></span></td><td class="num">${c.n}</td><td class="num">${c.en_route}</td><td class="num">${c.at_terminal}</td><td class="num">${c.in_depot}</td>
+    $("#fleet-carrier").innerHTML = `<thead><tr><th></th><th class="num">${t("th_veh")}</th><th class="num">${t("th_en_route")}</th><th class="num">${icoState("AT_TERMINAL", "sm inline")}${t("th_terminal")}</th><th class="num">${t("th_depot")}</th><th>${t("th_fill")}</th><th>${t("th_cond")}</th><th class="num">${t("th_avg_speed")}</th><th class="num" title="${esc(t("th_stuck_tip"))}">${t("th_idle")}</th></tr></thead><tbody>` +
+      bc.map(c => `<tr><td><span class="vehicon drill" data-carrier="${esc(c.carrier)}" data-kind="all" style="color:${CARRIER_COLOR[c.carrier] || "#888"}">${ico(ICON_BY_CARRIER[c.carrier] || "veh_car")}<span>${CA(c.carrier)}</span></span></td><td class="num">${drillN(c, "all", c.n)}</td><td class="num">${drillN(c, "EN_ROUTE", c.en_route)}</td><td class="num">${drillN(c, "AT_TERMINAL", c.at_terminal)}</td><td class="num">${drillN(c, "IN_DEPOT", c.in_depot)}</td>
         <td>${c.capacity ? bar(c.load, c.capacity, fillCls(pct(c.load, c.capacity))) : "–"}</td><td>${c.maint != null ? condIcon(c.maint) + bar(c.maint, 1, maintCls(c.maint)) : "–"}${c.worn ? ` <span class="chip warn">${c.worn}</span>` : ""}</td>
-        <td class="num">${kmh(c.avg_speed)}</td><td class="num">${c.stuck ? `<span class="chip bad">${c.stuck}</span>` : "0"}</td></tr>`).join("") + "</tbody>";
+        <td class="num">${kmh(c.avg_speed)}</td><td class="num">${c.stuck ? `<span class="chip bad drill" data-carrier="${esc(c.carrier)}" data-kind="stuck">${c.stuck}</span>` : "0"}</td></tr>`).join("") + "</tbody>";
+    // a count opens the Vehicles tab on exactly those vehicles (carrier + state, or stuck = en route below 0.5 m/s)
+    $$("#fleet-carrier .drill").forEach(el => el.addEventListener("click", () => { state.vehDrill = { carrier: el.dataset.carrier, kind: el.dataset.kind }; state.selVeh = null; showTab("vehicles"); }));
 
     renderAlerts($("#alerts-list"), al.alerts || []);
     $("#alerts-count").textContent = (al.alerts || []).length ? `${al.alerts.length}` : t("none");
@@ -862,7 +867,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     renderTypeBar($("#veh-types"), veh, vehType, state.vehTypes, renderVehicles);
     renderStateBar($("#veh-states"), veh);
     const q = $("#veh-filter").value.toLowerCase(), worn = $("#veh-worn").checked, prob = $("#veh-problem").checked;
-    const rows = veh.filter(v => (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || v.days_in_depot > 2));
+    const drill = state.vehDrill, dEl = $("#veh-drill");
+    if (dEl) {
+      dEl.innerHTML = drill ? `<button class="tbtn active" title="${esc(t("drill_clear"))}" style="--c:${CARRIER_COLOR[drill.carrier] || "#888"}">${ico(ICON_BY_CARRIER[drill.carrier] || "veh_car", "sm")}<small>${CA(drill.carrier)}${drill.kind === "all" ? "" : " · " + (drill.kind === "stuck" ? t("th_idle") : ST(drill.kind))}</small>${ico("close", "sm")}</button>` : "";
+      const b = $("button", dEl); if (b) b.addEventListener("click", () => { state.vehDrill = null; renderVehicles(); });
+    }
+    const rows = veh.filter(v => (!drill || drillMatch(v, drill)) && (!q || [v.name, v.line_name, v.town_name, v.model, ...(v.capacities || []).map(c => cargoName(c.cargo))].join(" ").toLowerCase().includes(q)) && (!state.vehTypes.size || state.vehTypes.has(vehType(v))) && (!state.vehStates.size || state.vehStates.has(v.state)) && (!worn || (v.maintenance != null && v.maintenance < 0.5)) && (!prob || v.no_path || v.user_stopped || !v.line_id || v.days_in_depot > 2));
     $("#veh-count").textContent = `${rows.length} / ${veh.length}`;
     const cols = [
       { key: "name", label: t("th_vehicle"), render: v => `${esc(v.name)}${v.model ? `<br><small>${esc(v.model)}</small>` : ""}` },

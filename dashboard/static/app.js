@@ -68,7 +68,7 @@
     if (settings.finance === false && state.tab === "finance") showTab("overview");
     restartTimer();
   }
-  $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); if (o) renderSaves(); });
+  $("#gear").addEventListener("click", () => { const o = !$("#settings").classList.contains("open"); $("#settings").classList.toggle("open", o); $("#gear").classList.toggle("open", o); if (o) { renderSaves(); renderCost(); } });
   $("#settings-close").addEventListener("click", () => { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); });
   document.addEventListener("click", e => { if (!e.target.closest("#settings, #gear, #offline-pick")) { $("#settings").classList.remove("open"); $("#gear").classList.remove("open"); } });
   // offline bar: "choose a save" opens the settings at the savegames list
@@ -2252,6 +2252,41 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const gameDay = (n) => n ? `${Math.floor(n / 10000)}-${String(Math.floor(n / 100) % 100).padStart(2, "0")}-${String(n % 100).padStart(2, "0")}` : "–";
   const realDate = (s) => s ? new Date(s).toLocaleString(loc(), { dateStyle: "short", timeStyle: "short" }) : "–";
   const kb = (n) => n == null ? "" : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.round(n / 1024) + " KB";
+  // ------------------------------------------------------------ cost gauge (Settings)
+  // The mod measures its own time in each game frame (mod rev 24+) and reports it once a minute; the gauge shows the
+  // mod's share of the game's frame, then each part with what it is for, so a player sees what to turn off first.
+  const COST_PARTS = ["slow_collect", "slow_write", "fast_build", "fast_write", "geo", "geo_check", "heightmap", "catalogue", "journal", "line_paths", "poll"];
+  let costReport = "";
+  async function renderCost() {
+    const el = $("#cost"); if (!el) return;
+    let d; try { d = await api("/api/cost"); } catch (e) { d = null; }
+    if (!d || !d.reports) { el.innerHTML = `<p class="setnote">${t("cost_none")}</p>`; costReport = ""; return; }
+    const f1 = x => x == null ? "–" : x < 0.1 ? x.toFixed(2) : x.toFixed(1);
+    const share = d.frame_ms ? d.per_frame_ms / d.frame_ms : 0;
+    const cls = share > 0.1 ? "bad" : share > 0.03 ? "warn" : "ok";
+    const top = d.parts[0];
+    const verdict = share > 0.1 ? t("cost_v_high", { part: t("cost_p." + top.name) }) : share > 0.03 ? t("cost_v_mid", { part: t("cost_p." + top.name) }) : t("cost_v_low");
+    const sz = d.size || {};
+    const sizeTxt = t("cost_size", { l: sz.lines ?? "?", v: sz.vehicles ?? "?", s: sz.stations ?? "?", e: sz.edges ?? "?" });
+    const maxPart = Math.max(...d.parts.map(p => p.per_frame_ms || 0), 1e-9);
+    el.innerHTML = `<div class="cost-head"><span class="bar ${cls} wide"><i style="width:${Math.min(100, Math.max(1, share * 100))}%"></i></span>
+        <b>${f1(d.per_frame_ms)} ms</b> <span class="muted">${t("cost_of_frame", { f: f1(d.frame_ms), fps: Math.round(d.fps || 0), p: (share * 100).toFixed(share < 0.01 ? 2 : 1) })}</span></div>
+      <p class="cost-verdict ${cls}">${esc(verdict)}</p>
+      <table class="kv cost-parts">${d.parts.filter(p => COST_PARTS.includes(p.name) || p.ms > 0).map(p => `<tr title="${esc(t("cost_d." + p.name))}"><td>${esc(t("cost_p." + p.name))}</td><td><span class="bar"><i style="width:${100 * (p.per_frame_ms || 0) / maxPart}%"></i></span></td><td class="num mono">${f1(p.per_frame_ms)} ms</td><td class="num mono muted">${t("cost_peak", { n: f1(p.max_ms) })}</td></tr>`).join("")}</table>
+      <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}. ${t("cost_hint")}</p>
+      <div class="btns"><button class="btn sm" id="cost-copy">${ico("copy", "sm")}<span>${t("cost_copy")}</span></button><span class="pmsg" id="cost-msg"></span></div>`;
+    costReport = [`TF3 Dashboard ${d.version} - mod cost report`,
+      `mod: ${f1(d.per_frame_ms)} ms per frame of ${f1(d.frame_ms)} ms (${Math.round(d.fps || 0)} fps), ${(share * 100).toFixed(2)} %, worst frame ${f1(d.max_frame_ms)} ms`,
+      `save: ${sz.lines ?? "?"} lines, ${sz.vehicles ?? "?"} vehicles, ${sz.stations ?? "?"} stations, ${sz.towns ?? "?"} towns, ${sz.industries ?? "?"} industries, ${sz.edges ?? "?"} edges; fast ${sz.interval_fast ?? "?"} s, slow ${sz.interval_slow ?? "?"} s, vehicles ${sz.export_vehicles === false ? "off" : "on"}`,
+      `over ${Math.round(d.span_s)} s (${d.reports} reports):`,
+      ...d.parts.map(p => `  ${p.name.padEnd(13)} ${f1(p.per_frame_ms).padStart(6)} ms/frame  peak ${f1(p.max_ms)} ms  (${p.n} runs)`)].join("\n");
+    $("#cost-copy").addEventListener("click", async () => {
+      const m = $("#cost-msg");
+      try { await navigator.clipboard.writeText(costReport); m.textContent = t("preset_copied"); } catch (e) { await modal.prompt(t("preset_copy_manual"), { title: t("cost_copy"), value: costReport, multiline: true, ok: "OK" }); }
+      m.classList.add("on"); setTimeout(() => m.classList.remove("on"), 1800);
+    });
+  }
+
   async function renderSaves() {
     const box = $("#saves"); if (!box) return;
     let d; try { d = await api("/api/games"); } catch (e) {
@@ -3346,7 +3381,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
   setLang(pickLang(), false);
   applySettings();
-  if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); renderSaves(); }
+  if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); renderSaves(); renderCost(); }
   if (new URLSearchParams(location.search).get("layout_edit")) Layout.enterEdit();
   const initial = tabFromUrl() || settings.defaultTab;
   if (initial && RENDER[initial]) showTab(initial, false); else refresh();

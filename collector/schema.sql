@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS snapshot (
     accept_commands INTEGER,                      -- mod param: dashboard -> game commands allowed
     cmd_ack        TEXT,                          -- JSON {id, cmd, ok, error, real_time} of the last executed command
     camera         TEXT,                          -- JSON {x, y, dist, angle, pitch, follow?} where the player looks (mod rev 7+)
+    cost           TEXT,                          -- JSON cost gauge report, about once a minute (mod rev 24+): {window_s, frames, total_ms, max_frame_ms, parts: [{name, ms, n, max_ms}], size}
     UNIQUE (game_id, seq, real_time)
 );
 CREATE INDEX IF NOT EXISTS ix_snapshot_time ON snapshot(game_id, real_time);

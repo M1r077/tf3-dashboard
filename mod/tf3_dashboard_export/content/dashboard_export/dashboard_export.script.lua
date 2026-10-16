@@ -97,6 +97,38 @@ local function debug(...)
 	if options().debug_log then log(...) end
 end
 
+-- ---------------------------------------------------------------- cost gauge (rev 24)
+-- What the mod costs the game, always on: the time spent in guiUpdate per frame, split by part of the export, summed
+-- over a window of COST.WINDOW seconds and published in live.lua (snapshot.cost) once per window. The frame count of the
+-- window gives the game's own frame rate, so the dashboard can say "the mod takes 0.3 ms of a 25 ms frame": late-game
+-- lag that is not the mod shows as a low frame rate with a small mod share. Measuring costs two os.clock() calls per
+-- part per frame (well under a microsecond). os.clock is wall time on Windows; on Linux/Proton it is the process CPU
+-- time of all threads, so the figures there are an upper bound.
+local COST = { WINDOW = 60, acc = {}, frames = 0, total = 0, maxFrame = 0, started = nil, report = nil, fresh = false }
+function COST.add(name, dt)
+	local a = COST.acc[name]
+	if a == nil then a = { t = 0, n = 0, max = 0 }; COST.acc[name] = a end
+	a.t = a.t + dt; a.n = a.n + 1
+	if dt > a.max then a.max = dt end
+end
+function COST.frame(now, dt, sizeFn)
+	if COST.started == nil then COST.started = now end
+	COST.frames = COST.frames + 1
+	COST.total = COST.total + dt
+	if dt > COST.maxFrame then COST.maxFrame = dt end
+	local span = now - COST.started
+	if span < COST.WINDOW then return end
+	local parts = {}
+	for name, a in pairs(COST.acc) do
+		parts[#parts + 1] = { name = name, ms = a.t * 1000, n = a.n, max_ms = a.max * 1000 }
+	end
+	table.sort(parts, function(x, y) return x.ms > y.ms end)
+	COST.report = { window_s = span, frames = COST.frames, total_ms = COST.total * 1000, max_frame_ms = COST.maxFrame * 1000,
+		parts = parts, size = sizeFn(), real_time = os.time() }
+	COST.fresh = true
+	COST.acc, COST.frames, COST.total, COST.maxFrame, COST.started = {}, 0, 0, 0, now
+end
+
 -- ---------------------------------------------------------------- helpers
 local function num(x)
 	if type(x) == "number" then return x end
@@ -2915,8 +2947,8 @@ end
 
 local lastPoll = -1e9
 
-function script.guiUpdate(_userParams, _state, _guiState)
-	local now = os.clock()
+-- the export of one frame (guiUpdate's body), timed part by part for the cost gauge
+function COST.export(now)
 	local o = options()
 	statusTick(now)
 	if camPath then  -- camera travelling: one interpolation + setCameraData per frame, a few microseconds
@@ -2936,6 +2968,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 	if now - lastPoll >= 0.25 then
 		lastPoll = now
+		local tp = os.clock()
 		local present = listUserdata()
 		if present[ACTIVITY.FILE] or present[CMD_FILE] then status.companion_seen = os.time() end
 		if present[ACTIVITY.FILE] then
@@ -2947,6 +2980,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 			local okP, errP = pcall(pollCommands)
 			if not okP then debug("pollCommands failed:", tostring(errP)) end
 		end
+		COST.add("poll", os.clock() - tp)
 	end
 	local active = now < ACTIVITY.until_
 
@@ -2968,7 +3002,9 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		-- the very first cycle runs unthrottled so that the dashboard gets a complete picture right away
 		local budget = SLOW_BUDGET
 		if slowCache == nil then budget = 1e9 elseif active then budget = ACTIVITY.BUDGET end
+		local ts = os.clock()
 		local ok, done = pcall(slowJobRun, budget)
+		COST.add("slow_collect", os.clock() - ts)
 		if not ok then
 			log("slow cycle failed:", tostring(done))
 			slowJob = nil
@@ -2989,9 +3025,11 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	if slowPending ~= nil then
 		-- one slow file per frame; on the very first cycle, or while the player is on the dashboard, write them all
 		-- now so that live.lua can follow at once
+		local tw0 = os.clock()
 		local okW, errW = pcall(function()
 			if slowCache == nil or active then while slowWriteNext() do end; slowWriteNext() else slowWriteNext() end
 		end)
+		COST.add("slow_write", os.clock() - tw0)
 		if not okW then log("slow write failed:", tostring(errW)); slowPending = nil; slowWriteQueue = {} end
 		if slowPending ~= nil then return end  -- do not write live.lua in the same frame as a slow file
 	end
@@ -2999,17 +3037,21 @@ function script.guiUpdate(_userParams, _state, _guiState)
 
 	-- line paths: a small file, only when a leg changed; its own frame
 	if LINEPATH.dirty then
+		local tl = os.clock()
 		local okL, wrote = pcall(linePathsWrite)
+		COST.add("line_paths", os.clock() - tl)
 		if not okL then log("line paths write failed:", tostring(wrote)); LINEPATH.dirty = false end
 		if wrote then return end
 	end
 
 	-- finance journal: once per game month (or after a save game reload); its own frame
 	do
+		local tj = os.clock()
 		local okJ, wroteJ = pcall(function()
 			local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
 			return journalWriteIfDue(api.engine.util.getPlayer(), num(gt and gt.gameTime))
 		end)
+		COST.add("journal", os.clock() - tj)
 		if not okJ then log("journal write failed:", tostring(wroteJ)) end
 		if wroteJ then return end
 	end
@@ -3025,7 +3067,9 @@ function script.guiUpdate(_userParams, _state, _guiState)
 			end
 		end
 		if catJob ~= nil then
+			local tk = os.clock()
 			local okC, wroteC = pcall(catalogueStep)
+			COST.add("catalogue", os.clock() - tk)
 			if not okC then log("models step failed:", tostring(wroteC)); catJob = nil; catYear = catYear or 0 end
 			if wroteC then return end
 		end
@@ -3037,6 +3081,7 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		lastGeoAt = now
 		local tc = os.clock()
 		local n = geoEdgeCount()
+		COST.add("geo_check", os.clock() - tc)
 		debug(string.format("geo: %s edges in the network (counted in %.0fms)", tostring(n), (os.clock() - tc) * 1000))
 		if geoCache == nil or (n ~= nil and n ~= lastGeoEdgeCount) then
 			lastGeoEdgeCount = n
@@ -3045,9 +3090,11 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 	end
 	if geoJob ~= nil then
+		local tg = os.clock()
 		local okG, done = pcall(geoJobRun, active and ACTIVITY.BUDGET or SLOW_BUDGET)
+		COST.add("geo", os.clock() - tg)
 		if not okG then log("geo collection failed:", tostring(done)); geoJob = nil
-		elseif done then pcall(geoWrite, done); return end  -- not in the same frame as live.lua (a big write)
+		elseif done then local tgw = os.clock(); pcall(geoWrite, done); COST.add("geo", os.clock() - tgw); return end  -- not in the same frame as live.lua (a big write)
 	end
 	-- full-resolution heightmap: after the geography, once per load, and again when the terrain revisions changed
 	-- (the player raised or dug ground); checked with the geo minute tick above, two tiles per frame meanwhile
@@ -3061,7 +3108,9 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 	end
 	if heightJob ~= nil then
+		local th = os.clock()
 		local okH, doneH = pcall(heightJobRun)
+		COST.add("heightmap", os.clock() - th)
 		if not okH then log("heightmap export failed:", tostring(doneH)); heightJob = nil
 		elseif doneH then return end
 	end
@@ -3076,7 +3125,10 @@ function script.guiUpdate(_userParams, _state, _guiState)
 	end
 	lastFast = now
 	local tw = os.clock()
+	COST.add("fast_build", tw - tb)
+	if COST.fresh then snap.cost = COST.report; COST.fresh = false end
 	local written = writeSnapshot(snap)
+	COST.add("fast_write", os.clock() - tw)
 	if o.debug_log then
 		local te = os.clock()
 		if te - tb > 0.01 then log(string.format("fast snapshot: build %.0fms, write %.0fms", (tw - tb) * 1000, (te - tw) * 1000)) end
@@ -3091,6 +3143,22 @@ function script.guiUpdate(_userParams, _state, _guiState)
 		end
 		debug(string.format("seq %d written, %d error(s), %d vehicles", snap.seq, #snap.errors, snap.vehicles and #snap.vehicles or 0))
 	end
+end
+
+-- size of the save, next to the cost figures (a report means little without it)
+function COST.size()
+	local c = slowCache or {}
+	return { lines = #(c.lines or {}), stations = #(c.stations or {}), towns = #(c.towns or {}), industries = #(c.industries or {}),
+		vehicles = #(c.vehicles or {}), edges = lastGeoEdgeCount, interval_fast = options().interval_fast, interval_slow = options().interval_slow,
+		export_vehicles = options().export_vehicles and true or false }
+end
+
+function script.guiUpdate(_userParams, _state, _guiState)
+	local now = os.clock()
+	local ok, err = pcall(COST.export, now)
+	if not ok then log("guiUpdate failed:", tostring(err)) end
+	local okC, errC = pcall(COST.frame, now, os.clock() - now, COST.size)
+	if not okC then log("cost gauge failed:", tostring(errC)) end
 end
 
 -- ---------------------------------------------------------------- status window

@@ -41,10 +41,11 @@ const XLSX = (() => {
   //     w, h: size in px, barDir: "bar" (horizontal) | "col", reverse: categories top-down, money: axis in millions }]
   // Series names come from the header row (row 1, or nameRow) of their column. stacked: stacked bars.
   const txPr = (sz, b, c = "D6DAE0") => `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="${sz}"${b ? ' b="1"' : ""}><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+  const val = (v) => v && typeof v === "object" ? v.v : v;  // a formula cell { f, v } reads as its cached value
   function chartXml(ch, self, sheets, rawNames) {
     const si = ch.src == null ? self : ch.src, rows = sheets[si].rows || [], sn = `'${rawNames[si].replace(/'/g, "''")}'`;
     const ref = (c, a, b) => `${sn}!$${col(c)}$${a}${b != null && b !== a ? `:$${col(c)}$${b}` : ""}`;
-    const n = ch.r1 - ch.r0 + 1, cell = (r, c) => (rows[r - 1] || [])[c];
+    const n = ch.r1 - ch.r0 + 1, cell = (r, c) => val((rows[r - 1] || [])[c]);
     const strCache = (c, a, b) => `<c:strCache><c:ptCount val="${b - a + 1}"/>${Array.from({ length: b - a + 1 }, (_, k) => { const v = cell(a + k, c); return v == null || v === "" ? "" : `<c:pt idx="${k}"><c:v>${xml(v)}</c:v></c:pt>`; }).join("")}</c:strCache>`;
     const numCache = (c) => `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${n}"/>${Array.from({ length: n }, (_, k) => { const v = cell(ch.r0 + k, c); return typeof v === "number" && isFinite(v) ? `<c:pt idx="${k}"><c:v>${v}</c:v></c:pt>` : ""; }).join("")}</c:numCache>`;
     const bar = ch.type === "bar";
@@ -80,8 +81,9 @@ const XLSX = (() => {
   // Fields are column indices of the source sheet (header row = field names). Text columns become item lists,
   // number columns stay numbers.
   // axis = the field indices placed on rows/columns: they get item lists (numbers too, as <n> items, sorted)
-  function pivotCache(src, axis) {
-    const rows = src.rows || [], head = rows[0] || [], body = rows.slice(1);
+  function pivotCache(src, axis, width) {
+    const all = src.rows || [], w = width || (all[0] || []).length;
+    const rows = all.map(r => r.slice(0, w).map(val)), head = rows[0] || [], body = rows.slice(1);
     const fields = head.map((h, c) => {
       const vals = body.map(r => r[c]);
       const isNum = vals.every(v => v == null || v === "" || (typeof v === "number" && isFinite(v)));
@@ -138,18 +140,22 @@ const XLSX = (() => {
     rows.forEach((r, ri) => {
       let cells = "";
       r.forEach((v, ci) => {
+        const fx = v && typeof v === "object" && v.f ? v : null;
+        if (fx) v = fx.v;
         const ref = col(ci) + (ri + 1), head = ri === 0, num = typeof v === "number" && isFinite(v), isNum = ci >= nf;
         // style id = fill x (text | number): see styles in build(); fill 0 plain, 1 header, 2 group, 3 total, 4 band, 5 first column
         const fill = head ? 1 : kinds[ri] === "group" ? 2 : kinds[ri] === "total" ? 3 : (sh.banded && ri % 2 === 0) ? 4 : (ci === 0 && !isNum) ? 5 : 0;  // 0 = plain dark
         const style = fill * 2 + (isNum && (num || v == null || v === "" || head) ? 1 : 0);  // a text in a number column stays text
-        if (num) { cells += `<c r="${ref}" s="${style}"><v>${v}</v></c>`; widths[ci] = Math.max(widths[ci], String(Math.round(v)).length * 1.3 + 2); }
+        if (fx) { cells += `<c r="${ref}" s="${style}"><f>${xml(fx.f)}</f>${num ? `<v>${v}</v>` : ""}</c>`; widths[ci] = Math.max(widths[ci], num ? String(Math.round(v)).length * 1.3 + 2 : 8); }
+        else if (num) { cells += `<c r="${ref}" s="${style}"><v>${v}</v></c>`; widths[ci] = Math.max(widths[ci], String(Math.round(v)).length * 1.3 + 2); }
         else if (v != null && v !== "") { cells += `<c r="${ref}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${xml(v)}</t></is></c>`; widths[ci] = Math.max(widths[ci], Math.min(60, String(v).length + 2)); }
         else cells += `<c r="${ref}" s="${style}"/>`;  // an empty cell still takes the row's fill (dark sheet, no holes)
       });
       body += `<row r="${ri + 1}">${cells}</row>`;
     });
     // column styles make the empty area dark too (used columns and everything beyond); no gridlines on dark
-    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1" style="0"/>`).join("") + `<col min="${ncol + 1}" max="16384" style="0"/>`;
+    const hid = new Set(sh.hiddenCols || []);
+    const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w.toFixed(1)}" customWidth="1" style="0"${hid.has(i) ? ' hidden="1"' : ""}/>`).join("") + `<col min="${ncol + 1}" max="16384" style="0"/>`;
     const freeze = sh.freeze === false ? `<sheetViews><sheetView workbookViewId="0" showGridLines="0"/></sheetViews>` : rows.length > 1 ? `<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>` : "";
     // the header row gets the filter/sort arrows (sheets with grouped rows keep their structure: no filter there)
     const filter = sh.filter !== false && rows.length > 1 && ncol > 0 ? `<autoFilter ref="A1:${col(ncol - 1)}${rows.length}"/>` : "";
@@ -207,7 +213,7 @@ const XLSX = (() => {
     const sheetRels = sheets.map(() => []);
     sheets.forEach((s, i) => {
       const pv = s.pivot; if (!pv) return;
-      const p = ++np, pc = pivotCache(sheets[pv.src], [pv.rows, pv.cols].filter(v => v != null));
+      const p = ++np, pc = pivotCache(sheets[pv.src], [pv.rows, pv.cols].filter(v => v != null), pv.width);
       const rid = `rId${sheets.length + 1 + p}`;
       extra.push([`xl/pivotCache/pivotCacheDefinition${p}.xml`, pivotCacheDefXml(pc, rawNames[pv.src])]);
       extra.push([`xl/pivotCache/pivotCacheRecords${p}.xml`, pivotRecordsXml(pc)]);
@@ -244,7 +250,7 @@ const XLSX = (() => {
     const files = [
       ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>${sheets.map((s, i) => `<Override PartName="/xl/${part(s)}/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.${s.chartsheet ? "chartsheet" : "worksheet"}+xml"/>`).join("")}${over.join("")}</Types>`],
       ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
-      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><definedNames>${sheets.map((s, i) => { const rows = s.rows || [], nc = rows.reduce((n, r) => Math.max(n, r.length), 0); return !s.chartsheet && s.filter !== false && rows.length > 1 && nc > 0 ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!$A$1:$${col(nc - 1)}$${rows.length}</definedName>` : ""; }).join("")}</definedNames>${wbPivot.length ? `<pivotCaches>${wbPivot.join("")}</pivotCaches>` : ""}</workbook>`],
+      ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><definedNames>${sheets.map((s, i) => { const rows = s.rows || [], nc = rows.reduce((n, r) => Math.max(n, r.length), 0); return !s.chartsheet && s.filter !== false && rows.length > 1 && nc > 0 ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${names[i].replace(/'/g, "''")}'!$A$1:$${col(nc - 1)}$${rows.length}</definedName>` : ""; }).join("")}</definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/>${wbPivot.length ? `<pivotCaches>${wbPivot.join("")}</pivotCaches>` : ""}</workbook>`],
       ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="${REL}${s.chartsheet ? "chartsheet" : "worksheet"}" Target="${part(s)}/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>${wbRels.join("")}</Relationships>`],
       ["xl/styles.xml", stylesXml()],
       ["xl/theme/theme1.xml", themeXml()],

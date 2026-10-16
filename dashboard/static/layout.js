@@ -17,7 +17,7 @@
   /** Shipped layout, per tab: panel -> [x, y, w, h] (grid columns / rows of ROW px). Used when a tab has no saved
       layout (first start, Reset); cards unknown to the preset (added later) flow below it as usual. */
   const PRESET = {
-    overview: { "fleet-state": [4, 35, 3, 35], "by-carrier": [2, 0, 5, 35], "alerts": [0, 0, 2, 49], "fleet-perf": [2, 90, 5, 33], "idle": [0, 49, 2, 74], "stuck": [2, 35, 2, 55], "worn": [7, 35, 4, 34], "lines-bad": [7, 0, 4, 35], "lines-load": [7, 69, 4, 37] },
+    overview: { "fleet-state": [4, 35, 3, 35], "by-carrier": [2, 0, 5, 35], "alerts": [0, 0, 2, 49], "fleet-perf": [2, 90, 5, 33], "idle": [0, 49, 2, 74], "stuck": [2, 35, 2, 55], "worn": [7, 35, 4, 34], "lines-bad": [7, 0, 4, 35], "lines-load": [7, 69, 4, 37], "lines-late": [7, 106, 4, 35] },
     vehicles: { "veh-table": [0, 0, 7, 64], "veh-detail": [7, 0, 5, 64] },
     lines: { "lines-table": [0, 0, 6, 123], "line-detail": [6, 0, 6, 123] },
     map: { "cam-views": [7, 0, 2, 39], "travellings": [9, 0, 3, 39], "map": [0, 0, 7, 111], "trv-workshop": [7, 39, 4, 63] },
@@ -29,7 +29,7 @@
   /** Built-in layout for a portrait screen (a 1080 x 1920 third monitor): the tables take the full width, the detail
       sits below them instead of beside, the small cards go two by two. Same shape as PRESET. */
   const VERTICAL = {
-    overview: { "by-carrier": [0, 0, 12, 30], "alerts": [0, 30, 6, 40], "lines-bad": [6, 30, 6, 40], "fleet-state": [0, 70, 6, 35], "fleet-perf": [6, 70, 6, 35], "stuck": [0, 105, 6, 45], "worn": [6, 105, 6, 45], "idle": [0, 150, 6, 50], "lines-load": [6, 150, 6, 50] },
+    overview: { "by-carrier": [0, 0, 12, 30], "alerts": [0, 30, 6, 40], "lines-bad": [6, 30, 6, 40], "fleet-state": [0, 70, 6, 35], "fleet-perf": [6, 70, 6, 35], "stuck": [0, 105, 6, 45], "worn": [6, 105, 6, 45], "idle": [0, 150, 6, 50], "lines-load": [6, 150, 6, 50], "lines-late": [0, 200, 6, 40] },
     vehicles: { "veh-table": [0, 0, 12, 60], "veh-detail": [0, 60, 12, 70] },
     lines: { "lines-table": [0, 0, 12, 70], "line-detail": [0, 70, 12, 90] },
     map: { "map": [0, 0, 12, 90], "cam-views": [0, 90, 6, 40], "travellings": [6, 90, 6, 40], "trv-workshop": [0, 130, 12, 60] },

@@ -36,7 +36,7 @@ window.I18N = {
     // overview
     fleet_in_service: "Fleet in service", samples: "{n} samples", by_carrier: "By carrier", alerts: "Alerts", none: "none",
     fill_speed: "Load factor & average speed", watch_idle: "Watch — idle / no line", worn_first: "Wear — service first",
-    stuck_title: "Stuck en route", stuck_sub: "speed zero for > 20 s", lines_unhappy: "Most unhappy lines", lines_loaded: "Busiest lines", stations_busy: "Busiest stations", stations_busy_sub: "waiting / capacity", export_errors: "Export errors",
+    stuck_title: "Stuck en route", stuck_sub: "speed zero for > 20 s", lines_unhappy: "Most unhappy lines", lines_late: "Most late cargo lines", lines_late_sub: "late / delivered", lines_loaded: "Busiest lines", stations_busy: "Busiest stations", stations_busy_sub: "waiting / capacity", export_errors: "Export errors",
     th_veh: "Veh.", th_en_route: "En route", th_terminal: "Loading", th_depot: "Depot", th_fill: "Load", th_cond: "Condition", th_avg_speed: "Avg speed", th_idle: "Stuck", th_stuck_tip: "En route but standing still (below 2 km/h): traffic jam, signal, blocked path. Vehicles loading at a stop are not counted. Click a number to list the vehicles.", drill_clear: "Show all vehicles again", goto_line: "Open the line", goto_station: "Open the station",
     everyone_moving: "Everyone is moving.", none_stuck: "No stuck vehicle.", all_good: "All good.", stuck_n: "{n} samples at 0", idle_days: "{n} d idle",
     no_line: "no line", stopped: "stopped", seen_n: "seen {n}×", new: "new", since: "since {ago}", stop_n: "stop {n}", units_n: "{n} units", by_id: "by #{id}",
@@ -196,7 +196,7 @@ window.I18N = {
     // overview
     fleet_in_service: "Парк в работе", samples: "точек: {n}", by_carrier: "По видам транспорта", alerts: "Оповещения", none: "нет",
     fill_speed: "Загрузка и средняя скорость", watch_idle: "Наблюдение — простой / без линии", worn_first: "Износ — сначала обслуживание",
-    stuck_title: "Застряли в пути", stuck_sub: "нулевая скорость дольше 20 с", lines_unhappy: "Самые недовольные линии", lines_loaded: "Самые загруженные линии", stations_busy: "Самые загруженные станции", stations_busy_sub: "ожидание / вместимость", export_errors: "Ошибки экспорта",
+    stuck_title: "Застряли в пути", stuck_sub: "нулевая скорость дольше 20 с", lines_unhappy: "Самые недовольные линии", lines_late: "Линии с наибольшими опозданиями груза", lines_late_sub: "опоздания / доставлено", lines_loaded: "Самые загруженные линии", stations_busy: "Самые загруженные станции", stations_busy_sub: "ожидание / вместимость", export_errors: "Ошибки экспорта",
     th_veh: "Ед.", th_en_route: "В пути", th_terminal: "Погрузка", th_depot: "В депо", th_fill: "Загрузка", th_cond: "Состояние", th_avg_speed: "Ср. скорость", th_idle: "Застряли", th_stuck_tip: "В пути, но стоят (меньше 2 км/ч): пробка, сигнал, перекрытый путь. Транспорт на погрузке не учитывается. Нажмите на число, чтобы увидеть список.", drill_clear: "Снова показать весь транспорт", goto_line: "Открыть линию", goto_station: "Открыть станцию",
     everyone_moving: "Все в движении.", none_stuck: "Застрявших нет.", all_good: "Всё в порядке.", stuck_n: "точек с нулём: {n}", idle_days: "простой: {n} дн.",
     no_line: "без линии", stopped: "остановлен", seen_n: "видено {n}×", new: "новый", since: "уже {ago}", stop_n: "остановка {n}", units_n: "ед.: {n}", by_id: "по #{id}",
@@ -350,7 +350,7 @@ window.I18N = {
     tab_overview: "Exploitation", tab_vehicles: "Véhicules", tab_lines: "Lignes", tab_map: "Carte", tab_towns: "Villes", tab_industries: "Industries", tab_stations: "Gares & dépôts", tab_finance: "Finances",
     fleet_in_service: "Flotte en service", samples: "{n} relevés", by_carrier: "Par transporteur", alerts: "Alertes", none: "aucune",
     fill_speed: "Remplissage & vitesse moyenne", watch_idle: "À surveiller — immobilisés / sans ligne", worn_first: "Usure — à réviser en premier",
-    stuck_title: "Bloqués en route", stuck_sub: "vitesse nulle depuis > 20 s", lines_unhappy: "Lignes les plus mécontentes", lines_loaded: "Lignes les plus chargées", stations_busy: "Gares les plus chargées", stations_busy_sub: "en attente / capacité", export_errors: "Erreurs d'export",
+    stuck_title: "Bloqués en route", stuck_sub: "vitesse nulle depuis > 20 s", lines_unhappy: "Lignes les plus mécontentes", lines_late: "Lignes au cargo le plus en retard", lines_late_sub: "en retard / livré", lines_loaded: "Lignes les plus chargées", stations_busy: "Gares les plus chargées", stations_busy_sub: "en attente / capacité", export_errors: "Erreurs d'export",
     th_veh: "Véh.", th_en_route: "En route", th_terminal: "En chargement", th_depot: "Dépôt", th_fill: "Remplissage", th_cond: "État", th_avg_speed: "Vit. moy.", th_idle: "Bloqués", th_stuck_tip: "En route mais à l\u2019arrêt (moins de 2 km/h) : bouchon, signal, voie bloquée. Les véhicules en chargement ne sont pas comptés. Clique sur un nombre pour voir les véhicules.", drill_clear: "Réafficher tous les véhicules", goto_line: "Ouvrir la ligne", goto_station: "Ouvrir la gare",
     everyone_moving: "Tout le monde roule.", none_stuck: "Aucun véhicule bloqué.", all_good: "Tout roule.", stuck_n: "{n} relevés à 0", idle_days: "{n} j immobile",
     no_line: "sans ligne", stopped: "arrêté", seen_n: "vu {n}×", new: "nouveau", since: "depuis {ago}", stop_n: "arrêt {n}", units_n: "{n} unités", by_id: "par #{id}",
@@ -494,7 +494,7 @@ window.I18N = {
     tab_overview: "Betrieb", tab_vehicles: "Fahrzeuge", tab_lines: "Linien", tab_map: "Karte", tab_towns: "Städte", tab_industries: "Industrien", tab_stations: "Stationen & Depots", tab_finance: "Finanzen",
     fleet_in_service: "Flotte im Einsatz", samples: "{n} Messungen", by_carrier: "Nach Verkehrsträger", alerts: "Warnungen", none: "keine",
     fill_speed: "Auslastung & Durchschnittsgeschwindigkeit", watch_idle: "Beobachten — stehend / ohne Linie", worn_first: "Verschleiss — zuerst warten",
-    stuck_title: "Unterwegs blockiert", stuck_sub: "Geschwindigkeit null seit > 20 s", lines_unhappy: "Unzufriedenste Linien", lines_loaded: "Am stärksten ausgelastete Linien", stations_busy: "Meistbelegte Stationen", stations_busy_sub: "wartend / Kapazität", export_errors: "Exportfehler",
+    stuck_title: "Unterwegs blockiert", stuck_sub: "Geschwindigkeit null seit > 20 s", lines_unhappy: "Unzufriedenste Linien", lines_late: "Linien mit der meisten verspäteten Fracht", lines_late_sub: "verspätet / geliefert", lines_loaded: "Am stärksten ausgelastete Linien", stations_busy: "Meistbelegte Stationen", stations_busy_sub: "wartend / Kapazität", export_errors: "Exportfehler",
     th_veh: "Fzg.", th_en_route: "Unterwegs", th_terminal: "Beim Laden", th_depot: "Depot", th_fill: "Auslastung", th_cond: "Zustand", th_avg_speed: "Ø Tempo", th_idle: "Blockiert", th_stuck_tip: "Unterwegs, aber stehend (unter 2 km/h): Stau, Signal, blockierter Weg. Fahrzeuge beim Laden zählen nicht. Auf eine Zahl klicken, um die Fahrzeuge zu sehen.", drill_clear: "Wieder alle Fahrzeuge zeigen", goto_line: "Linie öffnen", goto_station: "Station öffnen",
     everyone_moving: "Alle fahren.", none_stuck: "Kein blockiertes Fahrzeug.", all_good: "Alles läuft.", stuck_n: "{n} Messungen bei 0", idle_days: "{n} T. stehend",
     no_line: "ohne Linie", stopped: "angehalten", seen_n: "{n}× gesehen", new: "neu", since: "seit {ago}", stop_n: "Halt {n}", units_n: "{n} Einheiten", by_id: "durch #{id}",
@@ -662,7 +662,7 @@ window.I18N = {
     // overview
     fleet_in_service: "Frota em serviço", samples: "{n} amostras", by_carrier: "Por modal", alerts: "Alertas", none: "nenhum",
     fill_speed: "Taxa de ocupação e velocidade média", watch_idle: "Atenção — ociosos / sem linha", worn_first: "Desgaste — revisar primeiro",
-    stuck_title: "Parados em trânsito", stuck_sub: "velocidade zero por > 20 s", lines_unhappy: "Linhas com mais insatisfeitos", lines_loaded: "Linhas mais movimentadas", stations_busy: "Estações mais cheias", stations_busy_sub: "aguardando / capacidade", export_errors: "Erros de exportação",
+    stuck_title: "Parados em trânsito", stuck_sub: "velocidade zero por > 20 s", lines_unhappy: "Linhas com mais insatisfeitos", lines_late: "Linhas com mais carga atrasada", lines_late_sub: "atrasada / entregue", lines_loaded: "Linhas mais movimentadas", stations_busy: "Estações mais cheias", stations_busy_sub: "aguardando / capacidade", export_errors: "Erros de exportação",
     th_veh: "Veíc.", th_en_route: "Em trânsito", th_terminal: "Carregando", th_depot: "Depósito", th_fill: "Ocupação", th_cond: "Condição", th_avg_speed: "Vel. média", th_idle: "Travados", th_stuck_tip: "Em trânsito, mas parados (abaixo de 2 km/h): congestionamento, sinal, caminho bloqueado. Veículos carregando não contam. Clique num número para ver os veículos.", drill_clear: "Mostrar todos os veículos de novo", goto_line: "Abrir a linha", goto_station: "Abrir a estação",
     everyone_moving: "Todos em movimento.", none_stuck: "Nenhum veículo parado.", all_good: "Tudo certo.", stuck_n: "{n} amostras em 0", idle_days: "{n} d ocioso",
     no_line: "sem linha", stopped: "parado", seen_n: "visto {n}×", new: "novo", since: "há {ago}", stop_n: "parada {n}", units_n: "{n} unidades", by_id: "por #{id}",
@@ -792,7 +792,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   // overview
   fleet_in_service: "运营中的载具", by_carrier: "按运输方式", alerts: "警告", none: "无",
   fill_speed: "装载率与平均速度", watch_idle: "关注 — 闲置 / 无线路", worn_first: "磨损 — 优先维护",
-  stuck_title: "途中停滞", stuck_sub: "速度为零超过 20 秒", lines_unhappy: "乘客最不满的线路", lines_loaded: "最繁忙的线路", stations_busy: "最繁忙车站", stations_busy_sub: "等待 / 容量", export_errors: "导出错误",
+  stuck_title: "途中停滞", stuck_sub: "速度为零超过 20 秒", lines_unhappy: "乘客最不满的线路", lines_late: "货物延误最多的线路", lines_late_sub: "延误 / 已送达", lines_loaded: "最繁忙的线路", stations_busy: "最繁忙车站", stations_busy_sub: "等待 / 容量", export_errors: "导出错误",
   th_veh: "载具", th_en_route: "在途", th_terminal: "装卸中", th_depot: "车库", th_fill: "装载", th_cond: "状况", th_avg_speed: "平均速度", th_idle: "停滞", th_stuck_tip: "在途但静止（低于 2 km/h）：堵车、信号、道路受阻。装卸中的载具不计入。点击数字查看载具。", drill_clear: "重新显示所有载具", goto_line: "打开线路", goto_station: "打开车站",
   everyone_moving: "所有载具都在运行。", none_stuck: "没有停滞的载具。", all_good: "一切正常。", no_line: "无线路", stopped: "已停止", new: "新",
   samples: "{n} 个样本", stuck_n: "{n} 个样本为 0", idle_days: "闲置 {n} 天", state_cond: "状况 {n} %", samples_range: "{n} 个点 · {r}", dur_s: "{n} 秒", dur_m: "{n} 分钟", dur_h: "{n} 小时",

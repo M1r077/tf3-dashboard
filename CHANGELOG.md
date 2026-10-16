@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Operations, By carrier: every count opens the Vehicles tab on exactly those vehicles (carrier, carrier + state, or the stuck ones), shown as a removable chip in the Vehicles toolbar. The last column, labelled "Idle", always counted vehicles en route but standing still (below 0.5 m/s: traffic jam, signal, blocked path), never vehicles loading at a stop: it is renamed "Stuck" and explained in its tooltip. Suggested on mod.io by DysonHeluck.
+
 ## Companion 0.14.1 - 16 October 2026 (mod revision 23 unchanged)
 
 - Line finances by financial year, not calendar year: 0.14.0 grouped the line chart by calendar year, but one column of the game's account chart is one financial year (1460 s of game time), whose calendar span varies with the calendar speed (about 3 months since 1947 in the test game). The line card's chart, `/api/line_finance` (now `{cols, lines: [{points: [{col, label, income, cost, balance}]}]}`) and the Excel export now go by financial year, labelled with the calendar period it covered, the same labels as the finance journal; `finance_years` is gone from `/api/line_history`. The step in 1947 is gone. "Balance (12 months)" is renamed "Balance (last financial year)": it was always the last financial year.

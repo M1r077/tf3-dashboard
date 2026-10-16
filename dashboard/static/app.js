@@ -824,6 +824,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const lines = state.cache.lines;
     const bad = lines.map(l => { const tot = (l.pax_total || 0) + (l.cargo_total || 0), b = (l.pax_bad || 0) + (l.cargo_bad || 0); return { l, tot, b, p: tot ? 100 * b / tot : 0 }; }).filter(x => x.tot >= 5).sort((a, b) => b.p - a.p).slice(0, 10);
     Charts.hbars($("#chart-lines-bad"), bad.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
+    // freight only: the share of late cargo (the game's line rating), same thresholds as above
+    const late = lines.map(l => { const tot = l.cargo_total || 0, b = l.cargo_bad || 0; return { l, tot, b, p: tot ? 100 * b / tot : 0 }; }).filter(x => x.tot >= 5).sort((a, b) => b.p - a.p || b.b - a.b).slice(0, 10);
+    Charts.hbars($("#chart-lines-late"), late.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 30 ? "#f85149" : x.p > 10 ? "#e8b04b" : "#3fb950", text: `${Math.round(x.p)} % (${x.b}/${x.tot})` })), toLine);
     const load = lines.map(l => { const c = l.capacities.reduce((a, x) => ({ u: a.u + (x.used || 0), c: a.c + (x.capacity || 0) }), { u: 0, c: 0 }); return { l, p: c.c ? 100 * c.u / c.c : 0, u: c.u, c: c.c }; }).filter(x => x.c > 0).sort((a, b) => b.p - a.p).slice(0, 10);
     // a line above 90 % is short of vehicles (people left on the platform), not a success: red; 80-90 orange
     Charts.hbars($("#chart-lines-load"), load.map(x => ({ id: x.l.line_id, label: x.l.name, value: x.p, max: 100, color: x.p > 90 ? "#f85149" : x.p > 80 ? "#e8b04b" : x.p < 25 ? "#8b98a8" : "#3fb950", text: `${Math.round(x.p)} % (${Math.round(x.u)}/${Math.round(x.c)})` })), toLine);

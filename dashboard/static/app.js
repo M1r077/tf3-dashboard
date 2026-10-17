@@ -332,14 +332,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // budget, so the unavoidable hitch happens while nobody watches the game, and the data shown is fresh. Throttled;
   // independent from "Permit game control" (it changes timing only, not the game).
   let lastHint = 0;
-  function activityHint() {
-    const now = Date.now();
-    if (now - lastHint < 1500) return;
+  // line: the line whose detail the player opens; the mod then refreshes that line's costly checks in full
+  // (vehicle length vs platforms), which it otherwise spreads over many cycles to spare the game's frame
+  function activityHint(line) {
+    const now = Date.now(), withLine = typeof line === "number" && line > 0;
+    if (!withLine && now - lastHint < 1500) return;
     lastHint = now;
-    fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+    fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withLine ? { line } : {}) }).catch(() => {});
     setTimeout(() => refresh(), 1200);  // the mod flushes its slow files within ~1 s of the hint
   }
-  ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, activityHint, { passive: true, capture: true }));
+  ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, () => activityHint(), { passive: true, capture: true }));
 
   // ------------------------------------------------------------ modal (replaces the browser's prompt/confirm)
   // modal.confirm(text, {title, ok, danger}) -> Promise<boolean>; modal.prompt(text, {title, value, ok}) -> Promise<string|null>
@@ -1046,8 +1048,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (state.selLine) renderLineDetail(state.selLine);
   }
 
+  let hintedLine = null;
   async function renderLineDetail(id) {
     const l = (state.cache.lines || []).find(x => x.line_id === id); if (!l) return;
+    if (hintedLine !== id) { hintedLine = id; activityHint(id); }  // opened (not a periodic refresh): ask the mod for full checks
     const h = await api("/api/line_history", { id, limit: settings.history, range: settings.range });
     const el = $("#line-detail"), top = el.scrollTop;
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
@@ -2273,12 +2277,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         <b>${f1(d.per_frame_ms)} ms</b> <span class="muted">${t("cost_of_frame", { f: f1(d.frame_ms), fps: Math.round(d.fps || 0), p: (share * 100).toFixed(share < 0.01 ? 2 : 1) })}</span></div>
       <p class="cost-verdict ${cls}">${esc(verdict)}</p>
       <table class="kv cost-parts">${d.parts.filter(p => COST_PARTS.includes(p.name) || p.ms > 0).map(p => `<tr title="${esc(t("cost_d." + p.name))}"><td>${esc(t("cost_p." + p.name))}</td><td><span class="bar"><i style="width:${100 * (p.per_frame_ms || 0) / maxPart}%"></i></span></td><td class="num mono">${f1(p.per_frame_ms)} ms</td><td class="num mono muted">${t("cost_peak", { n: f1(p.max_ms) })}</td></tr>`).join("")}</table>
-      <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}. ${t("cost_hint")}</p>
+      <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}.${d.warmup ? " " + esc(t("cost_warm")) : d.load_peak_ms ? " " + esc(t("cost_load", { n: f1(d.load_peak_ms) })) : ""} ${t("cost_hint")}</p>
       <div class="btns"><button class="btn sm" id="cost-copy">${ico("copy", "sm")}<span>${t("cost_copy")}</span></button><span class="pmsg" id="cost-msg"></span></div>`;
     costReport = [`TF3 Dashboard ${d.version} - mod cost report`,
       `mod: ${f1(d.per_frame_ms)} ms per frame of ${f1(d.frame_ms)} ms (${Math.round(d.fps || 0)} fps), ${(share * 100).toFixed(2)} %, worst frame ${f1(d.max_frame_ms)} ms`,
       `save: ${sz.lines ?? "?"} lines, ${sz.vehicles ?? "?"} vehicles, ${sz.stations ?? "?"} stations, ${sz.towns ?? "?"} towns, ${sz.industries ?? "?"} industries, ${sz.edges ?? "?"} edges; fast ${sz.interval_fast ?? "?"} s, slow ${sz.interval_slow ?? "?"} s, vehicles ${sz.export_vehicles === false ? "off" : "on"}`,
-      `over ${Math.round(d.span_s)} s (${d.reports} reports):`,
+      `over ${Math.round(d.span_s)} s (${d.reports} reports${d.warmup ? ", load only" : d.load_peak_ms ? `, load set aside: worst frame ${f1(d.load_peak_ms)} ms` : ""}):`,
       ...d.parts.map(p => `  ${p.name.padEnd(13)} ${f1(p.per_frame_ms).padStart(6)} ms/frame  peak ${f1(p.max_ms)} ms  (${p.n} runs)`)].join("\n");
     $("#cost-copy").addEventListener("click", async () => {
       const m = $("#cost-msg");

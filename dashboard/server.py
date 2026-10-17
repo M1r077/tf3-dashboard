@@ -160,7 +160,7 @@ def write_command(cmd: str, args: dict) -> dict:
 _activity_seq = [0]
 
 
-def write_activity() -> dict:
+def write_activity(line=None) -> dict:
     """Write activity.lua: a hint that the player is interacting with the dashboard. The mod uses it to do its heavy
     work (slow cycle, big file writes) right now, while the player looks at the second screen. Not a command: it is
     sent whatever 'Permit game control' says, and the mod only changes *when* it works, never what it does."""
@@ -170,7 +170,10 @@ def write_activity() -> dict:
     with _cmd_lock:
         _activity_seq[0] += 1
         aid = _activity_seq[0]
-        body = "function data()\nreturn " + lua_literal({"id": aid, "t": time.time()}) + "\nend\n"
+        hint = {"id": aid, "t": time.time()}
+        if isinstance(line, int) and not isinstance(line, bool) and line > 0:
+            hint["line"] = line  # the line the player opened: the mod refreshes its slow per-stop checks in full
+        body = "function data()\nreturn " + lua_literal(hint) + "\nend\n"
         d.mkdir(parents=True, exist_ok=True)
         target = tf3paths.file_in(d, "activity")
         tmp = target.with_suffix(".tmp")
@@ -298,6 +301,13 @@ def api_cost(q: dict) -> dict:
             reps.append(c)
     if not reps:
         return {"reports": 0}
+    # the first minute(s) after a load hold one-off work (first slow cycle at full speed, terrain export): kept
+    # apart as the load peak, out of the averages, as soon as there is a regular report to show instead
+    warm = [c for c in reps if c.get("warmup")]
+    steady = [c for c in reps if not c.get("warmup")]
+    load_peak = max((c.get("max_frame_ms") or 0 for c in warm), default=None)
+    if steady:
+        reps = steady
     frames = sum(c.get("frames") or 0 for c in reps)
     span = sum(c.get("window_s") or 0 for c in reps)
     parts: dict = {}
@@ -317,7 +327,8 @@ def api_cost(q: dict) -> dict:
     return {"reports": len(reps), "span_s": span, "frames": frames, "fps": frames / span if span else None,
             "per_frame_ms": total / frames if frames else None, "frame_ms": 1000 * span / frames if frames else None,
             "max_frame_ms": max(c.get("max_frame_ms") or 0 for c in reps), "parts": out,
-            "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION}
+            "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION,
+            "warmup": not steady, "load_peak_ms": load_peak if steady else None}
 
 
 def api_finance(q: dict) -> dict:
@@ -2271,7 +2282,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/activity":
             try:
-                res = write_activity()
+                line = None
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if 0 < n <= 1024:
+                        line = (json.loads(self.rfile.read(n) or b"{}") or {}).get("line")
+                except (ValueError, AttributeError):
+                    line = None
+                res = write_activity(line)
                 self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
             except (ValueError, OSError) as e:
                 self._send(200, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")

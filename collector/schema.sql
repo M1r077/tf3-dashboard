@@ -520,3 +520,8 @@ CREATE VIEW IF NOT EXISTS v_finance_series AS
            f.passengers_transported, f.cargo_transported
     FROM snapshot s JOIN finance f USING (snapshot_id);
 
+-- ---------------------------------------------------------------- read paths (companion 0.16.1)
+-- "latest row of each line" (Lines page, every refresh): the primary keys start with snapshot_id, so the per-line
+-- MAX walked every snapshot of the game for each line (~0.25 s per query on a 6000-snapshot game)
+CREATE INDEX IF NOT EXISTS ix_line_state_line ON line_state(line_id, snapshot_id);
+CREATE INDEX IF NOT EXISTS ix_line_capacity_line ON line_capacity(line_id, snapshot_id);

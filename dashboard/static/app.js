@@ -3406,7 +3406,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     paint();
   });
   let timer = null;
-  function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => refresh(), Math.max(1, settings.refresh) * 1000); }
+  // a tab in the background (other tab, minimised window) does not poll: the server's queries cost CPU the game
+  // could use; back in view, one refresh brings it up to date at once
+  function restartTimer() { if (timer) clearInterval(timer); timer = setInterval(() => { if (document.visibilityState !== "hidden") refresh(); }, Math.max(1, settings.refresh) * 1000); }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(); });
   setLang(pickLang(), false);
   applySettings();
   if (new URLSearchParams(location.search).get("settings")) { $("#settings").classList.add("open"); $("#gear").classList.add("open"); renderSaves(); renderCost(); }

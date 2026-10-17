@@ -627,6 +627,39 @@ def _line_finance(gid: int, lid: int | None = None) -> list | dict:
     return out.get(lid, []) if lid is not None else out
 
 
+# Fleet history detail: one aggregate row per snapshot over every vehicle. A snapshot's vehicle rows never change
+# once written, so each snapshot is summed once and kept here; a refresh only sums the snapshots that arrived since
+# (was ~0.6 s of SQL per /api/fleet call, i.e. per refresh of Operations, the whole time the page is open).
+_FLEET_SQL = """SELECT s.snapshot_id, s.real_time, s.game_time_ms, s.year, s.month, s.day,
+                SUM(vs.state='EN_ROUTE') en_route, SUM(vs.state='AT_TERMINAL') at_terminal, SUM(vs.state='IN_DEPOT') in_depot,
+                SUM(vs.load) load, SUM(v.capacity) capacity, AVG(CASE WHEN vs.state='EN_ROUTE' THEN vs.speed_ms END) avg_speed, AVG(vs.maintenance) maint
+                FROM vehicle_state vs JOIN snapshot s USING(snapshot_id) JOIN vehicle v ON v.game_id=s.game_id AND v.vehicle_id=vs.vehicle_id
+                WHERE s.game_id=? AND s.snapshot_id > ?
+                GROUP BY s.snapshot_id ORDER BY s.snapshot_id"""
+_fleet_cache: dict = {"gid": None, "rows": {}}
+_fleet_lock = threading.Lock()
+
+
+def _fleet_detail(gid: int) -> list[dict]:
+    """Per-snapshot fleet aggregates still in the detail window, oldest first (cached, see _FLEET_SQL)."""
+    with _fleet_lock:
+        c = _fleet_cache
+        if c["gid"] != gid:
+            c["gid"], c["rows"] = gid, {}
+        have = c["rows"]
+        for r in rows(_FLEET_SQL, (gid, max(have) if have else -1)):
+            have[r["snapshot_id"]] = r
+        # the collector's retention deletes old detail: drop what is gone (cheap, primary key of vehicle_state)
+        low = one("SELECT MIN(snapshot_id) m FROM vehicle_state")
+        low = low["m"] if low and low["m"] is not None else None
+        if low is None:
+            have.clear()
+        else:
+            for k in [k for k in have if k < low]:
+                del have[k]
+        return [have[k] for k in sorted(have)][-DETAIL_FETCH_CAP:]
+
+
 def api_fleet(q: dict) -> dict:
     """Fleet overview: counts by carrier/state, fill rate, worn vehicles, idle vehicles, recent history."""
     gid = _gid()
@@ -678,7 +711,8 @@ def api_fleet(q: dict) -> dict:
                       WHERE s.game_id=? AND s.real_time >= ?
                       GROUP BY s.snapshot_id ORDER BY s.snapshot_id DESC LIMIT ?""",
         agg_sql="""SELECT bucket, n, game_time_ms, year, month, day, en_route, at_terminal, in_depot, load, capacity, avg_speed, maint
-                   FROM agg_fleet_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""")
+                   FROM agg_fleet_min WHERE game_id=? AND bucket >= ? ORDER BY bucket""",
+        detail=_fleet_detail(gid))
     caps = rows("""SELECT SUM(v.capacity) capacity FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=? WHERE vs.snapshot_id=?""", (gid, sid))
     return {"by_carrier": by_carrier, "worn": worn, "idle": idle, "stuck": stuck, "history": hist, "capacity": caps[0]["capacity"] if caps else None, "range": rng}
 
@@ -1570,7 +1604,8 @@ def _stamp(hist: list[dict]) -> None:
         _gt(h)
 
 
-def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str, extra: tuple = ()) -> list[dict]:
+def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str, extra: tuple = (),
+                   detail: list[dict] | None = None) -> list[dict]:
     """Time series = per-minute aggregates (older) + per-snapshot detail (recent), both inside the range.
     Every row gets `ts` (unix seconds) and `agg` (0 = detail, 60 = one-minute bucket).
     `limit` bounds the number of detail rows (most recent first) and, when the result is still too dense,
@@ -1580,8 +1615,11 @@ def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str
     since_iso = datetime.datetime.fromtimestamp(since_ts).isoformat(timespec="seconds") if secs else "0000"
     # fetch the whole detail window (bounded by the collector's retention, ~2 h) and thin afterwards,
     # so the aggregate/detail boundary never shows a hole
-    detail = rows(detail_sql, (gid, since_iso) + extra + (DETAIL_FETCH_CAP,))
-    detail.reverse()
+    if detail is None:
+        detail = rows(detail_sql, (gid, since_iso) + extra + (DETAIL_FETCH_CAP,))
+        detail.reverse()
+    else:  # precomputed, oldest first (see _fleet_detail)
+        detail = [dict(d) for d in detail if (d["real_time"] or "") >= since_iso]
     for d in detail:
         d["ts"] = _epoch(d["real_time"])
         d["agg"] = 0

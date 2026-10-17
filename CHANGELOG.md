@@ -2,9 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.17.0 - 17 October 2026 (mod revision 25, unchanged)
 
 - Map on/off switch at the start of the Map toolbar. On a big save (1200 vehicles) the browser drawing the live map took about 7 CPU cores, more than the game; minimised, under 0.3. Off, the page draws and fetches nothing for the map and frees what it held; with "Permit game control", the game also pauses its map-only work (roads, tracks, water, terrain, line paths: the existing feature switches) until the save is reloaded. Switched back on, everything reloads, and only the switches it turned off are turned on again. Remembered per browser.
+- README, Performance: figures and advice for big saves (5 s / 60 s, map off, Debug log off).
 
 ## Companion 0.16.1 - 17 October 2026 (mod revision 25, unchanged)
 

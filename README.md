@@ -203,6 +203,12 @@ also shows the export folder, when the companion was last seen, and the current 
   enabling the mod**, open the mod settings in the savegame and raise the fast interval (5 or 10 s), the slow interval
   (60 or 120 s); on very large networks disable the vehicle export. The defaults (2 s / 30 s) target a reasonably
   recent PC.
+- **Big saves** (measured 17 Oct 2026 on a 1200-vehicle, 170-line save, Ryzen 9 9950X3D, fast speed): at 1 s / 10 s
+  the mod took about 8 ms of a 60 ms frame; at **5 s / 60 s**, 3-4 ms. Most of the frame is the game's own simulation:
+  the mod is not where the lag comes from. On the browser side, the live map with 1200 vehicles cost about 1.7 CPU
+  cores, the other pages 0.2-0.3: switch the map off (round switch at the start of the Map toolbar) when you do not
+  look at it - this also pauses the game's map-only work - or minimise the dashboard (a hidden tab does not refresh).
+  Keep *Debug log* off.
 - The database keeps per-snapshot detail for 2 hours, then one point per real minute (fleet and finance forever,
   each vehicle for 7 days) and one point per game day for lines, towns, stations and industries, kept for as long
   as the save exists - like the game's own logbooks. It compacts itself once an hour, so it stays in the tens of

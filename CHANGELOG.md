@@ -4,6 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased
 
+- Operations, By carrier: every count opens the Vehicles tab on exactly those vehicles (carrier, carrier + state, or the stuck ones), shown as a removable chip in the Vehicles toolbar. The last column, labelled "Idle", always counted vehicles en route but standing still (below 0.5 m/s: traffic jam, signal, blocked path), never vehicles loading at a stop: it is renamed "Stuck" and explained in its tooltip. Suggested on mod.io by DysonHeluck.
 - Operations: a "Most late cargo lines" card, next to "Most unhappy lines": the freight lines with the highest share of late cargo (the game's line rating, freight only), top 10, a click opens the line. Suggested on mod.io by DysonHeluck.
 
 ## Companion 0.14.1 - 16 October 2026 (mod revision 23 unchanged)

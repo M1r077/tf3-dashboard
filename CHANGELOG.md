@@ -5,6 +5,7 @@ Mod revision and companion version are released together (see README, Install). 
 ## Unreleased
 
 - Feature switches (mod revision 25): six parts of what the mod collects can be turned off, to save the game's time on a big save: too-long vehicle check, line routes on the map, map roads/tracks/water, terrain relief, finance journal, vehicle catalogue. All on by default. Set at load in the mod settings (and shown in the mod's status window); in Settings > Mod cost, under the gauge, a tick box per part switches it for the running game, until the save is loaded again (needs "Permit game control", it is a `set_feature` command). What is switched off keeps its last data on the dashboard (last map, last journal month...); the too-long vehicle warning disappears. Switched back on, a part catches up at once (the map and relief are re-read if the network or terrain changed meanwhile). The copied cost report lists the parts switched off. live.lua carries `features`, stored in `snapshot.features` (on change and every 5 minutes) and served by `/api/cost`.
+- Settings: the savegames list moves to the left column, under Sizes and Layout; General and Mod cost stay on the right, so the two columns are more even.
 
 ## Companion 0.15.0 - 17 October 2026 (mod revision 24)
 

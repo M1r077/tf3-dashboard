@@ -2277,12 +2277,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         <b>${f1(d.per_frame_ms)} ms</b> <span class="muted">${t("cost_of_frame", { f: f1(d.frame_ms), fps: Math.round(d.fps || 0), p: (share * 100).toFixed(share < 0.01 ? 2 : 1) })}</span></div>
       <p class="cost-verdict ${cls}">${esc(verdict)}</p>
       <table class="kv cost-parts">${d.parts.filter(p => COST_PARTS.includes(p.name) || p.ms > 0).map(p => `<tr title="${esc(t("cost_d." + p.name))}"><td>${esc(t("cost_p." + p.name))}</td><td><span class="bar"><i style="width:${100 * (p.per_frame_ms || 0) / maxPart}%"></i></span></td><td class="num mono">${f1(p.per_frame_ms)} ms</td><td class="num mono muted">${t("cost_peak", { n: f1(p.max_ms) })}</td></tr>`).join("")}</table>
-      <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}. ${t("cost_hint")}</p>
+      <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}.${d.warmup ? " " + esc(t("cost_warm")) : d.load_peak_ms ? " " + esc(t("cost_load", { n: f1(d.load_peak_ms) })) : ""} ${t("cost_hint")}</p>
       <div class="btns"><button class="btn sm" id="cost-copy">${ico("copy", "sm")}<span>${t("cost_copy")}</span></button><span class="pmsg" id="cost-msg"></span></div>`;
     costReport = [`TF3 Dashboard ${d.version} - mod cost report`,
       `mod: ${f1(d.per_frame_ms)} ms per frame of ${f1(d.frame_ms)} ms (${Math.round(d.fps || 0)} fps), ${(share * 100).toFixed(2)} %, worst frame ${f1(d.max_frame_ms)} ms`,
       `save: ${sz.lines ?? "?"} lines, ${sz.vehicles ?? "?"} vehicles, ${sz.stations ?? "?"} stations, ${sz.towns ?? "?"} towns, ${sz.industries ?? "?"} industries, ${sz.edges ?? "?"} edges; fast ${sz.interval_fast ?? "?"} s, slow ${sz.interval_slow ?? "?"} s, vehicles ${sz.export_vehicles === false ? "off" : "on"}`,
-      `over ${Math.round(d.span_s)} s (${d.reports} reports):`,
+      `over ${Math.round(d.span_s)} s (${d.reports} reports${d.warmup ? ", load only" : d.load_peak_ms ? `, load set aside: worst frame ${f1(d.load_peak_ms)} ms` : ""}):`,
       ...d.parts.map(p => `  ${p.name.padEnd(13)} ${f1(p.per_frame_ms).padStart(6)} ms/frame  peak ${f1(p.max_ms)} ms  (${p.n} runs)`)].join("\n");
     $("#cost-copy").addEventListener("click", async () => {
       const m = $("#cost-msg");

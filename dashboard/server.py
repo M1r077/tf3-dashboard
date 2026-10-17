@@ -301,6 +301,13 @@ def api_cost(q: dict) -> dict:
             reps.append(c)
     if not reps:
         return {"reports": 0}
+    # the first minute(s) after a load hold one-off work (first slow cycle at full speed, terrain export): kept
+    # apart as the load peak, out of the averages, as soon as there is a regular report to show instead
+    warm = [c for c in reps if c.get("warmup")]
+    steady = [c for c in reps if not c.get("warmup")]
+    load_peak = max((c.get("max_frame_ms") or 0 for c in warm), default=None)
+    if steady:
+        reps = steady
     frames = sum(c.get("frames") or 0 for c in reps)
     span = sum(c.get("window_s") or 0 for c in reps)
     parts: dict = {}
@@ -320,7 +327,8 @@ def api_cost(q: dict) -> dict:
     return {"reports": len(reps), "span_s": span, "frames": frames, "fps": frames / span if span else None,
             "per_frame_ms": total / frames if frames else None, "frame_ms": 1000 * span / frames if frames else None,
             "max_frame_ms": max(c.get("max_frame_ms") or 0 for c in reps), "parts": out,
-            "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION}
+            "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION,
+            "warmup": not steady, "load_peak_ms": load_peak if steady else None}
 
 
 def api_finance(q: dict) -> dict:

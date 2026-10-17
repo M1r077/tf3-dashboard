@@ -104,7 +104,8 @@ end
 -- lag that is not the mod shows as a low frame rate with a small mod share. Measuring costs two os.clock() calls per
 -- part per frame (well under a microsecond). os.clock is wall time on Windows; on Linux/Proton it is the process CPU
 -- time of all threads, so the figures there are an upper bound.
-local COST = { WINDOW = 60, acc = {}, frames = 0, total = 0, maxFrame = 0, started = nil, report = nil, fresh = false }
+-- warm: the window holds the load's one-off work (first slow cycle unthrottled), flagged so the gauge can set it aside
+local COST = { WINDOW = 60, acc = {}, frames = 0, total = 0, maxFrame = 0, started = nil, report = nil, fresh = false, warm = false }
 -- debug log: breakdown of a line step slower than 20 ms, by kind of engine call (see lineItem)
 function COST.lineProf(l, rec, prof)
 	if not options().debug_log then return end
@@ -137,9 +138,9 @@ function COST.frame(now, dt, sizeFn)
 	end
 	table.sort(parts, function(x, y) return x.ms > y.ms end)
 	COST.report = { window_s = span, frames = COST.frames, total_ms = COST.total * 1000, max_frame_ms = COST.maxFrame * 1000,
-		parts = parts, size = sizeFn(), real_time = os.time() }
+		parts = parts, size = sizeFn(), real_time = os.time(), warmup = COST.warm or nil }
 	COST.fresh = true
-	COST.acc, COST.frames, COST.total, COST.maxFrame, COST.started = {}, 0, 0, 0, now
+	COST.acc, COST.frames, COST.total, COST.maxFrame, COST.started, COST.warm = {}, 0, 0, 0, now, false
 end
 
 -- ---------------------------------------------------------------- helpers
@@ -3073,7 +3074,7 @@ function COST.export(now)
 	if slowJob ~= nil then
 		-- the very first cycle runs unthrottled so that the dashboard gets a complete picture right away
 		local budget = SLOW_BUDGET
-		if slowCache == nil then budget = 1e9 elseif active then budget = ACTIVITY.BUDGET end
+		if slowCache == nil then budget = 1e9; COST.warm = true elseif active then budget = ACTIVITY.BUDGET end
 		local ts = os.clock()
 		local ok, done = pcall(slowJobRun, budget)
 		COST.add("slow_collect", os.clock() - ts)

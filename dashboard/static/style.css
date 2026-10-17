@@ -773,3 +773,16 @@ table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }
 /* By carrier: counts that open the Vehicles tab on those vehicles */
 .drill { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .drill:hover { color: var(--info); }
+
+/* cost gauge (Settings) */
+#cost .cost-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+#cost .bar.wide { width: 140px; }
+#cost .cost-verdict { margin: 4px 0 6px; font-size: 12px; }
+#cost .cost-verdict.ok { color: var(--ok); } #cost .cost-verdict.warn { color: var(--warn); } #cost .cost-verdict.bad { color: var(--bad); }
+#cost table.cost-parts { width: 100%; font-size: 12px; }
+#cost table.cost-parts td:first-child { white-space: nowrap; cursor: help; }
+#cost table.cost-parts .bar { width: 90px; }
+#cost table.cost-parts td.num { white-space: nowrap; }
+#cost table.cost-parts .bar > i { background: var(--info); }
+#cost .btns { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+#cost .pmsg { opacity: 0; transition: opacity .3s; color: var(--muted); font-size: 11px; } #cost .pmsg.on { opacity: 1; }

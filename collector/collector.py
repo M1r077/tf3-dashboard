@@ -196,6 +196,7 @@ class Store:
         ("depot", "x", "REAL"),
         ("depot", "y", "REAL"),
         ("snapshot", "camera", "TEXT"),
+        ("snapshot", "cost", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
@@ -561,15 +562,17 @@ class Store:
             return None
         ack = snap.get("cmd_ack")
         cam = snap.get("camera")  # {x, y, dist, angle, pitch, follow?}; absent with rev 6
+        cost = snap.get("cost")  # cost gauge report, in one snapshot per minute (rev 24+)
         cur = self.con.execute(
             """INSERT INTO snapshot(game_id, seq, real_time, received_at, game_time_ms, year, month, day,
-               time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera, cost)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (gid, seq, real_time, now, t.get("game_time_ms"), t.get("year"), t.get("month"),
              t.get("day"), t.get("time_of_day_sec"), t.get("speed"), t.get("millis_per_day"), len(as_list(snap.get("errors"))),
              b(snap.get("accept_commands")) if snap.get("accept_commands") is not None else None,
              json.dumps(ack) if isinstance(ack, dict) else None,
-             json.dumps(cam) if isinstance(cam, dict) else None),
+             json.dumps(cam) if isinstance(cam, dict) else None,
+             json.dumps(cost) if isinstance(cost, dict) else None),
         )
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:

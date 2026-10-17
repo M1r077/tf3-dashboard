@@ -275,6 +275,51 @@ def api_overview(q: dict) -> dict:
             "commands": {"enabled": not CMD_DISABLED, "accepted": 0 if offline else snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
+def api_cost(q: dict) -> dict:
+    """Cost gauge (mod rev 24+): the mod's time per frame, split by part of the export, from the last reports
+    (one per minute in live.lua, stored in snapshot.cost). Averaged over the last ?n reports (default 10)."""
+    gid = _gid()
+    try:
+        n = max(1, min(60, int(q.get("n", ["10"])[0])))
+    except (TypeError, ValueError):
+        n = 10
+    try:
+        recs = rows("SELECT s.real_time, s.cost FROM snapshot s WHERE s.game_id=? AND s.cost IS NOT NULL ORDER BY s.snapshot_id DESC LIMIT ?", (gid, n))
+    except sqlite3.Error:
+        recs = []
+    reps = []
+    for r in recs:
+        try:
+            c = json.loads(r["cost"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(c, dict) and c.get("frames"):
+            c["at"] = r["real_time"]
+            reps.append(c)
+    if not reps:
+        return {"reports": 0}
+    frames = sum(c.get("frames") or 0 for c in reps)
+    span = sum(c.get("window_s") or 0 for c in reps)
+    parts: dict = {}
+    for c in reps:
+        for p in c.get("parts") or []:
+            if not isinstance(p, dict) or not p.get("name"):
+                continue
+            a = parts.setdefault(p["name"], {"name": p["name"], "ms": 0.0, "n": 0, "max_ms": 0.0})
+            a["ms"] += p.get("ms") or 0
+            a["n"] += p.get("n") or 0
+            a["max_ms"] = max(a["max_ms"], p.get("max_ms") or 0)
+    total = sum(c.get("total_ms") or 0 for c in reps)
+    out = sorted(parts.values(), key=lambda x: -x["ms"])
+    for a in out:
+        a["per_frame_ms"] = a["ms"] / frames if frames else None
+        a["share"] = a["ms"] / total if total else None
+    return {"reports": len(reps), "span_s": span, "frames": frames, "fps": frames / span if span else None,
+            "per_frame_ms": total / frames if frames else None, "frame_ms": 1000 * span / frames if frames else None,
+            "max_frame_ms": max(c.get("max_frame_ms") or 0 for c in reps), "parts": out,
+            "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION}
+
+
 def api_finance(q: dict) -> dict:
     # ?all=1 (the Excel export): every row of the game, neither capped nor thinned
     limit = 10 ** 9 if (q.get("all") or ["0"])[0] == "1" else _limit(q, 600)
@@ -2076,7 +2121,7 @@ def api_diag(q: dict) -> dict:
 
 
 ROUTES = {
-    "/api/overview": api_overview, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
+    "/api/overview": api_overview, "/api/cost": api_cost, "/api/finance": api_finance, "/api/journal": api_journal, "/api/alerts": api_alerts, "/api/lines": api_lines,
     "/api/line_history": api_line_history, "/api/vehicles": api_vehicles, "/api/fleet": api_fleet, "/api/vehicle_history": api_vehicle_history, "/api/towns": api_towns,
     "/api/town_history": api_town_history, "/api/industries": api_industries, "/api/industry_history": api_industry_history, "/api/stations": api_stations,
     "/api/station_history": api_station_history, "/api/depots": api_depots, "/api/map": api_map, "/api/map_cargo": api_map_cargo, "/api/geo": api_geo, "/api/heightmap": api_heightmap, "/api/line_paths": api_line_paths, "/api/distance": api_distance, "/api/travellings": api_travellings, "/api/diag": api_diag, "/api/views": api_views,

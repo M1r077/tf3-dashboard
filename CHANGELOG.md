@@ -4,8 +4,10 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased
 
-- Operations, By carrier: every count opens the Vehicles tab on exactly those vehicles (carrier, carrier + state, or the stuck ones), shown as a removable chip in the Vehicles toolbar. The last column, labelled "Idle", always counted vehicles en route but standing still (below 0.5 m/s: traffic jam, signal, blocked path), never vehicles loading at a stop: it is renamed "Stuck" and explained in its tooltip. Suggested on mod.io by DysonHeluck.
 - Operations: a "Most late cargo lines" card, next to "Most unhappy lines": the freight lines with the highest share of late cargo (the game's line rating, freight only), top 10, a click opens the line. Suggested on mod.io by DysonHeluck.
+- Operations, By carrier: every count opens the Vehicles tab on exactly those vehicles (carrier, carrier + state, or the stuck ones), shown as a removable chip in the Vehicles toolbar. The last column, labelled "Idle", always counted vehicles en route but standing still (below 0.5 m/s: traffic jam, signal, blocked path), never vehicles loading at a stop: it is renamed "Stuck" and explained in its tooltip. Suggested on mod.io by DysonHeluck.
+- Operations, "To watch" (was "Watch - idle / no line"): every vehicle shows its reason(s) (no line, no path, stopped by you, days in depot), and the card header has one toggle per reason with its count, to hide the reasons you don't care about (remembered by the browser). Vehicles loading at a stop were never listed and still aren't. The list is no longer cut at 15. A vehicle without a line was missed when the game reports "no line" as -1 (it now counts, here and in the Vehicles "Problems" filter). Suggested on mod.io by DysonHeluck.
+- Vehicles: the "Idle" column added the days in the depot and the days loading at a stop, two very different things. It is now "Waiting" and shows both apart, each with its icon (depot days red after 3; loading days muted, waiting for a full load is normal).
 
 ## Companion 0.14.1 - 16 October 2026 (mod revision 23 unchanged)
 

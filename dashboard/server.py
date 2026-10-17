@@ -588,11 +588,11 @@ def api_fleet(q: dict) -> dict:
                    FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=?
                    LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
                    WHERE vs.snapshot_id=? AND vs.maintenance IS NOT NULL ORDER BY vs.maintenance ASC LIMIT 12""", (gid, gid, sid))
-    idle = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, vs.state, vs.days_in_depot, vs.days_at_terminal, vs.user_stopped, vs.no_path, l.name AS line_name
+    idle = rows("""SELECT v.vehicle_id, v.name, v.carrier, v.icon_type, vs.state, vs.days_in_depot, vs.days_at_terminal, vs.user_stopped, vs.no_path, vs.line_id, l.name AS line_name
                    FROM vehicle_state vs JOIN vehicle v ON v.vehicle_id=vs.vehicle_id AND v.game_id=?
                    LEFT JOIN line l ON l.game_id=? AND l.line_id=vs.line_id
-                   WHERE vs.snapshot_id=? AND (vs.days_in_depot > 2 OR vs.no_path = 1 OR vs.user_stopped = 1 OR vs.line_id IS NULL OR vs.line_id = 0)
-                   ORDER BY vs.no_path DESC, vs.days_in_depot DESC LIMIT 15""", (gid, gid, sid))
+                   WHERE vs.snapshot_id=? AND (vs.days_in_depot > 2 OR vs.no_path = 1 OR vs.user_stopped = 1 OR vs.line_id IS NULL OR vs.line_id <= 0)
+                   ORDER BY vs.no_path DESC, vs.days_in_depot DESC LIMIT 200""", (gid, gid, sid))
     # (days at a stop are not a reason to watch: a vehicle waiting for a full load is doing its job; a vehicle
     # blocked on the track is EN_ROUTE at speed zero, that is the "stuck" list below)
     # stuck: EN_ROUTE but speed ~0 for the last N snapshots

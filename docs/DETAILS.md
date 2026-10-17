@@ -72,7 +72,12 @@ Three independent parts:
    - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest (in the
      time-sliced sections a failing entity is reported individually and the others are still exported)
    - mod parameters (Mods menu of the savegame): fast / slow export, vehicles on/off,
-     **Permit game control** on/off (off by default), debug log. Names are kept short on purpose: the game's settings
+     **Permit game control** on/off (off by default), debug log, and (rev 25) six feature switches, all on by default:
+     map roads/tracks (`feat_geo`), terrain relief (`feat_heightmap`), line routes (`feat_line_paths`), vehicle
+     catalogue (`feat_catalogue`), finance journal (`feat_journal`), too-long vehicle check (`feat_overlength`). The
+     dashboard can flip them for the running game (`set_feature` command, so only with Permit game control; held in
+     `COST.live`, not saved: the next load starts from the mod params). live.lua carries `features = {on, param}`, the
+     collector stores it in `snapshot.features` on change and every 5 minutes, `/api/cost` returns the newest. Names are kept short on purpose: the game's settings
      panel puts the widget to the right of the name on a fixed width, long names push the buttons out of view.
    - **publishing / updating on mod.io** (author only): edit `mod/tf3_dashboard_export` in this repo (bump
      `revision` in `mod.json`, update `_metadata/description.html` and the gallery images `1.png`, `2.png`...), then

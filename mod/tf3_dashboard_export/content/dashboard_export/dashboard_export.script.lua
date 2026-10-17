@@ -42,8 +42,12 @@ local PARAM_VALUES = {
 	export_vehicles = { true, false },
 	accept_commands = { false, true }, -- off by default: the player opts in to remote control
 	debug_log = { false, true },
+	-- feature switches (rev 25): what the mod collects, all on by default; the dashboard can flip them live (COST.on)
+	feat_geo = { true, false }, feat_heightmap = { true, false }, feat_line_paths = { true, false },
+	feat_catalogue = { true, false }, feat_journal = { true, false }, feat_overlength = { true, false },
 }
-local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1 }
+local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1,
+	feat_geo = 1, feat_heightmap = 1, feat_line_paths = 1, feat_catalogue = 1, feat_journal = 1, feat_overlength = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
 -- Settings are the mod parameters chosen when the game was loaded (api.engine.config.getModParams, read-only during
@@ -117,6 +121,22 @@ function COST.lineProf(l, rec, prof)
 	for _, p in ipairs(parts) do if p[2] >= 0.001 then txt[#txt + 1] = string.format("%s %.0fms", p[1], p[2] * 1000) end end
 	log(string.format("slow line %s (%s stops, %s vehicles, %s persons): %.0fms = %s", tostring(l), tostring(rec.stops),
 		tostring(rec.vehicles), tostring(rec.persons_on_line), total * 1000, table.concat(txt, ", ")))
+end
+
+-- feature switches: the mod param chosen at load, unless the dashboard switched it during this game (set_feature;
+-- not saved, the next load starts from the mod params again)
+COST.FEATS = { "feat_geo", "feat_heightmap", "feat_line_paths", "feat_catalogue", "feat_journal", "feat_overlength" }
+COST.live = {}
+function COST.on(key)
+	local v = COST.live[key]
+	if v ~= nil then return v end
+	return options()[key] ~= false
+end
+-- for live.lua: { on = { key = bool }, param = { key = bool } } (param = the mod setting, to tell a live change apart)
+function COST.features()
+	local on, param = {}, {}
+	for _, k in ipairs(COST.FEATS) do on[k] = COST.on(k); param[k] = options()[k] ~= false end
+	return { on = on, param = param }
 end
 
 function COST.add(name, dt)
@@ -796,7 +816,7 @@ local function vehicleStaticItem(v)
 	local tv = comp(v, api.type.ComponentType.TRANSPORT_VEHICLE)
 	if not tv then return nil end
 	local rec = { id = v, name = entityName(v), carrier = enumName("Carrier", CARRIERS, tv.carrier) }
-	pcall(vehiclePathItem, v, tv)
+	if COST.on("feat_line_paths") then pcall(vehiclePathItem, v, tv) end
 	pcall(function() rec.icon_type = vehicleIconType(v) end)
 	pcall(function()
 		-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
@@ -1152,7 +1172,7 @@ local function lineItem(l, ctx)
 				rec.stop_list[i] = st
 			end
 			mark("stop_config")
-			COST.overlength(l, rec.stop_list, sys)
+			if COST.on("feat_overlength") then COST.overlength(l, rec.stop_list, sys) end
 			mark("overlength")
 		end)
 		COST.lineProf(l, rec, prof)
@@ -2582,6 +2602,7 @@ local function buildSnapshot(player, names)
 	if slowFailure then snap.errors[#snap.errors + 1] = { section = "slow_cycle", error = slowFailure } end
 	snap.cmd_ack = lastAck
 	snap.accept_commands = options().accept_commands and true or false
+	snap.features = COST.features()
 	return snap
 end
 
@@ -2954,6 +2975,17 @@ local COMMANDS = {
 		return sendCmd(api.cmd.makeEntitySetNameCmd(e, n))
 	end,
 	ping = function() return true end,
+	-- feature switch for this game (rev 25): args.feature = one of COST.FEATS, args.on = true/false
+	set_feature = function(args)
+		local k = args and args.feature
+		local known = false
+		for _, f in ipairs(COST.FEATS) do if f == k then known = true end end
+		if not known then error("unknown feature") end
+		if type(args.on) ~= "boolean" then error("args.on must be true or false") end
+		COST.live[k] = args.on
+		log("feature " .. k .. (args.on and " on" or " off") .. " (from the dashboard, until the game is reloaded)")
+		return true
+	end,
 }
 
 -- names present in the export folder (without .lua); loadUserdata logs a warning when a file is missing, so the
@@ -3109,7 +3141,7 @@ function COST.export(now)
 	if slowCache == nil then return end  -- first cycle still running: nothing complete to write yet
 
 	-- line paths: a small file, only when a leg changed; its own frame
-	if LINEPATH.dirty then
+	if LINEPATH.dirty and COST.on("feat_line_paths") then
 		local tl = os.clock()
 		local okL, wrote = pcall(linePathsWrite)
 		COST.add("line_paths", os.clock() - tl)
@@ -3118,7 +3150,7 @@ function COST.export(now)
 	end
 
 	-- finance journal: once per game month (or after a save game reload); its own frame
-	do
+	if COST.on("feat_journal") then
 		local tj = os.clock()
 		local okJ, wroteJ = pcall(function()
 			local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME)
@@ -3130,7 +3162,7 @@ function COST.export(now)
 	end
 
 	-- vehicle model catalogue: after the first slow cycle, then once per game year (prices follow the year); sliced
-	if slowCache ~= nil then
+	if slowCache ~= nil and COST.on("feat_catalogue") then
 		if catJob == nil then
 			local okY, year = pcall(api.engine.util.getYear)
 			year = okY and num(year) or nil
@@ -3150,7 +3182,8 @@ function COST.export(now)
 
 	-- geography: first collection right after the first slow cycle, then again when the network changed (edge
 	-- count checked once a minute, one cheap call); advanced with the slow budget, written in one go when complete
-	if geoJob == nil and now - lastGeoAt >= GEO.MIN_INTERVAL then
+	local geoOn = COST.on("feat_geo")
+	if geoOn and geoJob == nil and now - lastGeoAt >= GEO.MIN_INTERVAL then
 		lastGeoAt = now
 		local tc = os.clock()
 		local n = geoEdgeCount()
@@ -3162,7 +3195,7 @@ function COST.export(now)
 			if not okG then log("geo collection failed to start:", tostring(errG)); geoJob = nil end
 		end
 	end
-	if geoJob ~= nil then
+	if geoOn and geoJob ~= nil then
 		local tg = os.clock()
 		local okG, done = pcall(geoJobRun, active and ACTIVITY.BUDGET or SLOW_BUDGET)
 		COST.add("geo", os.clock() - tg)
@@ -3171,7 +3204,9 @@ function COST.export(now)
 	end
 	-- full-resolution heightmap: after the geography, once per load, and again when the terrain revisions changed
 	-- (the player raised or dug ground); checked with the geo minute tick above, two tiles per frame meanwhile
-	if heightJob == nil and geoJob == nil and geoCache ~= nil and now - lastHeightCheck >= GEO.MIN_INTERVAL then
+	-- (after the geography when that one is on: both are big one-off jobs, not in the same minutes)
+	local heightOn = COST.on("feat_heightmap")
+	if heightOn and heightJob == nil and (not geoOn or (geoJob == nil and geoCache ~= nil)) and now - lastHeightCheck >= GEO.MIN_INTERVAL then
 		lastHeightCheck = now
 		local sig = heightRevSignature()
 		if heightCache == nil or (sig ~= nil and sig ~= heightRevs) then
@@ -3180,7 +3215,7 @@ function COST.export(now)
 			if not okH then log("heightmap export failed to start:", tostring(startedH)); heightJob = nil end
 		end
 	end
-	if heightJob ~= nil then
+	if heightOn and heightJob ~= nil then
 		local th = os.clock()
 		local okH, doneH = pcall(heightJobRun)
 		COST.add("heightmap", os.clock() - th)
@@ -3223,7 +3258,7 @@ function COST.size()
 	local c = slowCache or {}
 	return { lines = #(c.lines or {}), stations = #(c.stations or {}), towns = #(c.towns or {}), industries = #(c.industries or {}),
 		vehicles = #(c.vehicles or {}), edges = lastGeoEdgeCount, interval_fast = options().interval_fast, interval_slow = options().interval_slow,
-		export_vehicles = options().export_vehicles and true or false }
+		export_vehicles = options().export_vehicles and true or false, features = COST.features().on }
 end
 
 function script.guiUpdate(_userParams, _state, _guiState)

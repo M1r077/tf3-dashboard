@@ -65,6 +65,7 @@ ALLOWED_CMDS = {
     "line_set_stop": ("line", "stop"), "line_set_all_stops": ("line",), "line_set_terminals": ("line", "stop", "main"),
     "line_stop_all": ("line",), "line_start_all": ("line",), "line_all_to_depot": ("line",),
     "rename_entity": ("entity", "name"),
+    "set_feature": ("feature", "on"),  # mod rev 25+: switch a part of the export for this game
 }
 
 
@@ -278,6 +279,16 @@ def api_overview(q: dict) -> dict:
             "commands": {"enabled": not CMD_DISABLED, "accepted": 0 if offline else snap.get("accept_commands"), "ack": ack, "pending": pending}}
 
 
+def _features(gid) -> dict | None:
+    """Feature switches of the newest live.lua that carried them (mod rev 25+): {on, param}, None before."""
+    try:
+        r = one("SELECT features FROM snapshot WHERE game_id=? AND features IS NOT NULL ORDER BY snapshot_id DESC LIMIT 1", (gid,))
+        f = json.loads(r["features"]) if r else None
+    except (sqlite3.Error, TypeError, ValueError):
+        f = None
+    return f if isinstance(f, dict) else None
+
+
 def api_cost(q: dict) -> dict:
     """Cost gauge (mod rev 24+): the mod's time per frame, split by part of the export, from the last reports
     (one per minute in live.lua, stored in snapshot.cost). Averaged over the last ?n reports (default 10)."""
@@ -300,7 +311,7 @@ def api_cost(q: dict) -> dict:
             c["at"] = r["real_time"]
             reps.append(c)
     if not reps:
-        return {"reports": 0}
+        return {"reports": 0, "features": _features(gid)}
     # the first minute(s) after a load hold one-off work (first slow cycle at full speed, terrain export): kept
     # apart as the load peak, out of the averages, as soon as there is a regular report to show instead
     warm = [c for c in reps if c.get("warmup")]
@@ -328,7 +339,7 @@ def api_cost(q: dict) -> dict:
             "per_frame_ms": total / frames if frames else None, "frame_ms": 1000 * span / frames if frames else None,
             "max_frame_ms": max(c.get("max_frame_ms") or 0 for c in reps), "parts": out,
             "size": reps[0].get("size") or {}, "last_at": reps[0]["at"], "version": VERSION,
-            "warmup": not steady, "load_peak_ms": load_peak if steady else None}
+            "warmup": not steady, "load_peak_ms": load_peak if steady else None, "features": _features(gid)}
 
 
 def api_finance(q: dict) -> dict:

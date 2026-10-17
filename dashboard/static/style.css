@@ -784,5 +784,11 @@ table.kv.boosters .bar.ok > i { background: var(--ok, #3fb950); }
 #cost table.cost-parts .bar { width: 90px; }
 #cost table.cost-parts td.num { white-space: nowrap; }
 #cost table.cost-parts .bar > i { background: var(--info); }
+#cost .feat-title { margin: 14px 0 0; font-size: 12px; font-weight: 600; }
+#cost .feats { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+#cost .feat { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.35; cursor: pointer; }
+#cost .feat input { margin-top: 2px; }
+#cost .feat.is-off b { color: var(--muted); }
+#cost .cmdhint { margin-top: 6px; }
 #cost .btns { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 #cost .pmsg { opacity: 0; transition: opacity .3s; color: var(--muted); font-size: 11px; } #cost .pmsg.on { opacity: 1; }

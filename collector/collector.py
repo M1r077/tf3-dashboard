@@ -163,6 +163,7 @@ class Store:
         self._migrate()
         self._game_cache: dict[str, int] = {}
         self._last_slow_seq: dict[int, int] = {}
+        self._last_features: dict[int, tuple] = {}  # game -> (json, received_at) of the last stored feature switches
         self._schema: int | float | None = None  # mod export schema of the snapshot being ingested
         self.note: str | None = None  # one-line event for the console (set by ingest, printed by the loop)
 
@@ -197,6 +198,7 @@ class Store:
         ("depot", "y", "REAL"),
         ("snapshot", "camera", "TEXT"),
         ("snapshot", "cost", "TEXT"),
+        ("snapshot", "features", "TEXT"),
         ("vehicle_state", "cargo", "TEXT"),  # {"<cargo id>": count} of what is on board
         ("vehicle", "capacities", "TEXT"),   # {"<cargo id>": capacity} = what the vehicle can carry
         ("game", "label", "TEXT"),           # "<first town> · <year first seen>", to tell saves apart in the UI
@@ -563,16 +565,25 @@ class Store:
         ack = snap.get("cmd_ack")
         cam = snap.get("camera")  # {x, y, dist, angle, pitch, follow?}; absent with rev 6
         cost = snap.get("cost")  # cost gauge report, in one snapshot per minute (rev 24+)
+        # feature switches (rev 25+): in every live.lua, stored when they change and every 5 minutes (the housekeeping
+        # thins old snapshots; the server reads the newest stored one)
+        feats = json.dumps(snap["features"], sort_keys=True) if isinstance(snap.get("features"), dict) else None
+        if feats is not None:
+            last = self._last_features.get(gid)
+            if last and last[0] == feats and time.time() - last[1] < 300:
+                feats = None
+            else:
+                self._last_features[gid] = (feats, time.time())
         cur = self.con.execute(
             """INSERT INTO snapshot(game_id, seq, real_time, received_at, game_time_ms, year, month, day,
-               time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera, cost)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               time_of_day_s, speed, millis_per_day, n_errors, accept_commands, cmd_ack, camera, cost, features)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (gid, seq, real_time, now, t.get("game_time_ms"), t.get("year"), t.get("month"),
              t.get("day"), t.get("time_of_day_sec"), t.get("speed"), t.get("millis_per_day"), len(as_list(snap.get("errors"))),
              b(snap.get("accept_commands")) if snap.get("accept_commands") is not None else None,
              json.dumps(ack) if isinstance(ack, dict) else None,
              json.dumps(cam) if isinstance(cam, dict) else None,
-             json.dumps(cost) if isinstance(cost, dict) else None),
+             json.dumps(cost) if isinstance(cost, dict) else None, feats),
         )
         sid = cur.lastrowid
         if isinstance(t.get("lang"), str) and t["lang"]:
@@ -1067,6 +1078,7 @@ class Store:
         c.commit()
         self._game_cache = {k: v for k, v in self._game_cache.items() if v != gid}
         self._last_slow_seq.pop(gid, None)
+        self._last_features.pop(gid, None)
         return stats
 
     def apply_forget_requests(self, say=None) -> bool:

@@ -105,6 +105,19 @@ end
 -- part per frame (well under a microsecond). os.clock is wall time on Windows; on Linux/Proton it is the process CPU
 -- time of all threads, so the figures there are an upper bound.
 local COST = { WINDOW = 60, acc = {}, frames = 0, total = 0, maxFrame = 0, started = nil, report = nil, fresh = false }
+-- debug log: breakdown of a line step slower than 20 ms, by kind of engine call (see lineItem)
+function COST.lineProf(l, rec, prof)
+	if not options().debug_log then return end
+	local total, parts = 0, {}
+	for k, v in pairs(prof) do total = total + v; parts[#parts + 1] = { k, v } end
+	if total < 0.02 then return end
+	table.sort(parts, function(a, b) return a[2] > b[2] end)
+	local txt = {}
+	for _, p in ipairs(parts) do if p[2] >= 0.001 then txt[#txt + 1] = string.format("%s %.0fms", p[1], p[2] * 1000) end end
+	log(string.format("slow line %s (%s stops, %s vehicles, %s persons): %.0fms = %s", tostring(l), tostring(rec.stops),
+		tostring(rec.vehicles), tostring(rec.persons_on_line), total * 1000, table.concat(txt, ", ")))
+end
+
 function COST.add(name, dt)
 	local a = COST.acc[name]
 	if a == nil then a = { t = 0, n = 0, max = 0 }; COST.acc[name] = a end
@@ -964,6 +977,51 @@ local function linesBegin(player, cargoNames)
 	return arr(api.engine.system.lineSystem.getLinesForPlayer(player)), ctx
 end
 
+-- "vehicle too long for the platform" per stop (checkLineStopForVehicleOverlength). The engine compares every
+-- vehicle of the line with every terminal: on a 19-stop, 84-bus line that is ~110 ms for one call per stop, every
+-- slow cycle, in one frame (measured October 2026). The answer only changes when vehicles or stations do, so it is
+-- kept per line and stop and refreshed round-robin, a few ms per line and cycle (a small line still gets all its
+-- stops each cycle). A line the player opens on the dashboard (activity hint with its id) is refreshed in full:
+-- the player is looking at the second screen, not at the game.
+COST.over = {}       -- line id -> { stops = { [i] = { ["st:term"] = true } }, next = i, seen = cycle stamp }
+COST.lineWant = {}   -- line id -> os.clock() of the dashboard's request
+COST.OVER_BUDGET = 0.003
+COST.WANT_FOR = 30
+function COST.overlength(l, stops, sys)
+	local n = #stops
+	if n == 0 then return end
+	local oc = COST.over[l]
+	local fresh = oc == nil
+	if fresh then oc = { stops = {}, next = 1 }; COST.over[l] = oc end
+	local w = COST.lineWant[l]
+	local full = fresh or (w ~= nil and os.clock() - w < COST.WANT_FOR)
+	COST.lineWant[l] = nil  -- one full refresh per request
+	local t0 = os.clock()
+	local i = oc.next > n and 1 or oc.next
+	for _ = 1, n do
+		local st = stops[i]
+		if st and not st.gone and st.terminals then
+			local over = {}
+			pcall(function()
+				for stTerm in pairs(sys.transportVehicleSystem.checkLineStopForVehicleOverlength(l, i - 1)) do
+					over[num(stTerm.station) .. ":" .. num(stTerm.terminal)] = true
+				end
+			end)
+			oc.stops[i] = over
+		end
+		i = i % n + 1
+		if not full and os.clock() - t0 >= COST.OVER_BUDGET then break end
+	end
+	oc.next = i
+	for k in pairs(oc.stops) do if k > n then oc.stops[k] = nil end end
+	for si, st in ipairs(stops) do
+		local over = oc.stops[si]
+		if over and st.terminals then
+			for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
+		end
+	end
+end
+
 local function lineItem(l, ctx)
 	local sys = api.engine.system
 	local cargoNames = ctx.names
@@ -971,6 +1029,9 @@ local function lineItem(l, ctx)
 		local line = comp(l, api.type.ComponentType.LINE)
 		if not line then return nil end
 		local rec = { id = l, name = entityName(l), stops = count(line.stops) }
+		-- profiling (debug log): time of each engine call of this line, summed per kind, logged for a slow line
+		local prof, tk = {}, os.clock()
+		local function mark(k) local t = os.clock(); prof[k] = (prof[k] or 0) + (t - tk); tk = t end
 		-- A stop whose station group was bulldozed while the line still lists it (the game shows the line in red
 		-- until the player fixes it). The engine's line utils below walk the stops and the transport network; on a
 		-- dead entity they hit a fatal assertion (not a Lua error, pcall cannot catch it). Reported on mod.io on
@@ -984,15 +1045,20 @@ local function lineItem(l, ctx)
 			if not wholeStop[i] then broken = true end
 		end
 		if broken then rec.broken = true end
+		mark("whole")
 		pcall(function() local c = comp(l, api.type.ComponentType.COLOR); if c then rec.color = vec3(c.color) end end)
 		pcall(function() rec.vehicles = count(sys.transportVehicleSystem.getLineVehicles(l)) end)
+		mark("vehicles")
 		if not broken then pcall(function() rec.max_frequency = num(api.engine.util.line.getMaxFrequency(l)) end) end
+		mark("frequency")
 		if not broken then pcall(function() rec.throughput = num(api.engine.util.line.calcLineStationThroughput(l)) end) end
+		mark("throughput")
 		if not broken then pcall(function()
 			local q = api.engine.util.cargo.getSummarizedCargoQualityDataForLine(l)
 			rec.quality = { pax_bad = num(q.passengers.countBad), pax_total = num(q.passengers.countTotal), pax_avg = num(q.passengers.averageQuality),
 				cargo_bad = num(q.cargo.countBad), cargo_total = num(q.cargo.countTotal), cargo_avg = num(q.cargo.averageQuality) }
 		end) end
+		mark("quality")
 		if not broken then pcall(function()
 			rec.capacity = {}
 			-- The engine returns a dense array over all cargo types (one entry per CargoTypeId, 0-based),
@@ -1009,7 +1075,9 @@ local function lineItem(l, ctx)
 				end
 			end
 		end) end
+		mark("capacity")
 		pcall(function() rec.persons_on_line = count(sys.simPersonSystem.getSimPersonsForLine(l)) end)
+		mark("persons")
 		-- the line's balance over the last 12 months (income - running costs): the "Last Year" figure of the game's
 		-- line window, same call (gui/line_vehicle_mgmt/line_react_util.tl). Reads the line's account only.
 		pcall(function()
@@ -1018,11 +1086,13 @@ local function lineItem(l, ctx)
 			local fromTime = math.max(toTime - api.util.getDefaultYearDuration(), 0)
 			rec.balance_year = num(api.engine.util.finance.calculateBalance({ l }, fromTime, toTime, true))
 		end)
+		mark("balance")
 		if not broken then pcall(function()
 			local modes = {}
 			for m, on in pairs(api.engine.util.line.getLineTransportModesUnion(l)) do if on then modes[#modes + 1] = num(m) or tostring(m) end end
 			rec.transport_modes = modes
 		end) end
+		mark("modes")
 		pcall(function()
 			rec.stop_list = {}
 			rec.custom_filters = line.customFilters and true or false
@@ -1032,6 +1102,7 @@ local function lineItem(l, ctx)
 			local lineCargoIds = {}
 			for _, c in ipairs(rec.capacity or {}) do if c.cargo_type then lineCargoIds[#lineCargoIds + 1] = c.cargo_type end end
 			local lineClasses = cargoClassesOf(lineCargoIds)
+			mark("modes")
 			for i, s in ipairs(arr(line.stops)) do
 				local st = { station_group = num(s.stationGroup), station = num(s.station), terminal = num(s.terminal),
 					name = entityName(s.stationGroup),
@@ -1062,14 +1133,9 @@ local function lineItem(l, ctx)
 					local alts = {}
 					for _, a in ipairs(arr(s.alternativeTerminals)) do alts[#alts + 1] = { station = num(a.station), terminal = num(a.terminal) } end
 					st.alternatives = alts
+					mark("stop_config")
 					st.terminals = terminalsOfGroup(s.stationGroup, lineModes, lineClasses, ctx.tpNet)
-					local over = {}
-					pcall(function()
-						for stTerm in pairs(sys.transportVehicleSystem.checkLineStopForVehicleOverlength(l, i - 1)) do
-							over[num(stTerm.station) .. ":" .. num(stTerm.terminal)] = true
-						end
-					end)
-					for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
+					mark("terminals")
 				end) end
 				if not st.gone then pcall(function()
 					-- items waiting at this stop for this line (the figure in the game's line window), per cargo the line carries
@@ -1081,9 +1147,14 @@ local function lineItem(l, ctx)
 					end
 					st.waiting = w
 				end) end
+				mark("waiting")
 				rec.stop_list[i] = st
 			end
+			mark("stop_config")
+			COST.overlength(l, rec.stop_list, sys)
+			mark("overlength")
 		end)
+		COST.lineProf(l, rec, prof)
 		return rec
 	end
 end
@@ -2914,6 +2985,7 @@ local function pollActivity(now)
 	if a.id ~= nil and a.id == ACTIVITY.lastId then return false end
 	ACTIVITY.lastId = a.id
 	ACTIVITY.until_ = now + ACTIVITY.WINDOW
+	if type(a.line) == "number" then COST.lineWant[a.line] = os.clock() end
 	return true
 end
 

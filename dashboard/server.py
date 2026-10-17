@@ -160,7 +160,7 @@ def write_command(cmd: str, args: dict) -> dict:
 _activity_seq = [0]
 
 
-def write_activity() -> dict:
+def write_activity(line=None) -> dict:
     """Write activity.lua: a hint that the player is interacting with the dashboard. The mod uses it to do its heavy
     work (slow cycle, big file writes) right now, while the player looks at the second screen. Not a command: it is
     sent whatever 'Permit game control' says, and the mod only changes *when* it works, never what it does."""
@@ -170,7 +170,10 @@ def write_activity() -> dict:
     with _cmd_lock:
         _activity_seq[0] += 1
         aid = _activity_seq[0]
-        body = "function data()\nreturn " + lua_literal({"id": aid, "t": time.time()}) + "\nend\n"
+        hint = {"id": aid, "t": time.time()}
+        if isinstance(line, int) and not isinstance(line, bool) and line > 0:
+            hint["line"] = line  # the line the player opened: the mod refreshes its slow per-stop checks in full
+        body = "function data()\nreturn " + lua_literal(hint) + "\nend\n"
         d.mkdir(parents=True, exist_ok=True)
         target = tf3paths.file_in(d, "activity")
         tmp = target.with_suffix(".tmp")
@@ -2271,7 +2274,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/activity":
             try:
-                res = write_activity()
+                line = None
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                    if 0 < n <= 1024:
+                        line = (json.loads(self.rfile.read(n) or b"{}") or {}).get("line")
+                except (ValueError, AttributeError):
+                    line = None
+                res = write_activity(line)
                 self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
             except (ValueError, OSError) as e:
                 self._send(200, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")

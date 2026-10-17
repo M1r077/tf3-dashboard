@@ -2415,6 +2415,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const bar = $("#newmap-bar"); if (!bar) return;
     const young = youngGame();
     if (!young) { bar.style.display = "none"; return; }
+    if (!mapOn()) { bar.style.display = "none"; return; }
     if (state.tab !== "map" && Date.now() - newMap.probedAt > 4000) {
       newMap.probedAt = Date.now();
       try { const [g, m] = await Promise.all([api("/api/geo?have=-1&game=-1"), api("/api/heightmap")]); newMap.geo = !!g.available; newMap.hm = m; } catch (e) { /* older server */ }
@@ -2445,6 +2446,53 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // Markers whose size carries data (stock piles, town circles) keep their own growth: only their base follows.
   const isz = () => (settings.marker || settings.ico || 28) / 28;  // map marker scale: its own setting, 28 px = 1
   const mapIcon = (name) => { if (!map.icons[name]) { const im = new Image(); im.src = ICON_URL(name); map.icons[name] = im; } return map.icons[name]; };
+  // ---- the whole map on/off. Off: the page draws and fetches nothing for the map (on a big save the browser drawing
+  // 1000+ vehicles costs more CPU than the game itself) and, with "Permit game control", the mod pauses its map-only
+  // work (roads/tracks/water, terrain, line paths) for this game. Only the switches this one turned off are turned
+  // back on, so a feature off in the mod settings stays off.
+  const MAP_FEATS = ["feat_geo", "feat_heightmap", "feat_line_paths"];
+  const mapOn = () => localStorage.getItem("tf3.mapOn") !== "0";
+  function paintMapOn() {
+    const on = mapOn(), sec = $("#tab-map"), note = $("#map-off-note");
+    $("#map-on").checked = on; sec.classList.toggle("map-off", !on); note.hidden = on;
+    if (!on) note.innerHTML = `<b>${esc(t("map_off_title"))}</b><br>${esc(t(cmdOff() ? "map_off_note_nocmd" : "map_off_note"))}`;
+  }
+  async function cmdAndWait(name, args) {  // one cmd.lua at a time: the next one would overwrite it before the mod reads it
+    if (!(await sendCmd(name, args))) return false;
+    const id = cmd.lastSent && cmd.lastSent.id, t0 = Date.now();
+    while (Date.now() - t0 < 10000) {
+      await new Promise(r => setTimeout(r, 400));
+      try { const c = (await api("/api/overview")).commands || {}; if ((c.ack && c.ack.id === id) || !c.pending) return true; } catch (e) { return false; }
+    }
+    return false;
+  }
+  async function setMapFeats(on) {
+    if (cmdOff()) return;
+    let keys;
+    if (on) { try { keys = JSON.parse(localStorage.getItem("tf3.mapFeatsOff") || "[]"); } catch (e) { keys = []; } }
+    else {
+      let f = null; try { f = (await api("/api/cost")).features; } catch (e) { /* older server */ }
+      if (!f || !f.on) return;  // mod older than revision 25: no switches
+      keys = MAP_FEATS.filter(k => f.on[k] !== false);
+      localStorage.setItem("tf3.mapFeatsOff", JSON.stringify(keys));
+    }
+    for (const k of keys) await cmdAndWait("set_feature", { feature: k, on });
+    if (on) localStorage.removeItem("tf3.mapFeatsOff");
+  }
+  function freeMap() {  // drop what the map holds (decoded terrain can be tens of MB); reloaded when switched on
+    geo.data = null; geo.seq = null; geo.layer = null; geo.key = ""; geo.bmSeq = null; geo.edgeById = null; geo.hdW = geo.hdL = null; geo.hdRevs = null; geo.bmW = geo.bmL = null;
+    linePaths.stamp = null; linePaths.lines = null; linePaths.poly = {}; linePaths.builtFor = "";
+    hmap.meta = null; hmap.data = null; hmap.revs = null; hmap.ready = null;
+    mapCargo.data = null; mapCargo.at = 0; map.data = null; map.base = null;
+  }
+  $("#map-on").addEventListener("change", async e => {
+    const on = e.target.checked, sw = e.target;
+    localStorage.setItem("tf3.mapOn", on ? "1" : "0");
+    if (!on) freeMap();
+    paintMapOn(); refresh();
+    sw.disabled = true;
+    try { await setMapFeats(on); } finally { sw.disabled = false; }
+  });
   async function renderMap(o) {
     camViews.cur = (o && o.camera) || null;
     // views belong to a savegame: reload the list when the game changed (another save loaded while the page stayed open)
@@ -2453,6 +2501,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // reload when the savegame changed, and when the first load happened before any snapshot (game was null then)
     if (!camViews.loaded || (gameKey && gameKey !== camViews.game)) { await loadViews(); await loadTravellings(); }
     renderCamViews(); renderTravellings(); renderWorkshop();
+    paintMapOn();
+    if (!mapOn()) return;
     const prevData = map.data;
     map.data = await api("/api/map");
     await loadGeo(); await loadLinePaths(); await loadMapCargo(); loadHeightmap();
@@ -3191,7 +3241,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     motionKick();
   }
   // stale = no new sample for a while (measured on the browser's clock, since the last one arrived: the page may run on another machine)
-  const motionActive = () => !!settings.smooth && state.tab === "map" && document.visibilityState === "visible" && $("#map-veh").checked && map.data && motion.rate > 0 && performance.now() - motion.t0 < MOTION.STALE_MS;
+  const motionActive = () => mapOn() && !!settings.smooth && state.tab === "map" && document.visibilityState === "visible" && $("#map-veh").checked && map.data && motion.rate > 0 && performance.now() - motion.t0 < MOTION.STALE_MS;
   // where a vehicle is drawn now: the sample position unless smooth motion is on and the vehicle has somewhere to go
   function vehPos(v, at) {
     const m = settings.smooth && motion.by.get(v.vehicle_id); if (!m) return v;

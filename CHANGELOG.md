@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Map on/off switch at the start of the Map toolbar. On a big save (1200 vehicles) the browser drawing the live map took about 7 CPU cores, more than the game; minimised, under 0.3. Off, the page draws and fetches nothing for the map and frees what it held; with "Permit game control", the game also pauses its map-only work (roads, tracks, water, terrain, line paths: the existing feature switches) until the save is reloaded. Switched back on, everything reloads, and only the switches it turned off are turned on again. Remembered per browser.
+
 ## Companion 0.16.1 - 17 October 2026 (mod revision 25, unchanged)
 
 - Lighter companion while you play: with Operations open, the dashboard server used about 1.3 CPU cores the whole time (measured on a 6600-snapshot game), CPU the game could use. The fleet history behind the Operations charts was summed again over every vehicle of every snapshot at each refresh (0.6-0.9 s); each snapshot is now summed once and kept, a refresh only adds the new ones (under 40 ms, same figures). The Lines page looked up each line's latest row through every snapshot of the game (0.5 s); two new indexes make it under 40 ms (created by the collector at its next start, a fraction of a second). A dashboard tab in the background (another tab, minimised window) no longer refreshes; it catches up as soon as it is shown again.

@@ -2261,10 +2261,32 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // mod's share of the game's frame, then each part with what it is for, so a player sees what to turn off first.
   const COST_PARTS = ["slow_collect", "slow_write", "fast_build", "fast_write", "geo", "geo_check", "heightmap", "catalogue", "journal", "line_paths", "poll"];
   let costReport = "";
+  // feature switches (mod rev 25+): what the mod collects. Set in the mod settings at load; switched here for this game
+  // (set_feature command, so only with "Permit game control"), until the save is loaded again.
+  const FEATS = ["feat_overlength", "feat_line_paths", "feat_geo", "feat_heightmap", "feat_journal", "feat_catalogue"];
+  function featsHtml(f) {
+    const head = `<h4 class="feat-title">${esc(t("feat_title"))}</h4>`;
+    if (!f || !f.on) return head + `<p class="setnote">${esc(t("feat_old"))}</p>`;
+    const off = !cmd.enabled || cmd.accepted === 0;
+    return head + `<p class="setnote">${esc(t("feat_hint"))}</p>` + (off ? `<div class="cmdhint">${ico("alert", "sm")}<span>${esc(t("feat_cmd_off"))}</span></div>` : "") +
+      `<div class="feats">${FEATS.map(k => {
+        const on = f.on[k] !== false, par = !f.param || f.param[k] !== false;
+        return `<label class="feat${on ? "" : " is-off"}"><input type="checkbox" data-feat="${k}" ${on ? "checked" : ""} ${off ? "disabled" : ""}>
+          <span><b>${esc(t("feat_n." + k))}</b>${on !== par ? ` <span class="muted">${esc(t(par ? "feat_live_off" : "feat_live_on"))}</span>` : ""}<br><span class="muted">${esc(t("feat_d." + k))}</span></span></label>`;
+      }).join("")}</div>`;
+  }
+  function bindFeats(el) {
+    $$("input[data-feat]", el).forEach(inp => inp.addEventListener("change", async () => {
+      inp.disabled = true;
+      const ok = await sendCmd("set_feature", { feature: inp.dataset.feat, on: inp.checked });
+      if (!ok) inp.checked = !inp.checked;
+      setTimeout(() => { if ($("#settings").classList.contains("open")) renderCost(); }, 3000);  // the next live.lua carries the new state
+    }));
+  }
   async function renderCost() {
     const el = $("#cost"); if (!el) return;
     let d; try { d = await api("/api/cost"); } catch (e) { d = null; }
-    if (!d || !d.reports) { el.innerHTML = `<p class="setnote">${t("cost_none")}</p>`; costReport = ""; return; }
+    if (!d || !d.reports) { el.innerHTML = `<p class="setnote">${t("cost_none")}</p>` + featsHtml(d && d.features); costReport = ""; bindFeats(el); return; }
     const f1 = x => x == null ? "–" : x < 0.1 ? x.toFixed(2) : x.toFixed(1);
     const share = d.frame_ms ? d.per_frame_ms / d.frame_ms : 0;
     const cls = share > 0.1 ? "bad" : share > 0.03 ? "warn" : "ok";
@@ -2278,9 +2300,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <p class="cost-verdict ${cls}">${esc(verdict)}</p>
       <table class="kv cost-parts">${d.parts.filter(p => COST_PARTS.includes(p.name) || p.ms > 0).map(p => `<tr title="${esc(t("cost_d." + p.name))}"><td>${esc(t("cost_p." + p.name))}</td><td><span class="bar"><i style="width:${100 * (p.per_frame_ms || 0) / maxPart}%"></i></span></td><td class="num mono">${f1(p.per_frame_ms)} ms</td><td class="num mono muted">${t("cost_peak", { n: f1(p.max_ms) })}</td></tr>`).join("")}</table>
       <p class="setnote">${esc(sizeTxt)} · ${t("cost_window", { n: d.reports, ago: ago(d.last_at) })}.${d.warmup ? " " + esc(t("cost_warm")) : d.load_peak_ms ? " " + esc(t("cost_load", { n: f1(d.load_peak_ms) })) : ""} ${t("cost_hint")}</p>
-      <div class="btns"><button class="btn sm" id="cost-copy">${ico("copy", "sm")}<span>${t("cost_copy")}</span></button><span class="pmsg" id="cost-msg"></span></div>`;
+      <div class="btns"><button class="btn sm" id="cost-copy">${ico("copy", "sm")}<span>${t("cost_copy")}</span></button><span class="pmsg" id="cost-msg"></span></div>` + featsHtml(d.features);
+    bindFeats(el);
     costReport = [`TF3 Dashboard ${d.version} - mod cost report`,
       `mod: ${f1(d.per_frame_ms)} ms per frame of ${f1(d.frame_ms)} ms (${Math.round(d.fps || 0)} fps), ${(share * 100).toFixed(2)} %, worst frame ${f1(d.max_frame_ms)} ms`,
+      ...(d.features && d.features.on ? [`switches off: ${FEATS.filter(k => d.features.on[k] === false).join(", ") || "none"}`] : []),
       `save: ${sz.lines ?? "?"} lines, ${sz.vehicles ?? "?"} vehicles, ${sz.stations ?? "?"} stations, ${sz.towns ?? "?"} towns, ${sz.industries ?? "?"} industries, ${sz.edges ?? "?"} edges; fast ${sz.interval_fast ?? "?"} s, slow ${sz.interval_slow ?? "?"} s, vehicles ${sz.export_vehicles === false ? "off" : "on"}`,
       `over ${Math.round(d.span_s)} s (${d.reports} reports${d.warmup ? ", load only" : d.load_peak_ms ? `, load set aside: worst frame ${f1(d.load_peak_ms)} ms` : ""}):`,
       ...d.parts.map(p => `  ${p.name.padEnd(13)} ${f1(p.per_frame_ms).padStart(6)} ms/frame  peak ${f1(p.max_ms)} ms  (${p.n} runs)`)].join("\n");

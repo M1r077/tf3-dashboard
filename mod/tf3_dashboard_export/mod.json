@@ -1,6 +1,6 @@
 {
     "modId": "tf3_dashboard_export",
-    "revision": 24,
+    "revision": 25,
     "severityAdd": "None",
     "severityRemove": "None",
     "cosmetic": true,
@@ -45,6 +45,54 @@
             "tooltip": "param_debug_log_tooltip",
             "uiType": "Button",
             "values": ["param_off", "param_on"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_geo",
+            "name": "param_feat_geo_name",
+            "tooltip": "param_feat_geo_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_heightmap",
+            "name": "param_feat_heightmap_name",
+            "tooltip": "param_feat_heightmap_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_line_paths",
+            "name": "param_feat_line_paths_name",
+            "tooltip": "param_feat_line_paths_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_catalogue",
+            "name": "param_feat_catalogue_name",
+            "tooltip": "param_feat_catalogue_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_journal",
+            "name": "param_feat_journal_name",
+            "tooltip": "param_feat_journal_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "feat_overlength",
+            "name": "param_feat_overlength_name",
+            "tooltip": "param_feat_overlength_tooltip",
+            "uiType": "Button",
+            "values": ["param_on", "param_off"],
             "defaultIndex": 0
         }
     ]

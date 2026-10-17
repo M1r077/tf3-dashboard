@@ -21,6 +21,12 @@ local SETTINGS = {
 	{ key = "export_vehicles", name = "param_export_vehicles_name", tooltip = "param_export_vehicles_tooltip", labels = { "param_on", "param_off" } },
 	{ key = "accept_commands", name = "param_accept_commands_name", tooltip = "param_accept_commands_tooltip", labels = { "param_off", "param_on" } },
 	{ key = "debug_log", name = "param_debug_log_name", tooltip = "param_debug_log_tooltip", labels = { "param_off", "param_on" } },
+	{ key = "feat_geo", name = "param_feat_geo_name", tooltip = "param_feat_geo_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "feat_heightmap", name = "param_feat_heightmap_name", tooltip = "param_feat_heightmap_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "feat_line_paths", name = "param_feat_line_paths_name", tooltip = "param_feat_line_paths_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "feat_catalogue", name = "param_feat_catalogue_name", tooltip = "param_feat_catalogue_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "feat_journal", name = "param_feat_journal_name", tooltip = "param_feat_journal_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "feat_overlength", name = "param_feat_overlength_name", tooltip = "param_feat_overlength_tooltip", labels = { "param_on", "param_off" } },
 }
 local COLORS = {
 	ok = { 0.30, 0.75, 0.40, 1 },

@@ -1513,7 +1513,14 @@ local function industryItem(i, ctx)
 					local r = { cargo_type = num(ct), cargo = cargoNames[num(ct)] }
 					pcall(function() r.consumed_year = num(api.engine.util.stock.getCargoConsumedPerYear(sl, ct)) end)
 					pcall(function() r.max_consumption_year = num(api.engine.util.stock.getCargoMaxConsumptionPerYear(sl, ct)) end)
-					pcall(function() r.delivered_year = num(api.engine.util.stock.getCargoTypeDeliveredPerYear(sl, ct)) end)
+					-- delivered = what vehicles unloaded into this input over the last year. getCargoTypeDeliveredPerYear
+					-- answers 0 for every industry (probe 18 Oct 2026: 6 of 6 consuming inputs at 0, unloaded 69-431
+					-- next to consumption 74-584, the window's figures); getCargoDeliveredPerYear is not per cargo.
+					pcall(function()
+						local u = num(api.engine.util.stock.getCargoLogValueDiffPerYear(sl, "itemsUnloaded", ct))
+						if u then r.delivered_year = math.max(0, u) end
+					end)
+					if r.delivered_year == nil then pcall(function() r.delivered_year = num(api.engine.util.stock.getCargoTypeDeliveredPerYear(sl, ct)) end) end
 					rec.inputs[#rec.inputs + 1] = r
 				end
 				for _, ct in ipairs(arr(io[2])) do

@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.17.1 - 18 October 2026 (mod revision 26)
 
 - Mod revision 26. Fix: industries showed nothing delivered (0 on every input, since the first version). The game's
   `getCargoTypeDeliveredPerYear` answers 0 for every industry; the mod now exports what vehicles unloaded into each
@@ -13,6 +13,8 @@ Mod revision and companion version are released together (see README, Install). 
   Shown / Hidden (the export goes on either way).
 - Mod revision 26: "getPartPrice failed" is no longer written to the game log outside Debug log (harmless: prices
   come from the model data).
+- Stations: the Overflow column stays empty when nothing overflows (it showed 0), and the detail card shows the
+  Overflow row only when there is one.
 
 ## Companion 0.17.0 - 17 October 2026 (mod revision 25, unchanged)
 

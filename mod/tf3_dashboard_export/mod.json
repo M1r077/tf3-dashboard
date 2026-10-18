@@ -1,6 +1,6 @@
 {
     "modId": "tf3_dashboard_export",
-    "revision": 25,
+    "revision": 26,
     "severityAdd": "None",
     "severityRemove": "None",
     "cosmetic": true,
@@ -93,6 +93,14 @@
             "tooltip": "param_feat_overlength_tooltip",
             "uiType": "Button",
             "values": ["param_on", "param_off"],
+            "defaultIndex": 0
+        },
+        {
+            "key": "status_button",
+            "name": "param_status_button_name",
+            "tooltip": "param_status_button_tooltip",
+            "uiType": "Button",
+            "values": ["param_shown", "param_hidden"],
             "defaultIndex": 0
         }
     ]

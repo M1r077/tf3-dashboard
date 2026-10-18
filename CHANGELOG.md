@@ -2,6 +2,20 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Companion 0.17.1 - 18 October 2026 (mod revision 26)
+
+- Mod revision 26. Fix: industries showed nothing delivered (0 on every input, since the first version). The game's
+  `getCargoTypeDeliveredPerYear` answers 0 for every industry; the mod now exports what vehicles unloaded into each
+  input over the last year (`getCargoLogValueDiffPerYear(..., "itemsUnloaded", cargo)`), checked against the
+  industry window (69/yr of steel sheet on both). The Industries table, the detail card and "served" follow.
+- Mod revision 26: the status button looks like the other buttons of the mod button area (the game's dark square,
+  32 points) with a two-screen icon; a red underline only when the export fails. New mod setting *Status button*:
+  Shown / Hidden (the export goes on either way).
+- Mod revision 26: "getPartPrice failed" is no longer written to the game log outside Debug log (harmless: prices
+  come from the model data).
+- Stations: the Overflow column stays empty when nothing overflows (it showed 0), and the detail card shows the
+  Overflow row only when there is one.
+
 ## Companion 0.17.0 - 17 October 2026 (mod revision 25, unchanged)
 
 - Map on/off switch at the start of the Map toolbar. On a big save (1200 vehicles) the browser drawing the live map took about 7 CPU cores, more than the game; minimised, under 0.3. Off, the page draws and fetches nothing for the map and frees what it held; with "Permit game control", the game also pauses its map-only work (roads, tracks, water, terrain, line paths: the existing feature switches) until the save is reloaded. Switched back on, everything reloads, and only the switches it turned off are turned on again. Remembered per browser.

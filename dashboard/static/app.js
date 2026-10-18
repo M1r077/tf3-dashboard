@@ -1551,7 +1551,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       // occupancy and overflow are passenger notions (platform + waiting hall capacity); a freight station has no
       // capacity at all in TF3, so its cells stay empty rather than showing a meaningless dash or 0
       { key: "cap", label: t("th_occupancy"), num: true, render: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? bar(x.used || 0, cap, pct(x.used, cap) > 90 ? "bad" : pct(x.used, cap) > 70 ? "warn" : "") : ""; }, sortValue: x => { const cap = (x.terminal_capacity || 0) + (x.pool_capacity || 0); return cap ? (x.used || 0) / cap : null; } },
-      { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : ((x.terminal_capacity || 0) + (x.pool_capacity || 0) ? "0" : "") },
+      { key: "overflow", label: t("th_overflow"), num: true, render: x => x.overflow ? `<span class="chip bad">${x.overflow}</span>` : "" },  // no overflow: empty cell, not "0"
       { key: "lines", label: t("th_lines"), num: true },
       { key: "act", label: "", render: x => entBtns(x.station_id) },
     ], stRows, { total: stations.length, empty: { icon: "station", text: t("empty_stations"), hint: t("empty_stations_hint") }, id: "station_id", defaultSort: "used", defaultAsc: false, onRow: (id, tr) => { state.selSt = +id; $$("tr", tr.parentElement).forEach(x => x.classList.toggle("sel", x === tr)); renderStationDetail(+id); }, rowClass: x => (x.station_id === state.selSt ? "sel" : "") });
@@ -1622,8 +1622,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${st.station_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button></div>
       <table class="kv">${cap || st.used ? `<tr><td>${stKind(st).icons("sm")}${t("th_waiting")}</td><td>${int(st.used)}${cap ? ` / ${int(cap)} ${bar(st.used || 0, cap, pct(st.used, cap) > 90 ? "bad" : pct(st.used, cap) > 70 ? "warn" : "")}` : ""}</td></tr>` : ""}
         ${stationWaitingRows(st)}
-        ${cap ? `<tr><td>${t("st_capacity_split")}</td><td>${ico("terminal", "sm")}${int(st.terminal_capacity)} <span class="muted">${t("st_platforms")}</span> &nbsp;+&nbsp; ${ico("station_pool", "sm")}${int(st.pool_capacity)} <span class="muted">${t("st_storage")}</span></td></tr>
-        <tr><td>${ico("terminal_full", "sm")}${t("th_overflow")}</td><td>${st.overflow ? `<span class="chip bad">${st.overflow}</span>` : "0"}</td></tr>` : ""}
+        ${cap ? `<tr><td>${t("st_capacity_split")}</td><td>${ico("terminal", "sm")}${int(st.terminal_capacity)} <span class="muted">${t("st_platforms")}</span> &nbsp;+&nbsp; ${ico("station_pool", "sm")}${int(st.pool_capacity)} <span class="muted">${t("st_storage")}</span></td></tr>` : ""}
+        ${cap && st.overflow ? `<tr><td>${ico("terminal_full", "sm")}${t("th_overflow")}</td><td><span class="chip bad">${st.overflow}</span></td></tr>` : ""}
         <tr><td>${t("det_group")}</td><td class="mono">#${st.station_group ?? "–"}${st.lines != null ? ` <span class="muted">· ${int(st.lines)} ${t("det_lines").toLowerCase()}</span>` : ""}</td></tr></table>
       <h2 data-sec="lines">${ico("line")}${t("th_lines")} <small>${lines.length}</small></h2>
       ${lines.length ? `<div class="minilist">${lines.map(l => `<div class="row goto" data-line="${l.line_id}" title="${esc(t("tab_lines"))}"><span class="n"><span class="swatch" style="background:${rgb(l.color_r, l.color_g, l.color_b)}"></span>${lineTypeIcon(l)}${esc(l.name || "#" + l.line_id)}</span><span class="r">${ico("line", "sm")}</span></div>`).join("")}</div>` : `<p class="muted">${t("none_m")}</p>`}

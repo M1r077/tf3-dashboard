@@ -45,9 +45,10 @@ local PARAM_VALUES = {
 	-- feature switches (rev 25): what the mod collects, all on by default; the dashboard can flip them live (COST.on)
 	feat_geo = { true, false }, feat_heightmap = { true, false }, feat_line_paths = { true, false },
 	feat_catalogue = { true, false }, feat_journal = { true, false }, feat_overlength = { true, false },
+	status_button = { true, false },  -- rev 26: the status button in the game's mod button area, shown or hidden
 }
 local PARAM_DEFAULT_INDEX = { interval_fast = 2, interval_slow = 2, export_vehicles = 1, accept_commands = 1, debug_log = 1,
-	feat_geo = 1, feat_heightmap = 1, feat_line_paths = 1, feat_catalogue = 1, feat_journal = 1, feat_overlength = 1 }
+	feat_geo = 1, feat_heightmap = 1, feat_line_paths = 1, feat_catalogue = 1, feat_journal = 1, feat_overlength = 1, status_button = 1 }
 local CMD_FILE = PREFIX .. "cmd"
 
 -- Settings are the mod parameters chosen when the game was loaded (api.engine.config.getModParams, read-only during
@@ -645,7 +646,7 @@ local function catalogueItem(id, resName)
 		local p = num(api.engine.util.getPartPrice(part))
 		if p and p ~= 0 then it.price = math.abs(p) end
 	end)
-	if not okP and not catDumped then catDumped = true; log("models: getPartPrice failed:", tostring(errP)) end
+	if not okP and not catDumped then catDumped = true; debug("models: no getPartPrice in this game version, prices from the model data instead:", tostring(errP)) end
 	if not it.price then pcall(function() local c = md.cost; local p = c and num(c.price); if p and p > 0 then it.price = p end end) end
 	return it
 end

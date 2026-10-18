@@ -13,7 +13,7 @@ local styleutil = ug_require "::/gui/main/styleutil.tl"
 
 local UI_ID = "TF3_DASHBOARD_EXPORT"
 local STATUS_EVENT = "TF3DashboardStatus"
-local ICON = "::/gui/line_vehicle_mgmt/icons/symbol_info_outline@2x.tga"  -- the game's "i" symbol; readable at 16 px
+local ICON = "tf3_dashboard_export::/dashboard_export/icons/dashboard.tga"  -- two screens (rev 26); the game picks @2x on high-DPI screens
 -- the settings in the order of mod.json; labels and value labels reuse the mod.json strings
 local SETTINGS = {
 	{ key = "interval_fast", name = "param_interval_fast_name", tooltip = "param_interval_fast_tooltip", labels = { "1 s", "2 s", "5 s", "10 s" } },
@@ -27,6 +27,7 @@ local SETTINGS = {
 	{ key = "feat_catalogue", name = "param_feat_catalogue_name", tooltip = "param_feat_catalogue_tooltip", labels = { "param_on", "param_off" } },
 	{ key = "feat_journal", name = "param_feat_journal_name", tooltip = "param_feat_journal_tooltip", labels = { "param_on", "param_off" } },
 	{ key = "feat_overlength", name = "param_feat_overlength_name", tooltip = "param_feat_overlength_tooltip", labels = { "param_on", "param_off" } },
+	{ key = "status_button", name = "param_status_button_name", tooltip = "param_status_button_tooltip", labels = { "param_shown", "param_hidden" } },
 }
 local COLORS = {
 	ok = { 0.30, 0.75, 0.40, 1 },
@@ -113,9 +114,13 @@ local function stateLine(st)
 end
 
 local StatusWindow
+local windowOpen, openState = false, nil  -- the button is a ToggleButton: pressed while the window is open
 local function closeWindow()
+	if not windowOpen then return end  -- removing the window calls onClose again
+	windowOpen = false
 	local windows = gameGlobals.getDefaultWindowApi()
 	if windows then windows.removeAllWindows(StatusWindow) end
+	if openState then pcall(function() openState:set(false) end) end
 end
 
 StatusWindow = react.RegisterWrapperRecipe("TF3DashboardStatusWindow", builtin.Window, function()
@@ -179,23 +184,36 @@ end)
 
 local MainButton = react.RegisterRecipe("TF3DashboardStatusButton", function()
 	local state = react.useState("starting")
+	local hidden = react.useState(false)
+	local open = react.useState(windowOpen)
+	openState = open
 	react.onMount(function()
 		local d = readState()
 		if d and d.status then state:set(d.status.state) end
+		if d and d.current and d.current.status_button == 2 then hidden:set(true) end  -- mod setting "Status button: Hidden"
 	end)
 	react.onEvent(STATUS_EVENT, function(_, param)
 		if type(param) == "table" and param.state then state:set(param.state) end
 	end)
-	local color = COLORS[state:old()] or COLORS.starting
-	return row({ builtin.Button {
-		meta = { class = "secondary", tooltip = tr("status_button_tip"),
-			styleSheet = style({ size = { 24, 24 }, padding = { 3, 3, 3, 3 }, borderColor = color, borderWidth = { 0, 0, 2, 0 } }) },
-		content = builtin.ImageView { path = ICON, scaling = builtin.type.ImageViewScaling.AutoFit,
-			meta = { styleSheet = style({ size = { 16, 16 } }) } },
-		onClick = function()
+	if hidden:old() then return row({}) end
+	-- the game's dark square like the other mods' buttons (status_ui.css.lua); a red underline only when the export fails
+	local meta = { class = "tf3-dashboard-status-button", tooltip = tr("status_button_tip") }
+	if state:old() == "error" then meta.styleSheet = style({ borderColor = COLORS.error, borderWidth = { 0, 0, 2, 0 } }) end
+	return row({ builtin.ToggleButton {
+		meta = meta,
+		value = open:old() and 1 or 0,
+		onValueChange = function(value)
 			local windows = gameGlobals.getDefaultWindowApi()
-			if windows then windows.addSingletonWindow(StatusWindow, {}) end
+			if value == 1 and not windowOpen and windows then
+				windows.addSingletonWindow(StatusWindow, {}); windowOpen = true; open:set(true)
+			elseif value == 0 and windowOpen then
+				closeWindow()
+			else
+				open:set(windowOpen)
+			end
 		end,
+		content = builtin.ImageView { path = ICON, scaling = builtin.type.ImageViewScaling.AutoFit,
+			meta = { class = "tf3-dashboard-status-icon" } },
 	} })
 end)
 

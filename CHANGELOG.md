@@ -2,6 +2,13 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Vehicle icons for mod vehicles: the icon extraction also reads the installed mods (mod.io downloads, the game's
+  `mods` folder, userdata `mods` / `staging_area`), so the UrbanGames vehicle packs (`*_v2` models) and other mod
+  vehicles show their picture instead of the generic type glyph. Installing or updating a mod triggers a new
+  extraction at the next start.
+
 ## Companion 0.17.1 - 18 October 2026 (mod revision 26)
 
 - Mod revision 26. Fix: industries showed nothing delivered (0 on every input, since the first version). The game's

@@ -39,11 +39,20 @@ _print_lock = threading.Lock()
 
 
 def icons_outdated() -> bool:
-    """First start, or the icon list in extract_icons.py changed since the last extraction."""
+    """First start, the icon list in extract_icons.py changed, or a mod was installed / updated since the last
+    extraction (its vehicles get their icons too)."""
     try:
-        return ICON_EXTRACTOR.stat().st_mtime > ICON_MANIFEST.stat().st_mtime
+        t = ICON_MANIFEST.stat().st_mtime
+        if ICON_EXTRACTOR.stat().st_mtime > t:
+            return True
     except OSError:
         return True
+    try:
+        sys.path.insert(0, str(ICON_EXTRACTOR.parent))
+        import extract_icons
+        return extract_icons.mods_changed_since(t)
+    except Exception:  # noqa: BLE001 - never block the start on this check
+        return False
 
 
 def port_answers(port: int) -> bool:

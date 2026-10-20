@@ -455,6 +455,39 @@ def _vehicle_icons_in_zip(zf: zipfile.ZipFile, prefix: str) -> dict[str, str]:
     return out
 
 
+def mod_dirs(game: Path | None = None) -> list[Path]:
+    """Folders holding one subfolder per installed mod: the game's mods/, mod.io's download folder (game id 10640;
+    C:/Users/Public/mod.io on Windows), and mods/ + staging_area/ of every userdata root."""
+    cands: list[Path] = []
+    if game is not None:
+        cands.append(game / "mods")
+    if sys.platform == "win32":
+        cands.append(Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "mod.io" / "10640" / "mods")
+    try:
+        for _, r in tf3paths.userdata_roots():
+            cands += [r / "mods", r / "staging_area"]
+    except Exception:  # noqa: BLE001
+        pass
+    out, seen = [], set()
+    for c in cands:
+        k = os.path.normcase(str(c))
+        if k not in seen and c.is_dir():
+            seen.add(k)
+            out.append(c)
+    return out
+
+
+def mods_changed_since(t: float) -> bool:
+    """A mod was installed or updated after time t (top-level mod folders' mtimes; cheap enough for each start)."""
+    for d in mod_dirs(find_game()):
+        try:
+            if d.stat().st_mtime > t or any(e.stat().st_mtime > t for e in os.scandir(d) if e.is_dir()):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def extract_vehicles(game: Path, out: Path) -> int:
     import json
 
@@ -487,7 +520,33 @@ def extract_vehicles(game: Path, out: Path) -> int:
                     save(key, c.read(path))
         except zipfile.BadZipFile:
             print("bad zip:", z, file=sys.stderr)
-    # user mods (Steam workshop / local mods) are not scanned: their icons would need the mod folder layout.
+    # mods (mod.io downloads, the game's mods/ folder, userdata mods and staging_area): loose files, any layout.
+    # The key follows the mod's modelKey(): the last category segment of the path, else the folder holding icons/.
+    # Base game and DLC icons win over a mod's icon of the same key.
+    nmod = 0
+    for root in mod_dirs(game):
+        for dirpath, _dirs, files in os.walk(root):
+            if os.path.basename(dirpath) != "icons":
+                continue
+            segs = Path(dirpath).relative_to(root).parts[:-1]
+            if not segs:
+                continue
+            cat = next((s for s in reversed(segs) if s in VEH_CATS or s == "car"), None) or segs[-1]
+            if cat == "car":  # private cars: no icon in the dashboard either (see VEH_CATS)
+                continue
+            for f in files:
+                if not f.endswith(ICON_SUFFIX) or "_cblend" in f:
+                    continue
+                key = f"{cat.lower()}/{f[: -len(ICON_SUFFIX)].lower()}"
+                if key in manifest:
+                    continue
+                try:
+                    save(key, (Path(dirpath) / f).read_bytes())
+                    nmod += 1
+                except (OSError, ValueError) as e:
+                    print("bad icon:", Path(dirpath) / f, e, file=sys.stderr)
+    if nmod:
+        print(f"{nmod} vehicle icons from mods")
     (vout / "_manifest.json").write_text(json.dumps(dict(sorted(manifest.items())), indent=0), encoding="utf-8")
     print(f"{len(manifest)} vehicle icons -> {vout}")
     return len(manifest)

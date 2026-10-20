@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Lines: average load over the last 12 months of game time (carried / capacity over every recorded sample), in the lines table and the line detail; marked "~" while the save has less than 12 months of history. Computed by the companion from the samples already recorded: no mod change, and it survives reloads.
+
 ## Companion 0.18.0 - 20 October 2026 (mod revision 27)
 
 - The files move to `userdata/heightmaps` (mod revision 27). In `towns_industries` the map editor listed every one of

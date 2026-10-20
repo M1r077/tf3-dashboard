@@ -545,6 +545,23 @@ def api_lines(q: dict) -> dict:
         l["capacities"] = cmap.get(l["line_id"], [])
         # a stop whose station was bulldozed (the game shows the line in red): the mod exports the line bare then
         l["broken"] = any(s.get("gone") for s in l["stop_list"])
+    # average load over the last 12 months of game time: sum(used) / sum(capacity) over the samples (the game's own
+    # "usage" formula, applied over time, as Line Manager Plus does in game). One sample per game time: snapshots taken
+    # while the game is paused repeat the same values and would weigh more. `avg_load_full` = the history covers the
+    # whole 12 months (else the average is since the first sample of this save).
+    last = one("SELECT MAX(game_time_ms) AS t, MIN(game_time_ms) AS t0 FROM snapshot WHERE game_id=?", (gid,))
+    if last and last["t"] is not None:
+        bound = last["t"] - GAME_YEAR_MS
+        avg = rows("""SELECT lc.line_id, SUM(lc.used) AS used, SUM(lc.capacity) AS cap
+                      FROM line_capacity lc
+                      WHERE lc.snapshot_id IN (SELECT MAX(snapshot_id) FROM snapshot WHERE game_id=? AND game_time_ms > ? GROUP BY game_time_ms)
+                      GROUP BY lc.line_id""", (gid, bound))
+        amap = {a["line_id"]: a for a in avg}
+        full = last["t0"] is not None and last["t0"] <= bound
+        for l in lines:
+            a = amap.get(l["line_id"])
+            l["avg_load"] = round(a["used"] / a["cap"], 4) if a and a["cap"] else None
+            l["avg_load_full"] = full
     cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
     return {"lines": lines, "cargo_types": cargo_types}
 

@@ -1016,6 +1016,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     }));
   }
   const vehType = (v) => v.icon_type ? (String(v.icon_type).startsWith("Train") ? "Train" : v.icon_type) : ({ ROAD: "Bus", RAIL: "Train", TRAM: "Tram", AIR: "Aircraft", WATER: "Ship" }[v.carrier] || null);
+  const avgLoad = (l) => l.avg_load == null ? "–" : `<span title="${esc(t(l.avg_load_full ? "avg_load_tip" : "avg_load_partial_tip"))}">${l.avg_load_full ? "" : "~"}${Math.round(l.avg_load * 100)} %</span>`;
   async function renderLines() {
     const d = await api("/api/lines"); const lines = d.lines || []; state.cache.lines = lines;
     state.cache.cargoTypes = d.cargo_types || [];
@@ -1035,6 +1036,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "speed", label: t("th_avg_speed"), num: true, render: l => kmh(l.live && l.live.speed), sortValue: l => l.live ? l.live.speed : null },
       // load: one short gauge per cargo type (icon + used/capacity), stacked for multi-cargo lines; sorted by the overall ratio
       { key: "load", label: t("th_load"), gauge: true, render: l => l.capacities.some(c => c.capacity) ? `<span class="qstack">${l.capacities.filter(c => c.capacity).map(c => `<span title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}${bar(c.used || 0, c.capacity, fillCls(pct(c.used || 0, c.capacity)), `${c.used || 0}/${c.capacity}`)}</span>`).join("")}</span>` : "–", sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
+      // average load over the last 12 months of game time (server, from the recorded samples); "~" while the history
+      // is shorter than 12 months
+      { key: "avg_load", label: t("th_avg_load"), num: true, render: avgLoad, sortValue: l => l.avg_load },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
       // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
@@ -1061,6 +1065,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <div class="actions"><button class="btn act" data-cmd="focus_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("camera", "sm")}${t("act_focus")}</button><button class="btn act" data-cmd="select_entity" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("select", "sm")}${t("act_select")}</button><button class="btn act" data-cmd="open_line_manager" data-veh="${l.line_id}" ${!cmd.enabled || cmd.accepted === 0 ? "disabled" : ""}>${ico("configure_line", "sm")}${t("act_manage_line")}</button><button class="btn" id="line-on-map">${ico("locate", "sm")}${t("see_on_map")}</button><button class="btn" id="line-travel" title="${esc(t("line_travel_hint"))}" ${!cmd.enabled || cmd.accepted === 0 || (l.stop_list || []).length < 2 || (travel.active && travel.active.kind === "line" && travel.active.id === id) ? "disabled" : ""}>${ico("ct_film", "sm")}${t("line_travel")}</button></div>
       <p class="muted">${(l.stop_list || []).map(s => s.gone ? `<s>${esc(s.name)}</s>` : esc(s.name)).join(" → ") || t("unknown_stops")}${l.custom_filters ? ` · <span class="chip">${t("custom_filters")}</span>` : ""}${l.reservation_priority > 1 ? ` · ${ico(l.reservation_priority >= 3 ? "prio_very_high" : "prio_high", "sm")}${t("priority")} ${t("prio_" + Math.min(3, Math.round(l.reservation_priority)))}` : ""}</p>
       <table class="kv">${l.capacities.map(c => `<tr><td>${cargoIcon(c)}${esc(cargoName(c.cargo))}</td><td>${bar(c.used, c.capacity, fillCls(pct(c.used, c.capacity)), `${Math.round(c.used)} / ${Math.round(c.capacity)}`)}</td></tr>`).join("")}
+        ${l.avg_load != null ? `<tr><td>${t("th_avg_load")}</td><td>${avgLoad(l)}</td></tr>` : ""}
         <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
         <tr><td>${t("det_throughput")}</td><td>${int(l.throughput)}</td></tr>
         ${l.balance_year != null ? `<tr><td>${t("th_line_balance")}</td><td><span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span></td></tr>` : ""}

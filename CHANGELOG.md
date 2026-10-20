@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Charts: the value bubble no longer stays stuck on screen when the panel refreshes under the mouse (e.g. a click in the line's "Income and costs per financial year" chart); only a page reload removed it.
+
 ## Companion 0.18.0 - 20 October 2026 (mod revision 27)
 
 - The files move to `userdata/heightmaps` (mod revision 27). In `towns_industries` the map editor listed every one of

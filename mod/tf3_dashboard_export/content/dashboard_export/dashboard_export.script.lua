@@ -1,7 +1,8 @@
 -- Dashboard Export : periodically writes a snapshot of the game state to
---   <userdata>\dashboard_export\live.lua          (fast: time, finance, alerts, moving vehicle data; every 1-10 s)
---   <userdata>\dashboard_export\slow_<section>.lua (lines, stations, towns, industries, depots, static vehicle data,
---                                                   company, cargo types; every 10-120 s, one file per frame)
+--   <userdata>\heightmaps\tf3dash_live.lua          (fast: time, finance, alerts, moving vehicle data; every 1-10 s)
+--   <userdata>\heightmaps\tf3dash_slow_<section>.lua (lines, stations, towns, industries, depots, static vehicle data,
+--                                                     company, cargo types; every 10-120 s, one file per frame)
+--   plus tf3dash_geo / height_<k> / line_paths / models / journal (see their sections); folder: see DIR below
 -- via app.saveUserdata, for an external dashboard / collector (second monitor).
 --
 -- Why two kinds of files: app.saveUserdata serialises and writes the whole table in the calling frame.
@@ -21,12 +22,19 @@ local MOD_ID = "tf3_dashboard_export"
 -- 5: snapshot.camera {x, y, dist, angle, pitch, follow} + set_camera command (companion >= 0.3.0 for the views panel)
 -- 7: files moved to towns_industries/tf3dash_* (game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
 -- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (companion >= 0.3.1)
+-- (rev 27, same schema 7: folder heightmaps instead of towns_industries; companion >= 0.18.0 reads all layouts)
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
--- towns_industries ("The directory you trying to access is not available or invalid" for any other). Up to rev 8 the
--- export lived in its own dashboard_export folder. towns_industries is the least visible of the three (only the map
--- editor lists it), so the files go there with a tf3dash_ prefix so that they are never mistaken for anything else.
-local DIR = "towns_industries"
+-- towns_industries ("The directory you trying to access is not available or invalid" for any other, subfolders
+-- included: probe 19 Oct 2026, "dir/sub", "dir\sub" and "sub/name" are all refused). Up to rev 8 the export lived in
+-- its own dashboard_export folder, revs 9-26 in towns_industries. Rev 27 writes to heightmaps: the only one of the
+-- three where no game list shows our files. The map editor lists heightmaps with getAllHeightmaps, which only takes
+-- .png / .tga (probe: our .lua files are not in it), while the editor's town/industry import lists every file of
+-- towns_industries and the mod preset window every file of mod_presets (with a Load button). The tf3dash_ prefix
+-- keeps our files apart from the player's own. Old files in towns_industries are removed at start (CLEAN).
+local DIR = "heightmaps"
+-- clean-up of what older revisions left (one table: the chunk is close to Lua's 200-locals cap)
+local CLEAN = { OLD_DIR = "towns_industries", done = false }
 local PREFIX = "tf3dash_"
 local FILE = PREFIX .. "live"
 local SLOW_FILE_PREFIX = PREFIX .. "slow_"
@@ -2541,6 +2549,21 @@ local function heightBandWrite(job)
 	return ok
 end
 
+-- band files numbered past the end of this export (left by a bigger map): removed so that the folder only holds the
+-- current map. The companion also deletes the bands it has read; this covers a player without it running.
+function HEIGHT.dropExtraBands(bands)
+	local ok, list = pcall(app.getAllUserdata, DIR)
+	if not ok or type(list) ~= "table" then return 0 end
+	local n = 0
+	for _, f in pairs(list) do
+		local k = tonumber(tostring(f):match("^" .. HEIGHT_PREFIX .. "(%d+)%.lua$") or tostring(f):match("^" .. HEIGHT_PREFIX .. "(%d+)$"))
+		if k ~= nil and k >= bands then
+			if pcall(app.removeUserdata, DIR, HEIGHT_PREFIX .. k) then n = n + 1 end
+		end
+	end
+	return n
+end
+
 -- returns true when the whole map is out
 local function heightJobRun()
 	local job = heightJob
@@ -2551,7 +2574,9 @@ local function heightJobRun()
 		if job.i >= total then
 			if #job.band > 0 then heightBandWrite(job) end
 			heightCache = { bands = job.bands, tiles = job.tiles }
-			log(string.format("heightmap written: %d tiles in %d files, %.1fs", job.tiles, job.bands, os.clock() - job.started))
+			local removed = HEIGHT.dropExtraBands(job.bands)
+			log(string.format("heightmap written: %d tiles in %d files, %.1fs%s", job.tiles, job.bands, os.clock() - job.started,
+				removed > 0 and string.format(", %d band file(s) of a bigger map removed", removed) or ""))
 			heightJob = nil
 			return true
 		end
@@ -3060,9 +3085,26 @@ end
 
 local lastPoll = -1e9
 
+-- Rev 27 moved the export from towns_industries to heightmaps: once per game load, remove what revs 9-26 left there
+-- (only tf3dash_* files, ours; the player's own town/industry exports are never touched). Cheap: one listing, and
+-- after the first run there is nothing left to remove. A companion still writing cmd/activity there (older than 0.18)
+-- would see them removed too, which is harmless: the mod no longer reads them there.
+function CLEAN.oldDir()
+	CLEAN.done = true
+	local ok, list = pcall(app.getAllUserdata, CLEAN.OLD_DIR)
+	if not ok or type(list) ~= "table" then return end
+	local n = 0
+	for _, f in pairs(list) do
+		local name = tostring(f):gsub("%.lua$", "")
+		if name:sub(1, #PREFIX) == PREFIX and pcall(app.removeUserdata, CLEAN.OLD_DIR, name) then n = n + 1 end
+	end
+	if n > 0 then log(string.format("removed %d old file(s) from %s (the export now lives in %s)", n, CLEAN.OLD_DIR, DIR)) end
+end
+
 -- the export of one frame (guiUpdate's body), timed part by part for the cost gauge
 function COST.export(now)
 	local o = options()
+	if not CLEAN.done then pcall(CLEAN.oldDir) end
 	statusTick(now)
 	if camPath then  -- camera travelling: one interpolation + setCameraData per frame, a few microseconds
 		local okT, errT = pcall(camPathTick)

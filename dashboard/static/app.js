@@ -716,7 +716,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
 
   // ------------------------------------------------------------ empty database: say exactly which link of the chain is missing
-  // game (mod enabled in the savegame) -> <userdata>/towns_industries/tf3dash_live.lua -> collector -> db -> this page
+  // game (mod enabled in the savegame) -> <userdata>/heightmaps/tf3dash_live.lua -> collector -> db -> this page
   // (mod rev <= 8 wrote <userdata>/dashboard_export/live.lua; the server reports which layout it watches as live_name)
   async function renderSetup() {
     const card = $("#setup-card"); card.style.display = "";

@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-VERSION = "0.17.1"  # companion version (semver); build_release.py reads this line
+VERSION = "0.18.0"  # companion version (semver); build_release.py reads this line
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "collector"))
@@ -101,7 +101,7 @@ def lua_literal(v) -> str:
 
 def cmd_dir() -> Path | None:
     """Folder the mod polls for commands: the one given with --cmd-dir, else the folder of the most recent live file
-    (re-resolved at most every 10 s: mod rev 9 writes to towns_industries, rev 8 wrote to dashboard_export, and the
+    (re-resolved at most every 10 s: mod rev 27 writes to heightmaps, revs 9-26 to towns_industries, rev 8 to dashboard_export, and the
     player may update the mod while the server runs)."""
     global CMD_DIR
     if CMD_DIR_FIXED:

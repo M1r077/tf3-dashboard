@@ -1043,7 +1043,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
       // the game's line "Last Year" balance: income - running costs over the last 12 months (mod rev 23+)
-      { key: "balance_year", label: t("th_line_balance"), num: true, render: l => l.balance_year == null ? NA : `<span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span>`, sortValue: l => l.balance_year },
+      { key: "balance_year", label: t("line_balance"), title: t("th_line_balance"), num: true, render: l => l.balance_year == null ? NA : `<span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span>`, sortValue: l => l.balance_year },
       // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
       { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },

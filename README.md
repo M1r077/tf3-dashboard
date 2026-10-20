@@ -137,7 +137,7 @@ and no route is changed. The channel is a local file (`tf3dash_cmd.lua`) read by
 - **Vehicles** — every vehicle with model icon, line, state, load, speed, condition, history on click. What the
   vehicle carries (mod revision 8): the cargo icons on board with counts, and what it was bought for. Filter by
   type or cargo. H or the "Horn" button sounds the horn.
-- **Lines** — load, headway, waiting passengers/cargo, transported per year, the game's rating, history, and the
+- **Lines** — load now and **average load over the last 12 months** of game time, headway, waiting passengers/cargo, transported per year, the game's rating, history, and the
   **stop editor**: load mode, min/max waiting time, cargo filter (game icons), preferred and alternative terminals,
   whole-line actions (including the horn of every vehicle).
 - **Map** — lines, vehicles, stations, industries, towns, headquarters (mod revision 8), alerts; click = camera on

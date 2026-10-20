@@ -1038,7 +1038,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "load", label: t("th_load"), gauge: true, render: l => l.capacities.some(c => c.capacity) ? `<span class="qstack">${l.capacities.filter(c => c.capacity).map(c => `<span title="${esc(cargoName(c.cargo))}">${cargoIcon(c, "sm")}${bar(c.used || 0, c.capacity, fillCls(pct(c.used || 0, c.capacity)), `${c.used || 0}/${c.capacity}`)}</span>`).join("")}</span>` : "–", sortValue: l => { const c = loadOf(l); return c.c ? c.u / c.c : null; } },
       // average load over the last 12 months of game time (server, from the recorded samples); "~" while the history
       // is shorter than 12 months
-      { key: "avg_load", label: t("th_avg_load"), num: true, render: avgLoad, sortValue: l => l.avg_load },
+      { key: "avg_load", label: t("th_avg_load_short"), title: `${t("th_avg_load")}\n${t("avg_load_tip")}`, num: true, render: avgLoad, sortValue: l => l.avg_load },
       { key: "persons_on_line", label: t("th_onboard"), num: true, render: l => carriesPax(l) ? int(l.persons_on_line) : NA, sortValue: l => carriesPax(l) ? l.persons_on_line : null },
       // the game's "transported" figure of the line window (last 12 months): pax or cargo units per year
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },

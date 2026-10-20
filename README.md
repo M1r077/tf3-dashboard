@@ -35,7 +35,7 @@ Two halves:
 
 | Part | Where | What it does |
 |---|---|---|
-| **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/dashboard_export/live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
+| **Mod `Second Screen Dashboard`** | [mod.io](https://mod.io/g/transportfever3/m/second-screen-dashboard) (in-game Mod Hub) or `mod/` in this repo | A Lua game script that writes a snapshot of the game state to `<userdata>/heightmaps/tf3dash_live.lua` every few seconds, and (if you enable it) executes commands written to `cmd.lua`. Uses only the official TF3 scripting API. Never modifies the savegame. |
 | **Companion program (this repo)** | Your PC, Windows or Linux | `collector.py` watches `tf3dash_live.lua` / `tf3dash_slow_*.lua` and stores the history in a local SQLite database; `server.py` serves the dashboard at `http://127.0.0.1:8765/` in your browser. Python standard library only — the Windows release zip ships a bundled Python, Linux uses the system Python (3.10+); nothing to install. |
 
 The mod alone does nothing visible; the companion alone has nothing to show. mod.io cannot distribute programs,
@@ -90,8 +90,8 @@ game folder found → `tf3dash_live.lua` written by the mod → snapshots stored
   build the game only lets mods write to a few userdata folders, and the old mod wrote to its own
   `dashboard_export` folder; its log (`crash_dump\stdout.txt`) repeats `saveUserdata failed: The directory you
   trying to access is not available or invalid`. Update the mod to revision 9 (Mod Hub) and the companion to
-  0.3.2: the export now lives in `towns_industries\tf3dash_*.lua`, a folder the game allows. The checklist
-  recognises this case;
+  0.3.2: the export then lived in `towns_industries\tf3dash_*.lua`, a folder the game allows (since revision 27:
+  `heightmaps`, see below). The checklist recognises this case;
 - the game writes to another userdata folder than the one the companion watches (another Steam account, moved
   profile): the checklist reads the game's own log (`crash_dump\stdout.txt`) and shows the folder it uses (0.2.3+);
 - the companion runs from OneDrive/Dropbox: see Install, move it;
@@ -109,7 +109,15 @@ some VPN clients (Mullvad, NordVPN "Threat Protection") and Windows Firewall rul
 The "TF3 Dashboard Collector" pane says the same thing in text, colour-coded: green = fine, yellow = waiting or
 warning, red = something to fix. Once snapshots flow it prints one summary line per minute (errors are always
 shown). When reporting a problem, copy the checklist or that pane, and the lines
-containing `dashboard_export` from `stdout.txt` (that is the mod's log tag, the folder is `towns_industries`).
+containing `dashboard_export` from `stdout.txt` (that is the mod's log tag, the folder is `heightmaps`).
+
+**Where the files are, and why there** (mod revision 27, companion 0.18.0): the game lets mods write to three
+userdata folders only (`heightmaps`, `mod_presets`, `towns_industries`), no subfolders. `heightmaps` is the one
+where no game list shows our files: the map editor only lists `.png` / `.tga` heightmaps there, while it lists every
+file of `towns_industries` in its town/industry import, and the mod preset window every file of `mod_presets`. All
+our files start with `tf3dash_`; your own files are never touched. The companion keeps the folder small: it deletes
+the terrain files (`tf3dash_height_*`, ~1 MB each) once it has the relief, and removes what older revisions left in
+`towns_industries` and `dashboard_export`. The mod removes its old `towns_industries` files at start too.
 
 Running from source instead of the release archive: you need Python 3.10+ on the PATH (Windows:
 `winget install Python.Python.3.12`; Linux: the distribution's `python3`). No pip, no venv, no packages.
@@ -180,13 +188,13 @@ automatically. For unusual setups, copy `config.example.json` to
 `config.json` and keep the keys you need:
 
 ```json
-{ "export_dir": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\towns_industries", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
+{ "export_dir": "C:\\Users\\<you>\\AppData\\Roaming\\Transport Fever 3\\heightmaps", "game_dir": "C:\\...\\Transport Fever 3", "port": 8765 }
 ```
 
-Steam: `"export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<id>\\3493540\\local\\towns_industries"`
+Steam: `"export_dir": "C:\\Program Files (x86)\\Steam\\userdata\\<id>\\3493540\\local\\heightmaps"`
 (mod revision 9+; with revision 8 or older on a game build before 40420 it was `...\\dashboard_export`, which the
 companion still understands).
-Linux paths are written as they are: `"export_dir": "/home/<you>/Games/Heroic/Prefixes/default/Transport Fever 3/drive_c/users/<you>/AppData/Roaming/Transport Fever 3/towns_industries"`.
+Linux paths are written as they are: `"export_dir": "/home/<you>/Games/Heroic/Prefixes/default/Transport Fever 3/drive_c/users/<you>/AppData/Roaming/Transport Fever 3/heightmaps"`.
 `python collector/tf3paths.py` prints what is detected.
 
 Mod settings (in-game): fast interval (time, finances, alerts, vehicles — default 2 s), slow interval (lines,

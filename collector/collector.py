@@ -1,10 +1,10 @@
-"""TF3 Dashboard collector: watches <userdata>/towns_industries/tf3dash_live.lua written by the
+"""TF3 Dashboard collector: watches <userdata>/heightmaps/tf3dash_live.lua written by the
 tf3_dashboard_export mod, parses it and stores everything in a SQLite database.
 
 Usage:
     python collector.py                       # watch, default paths
     python collector.py --once                # import the current file once and exit
-    python collector.py --db D:/path/tf3.db --live "C:/.../towns_industries/tf3dash_live.lua"
+    python collector.py --db D:/path/tf3.db --live "C:/.../heightmaps/tf3dash_live.lua"
     python collector.py --status              # print a short summary of the database
 
 No third-party dependency (stdlib only).
@@ -1166,7 +1166,7 @@ VEHICLE_STATIC = ("name", "carrier", "capacity", "icon_type", "model", "model_ke
 class SlowFiles:
     def __init__(self, live: Path):
         self.dir = live.parent
-        self.prefix = tf3paths.prefix_for(self.dir)  # tf3dash_ (towns_industries) or none (legacy folder)
+        self.prefix = tf3paths.prefix_for(self.dir)  # tf3dash_ (heightmaps, towns_industries) or none (legacy folder)
         self.mtime: dict[str, float] = {}
         # section -> {slow_seq: items}; the two most recent cycles are kept because the mod may already be
         # writing cycle N+1 while live.lua still refers to N
@@ -1249,17 +1249,35 @@ class SlowFiles:
         for p in sorted(paths, key=lambda q: (times[q], q.name)):
             name = p.stem[len(self.prefix):]
             if times[p] < newest - heightmap.EXPORT_GAP_S and self.mtime.get(name) is None:
-                # leftover of an older export (the mod never deletes band files, bigger maps leave more of them): the
-                # assembler would ignore it anyway, so do not spend a second decoding it - mark it seen; a rewrite
-                # changes its time and brings it back. Decoding forty leftovers blocked the snapshots for half a minute
-                # right when the mod was writing the fresh bands
-                self.mtime[name] = times[p]
+                # leftover of an older export (bigger maps leave more bands; rev 27 removes them, older revs did not):
+                # the assembler would ignore it anyway, so do not spend a second decoding it - delete it (ours, and
+                # useless: the picture of that map is already in db/) and forget it. Decoding forty leftovers blocked
+                # the snapshots for half a minute right when the mod was writing the fresh bands
+                self._delete(p, name)
                 continue
             d = self._changed_file(name, "tiles")
             if d is not None:
                 d["_mtime"] = self.mtime.get(name) or 0  # the assembler tells the exports apart by their file times
                 out.append(d)
         return out
+
+    def drop_height_bands(self) -> int:
+        """The assembled picture is in db/height_<game>.png: the band files (~1 MB each, 10-40 of them) are no longer
+        needed, delete them so that the game's folder only keeps small files. The mod writes them again on the next
+        load or terrain change. Returns how many were removed."""
+        n = 0
+        for p in list(self.dir.glob(f"{self.prefix}height_*.lua")):
+            if self._delete(p, p.stem[len(self.prefix):]):
+                n += 1
+        return n
+
+    def _delete(self, p: Path, name: str) -> bool:
+        try:
+            p.unlink()
+        except OSError:
+            return False
+        self.mtime.pop(name, None)
+        return True
 
     def forget_height_bands(self) -> None:
         """Make every band file 'changed' again: the next height_bands() re-reads them all (safety net)."""
@@ -1467,8 +1485,8 @@ def main(argv: list[str] | None = None) -> int:
                 mtime = os.path.getmtime(args.live)
             except OSError:
                 mtime = -1.0
-            # The export may move: mod rev 9 writes to towns_industries/tf3dash_live.lua while rev 8 wrote to
-            # dashboard_export/live.lua (game build 40420 closed that folder). When the watched file has been silent
+            # The export may move: mod rev 27 writes to heightmaps/tf3dash_live.lua, revs 9-26 to towns_industries,
+            # rev 8 to dashboard_export/live.lua (game build 40420 closed that folder). When the watched file has been silent
             # for a while and another candidate is fresher, follow it (no explicit --live / config given).
             if args.live_auto and mtime > 0 and time.time() - mtime > 20 and time.time() >= next_detect:
                 next_detect = time.time() + 10
@@ -1493,6 +1511,10 @@ def main(argv: list[str] | None = None) -> int:
                         # slow sections in slow_*.lua; wait until the set matching live.lua is complete
                         if slow_files is None:
                             slow_files = SlowFiles(args.live)
+                            # the mod writes to heightmaps (rev 27+): what older revisions left elsewhere goes
+                            old = tf3paths.cleanup_old_exports(args.live.parent)
+                            if old:
+                                say(f"removed {len(old)} file(s) left by older mod revisions (towns_industries, dashboard_export)", "info")
                         slow_files.refresh()
                         if not slow_files.complete_for(snap.get("slow_seq")):
                             if not warned_incomplete or time.time() >= warned_incomplete:
@@ -1585,7 +1607,9 @@ def main(argv: list[str] | None = None) -> int:
                                 gid = store.game_id(snap, iso())
                                 meta = height_asm.write_png(args.db.parent / f"height_{gid}.png")
                                 if meta["complete"]:
-                                    say(f"heightmap: {meta['width']}x{meta['height']} px at {meta['step']:.0f} m, {meta['bytes'] / 1e6:.1f} MB", "ok")
+                                    dropped = slow_files.drop_height_bands()
+                                    say(f"heightmap: {meta['width']}x{meta['height']} px at {meta['step']:.0f} m, {meta['bytes'] / 1e6:.1f} MB"
+                                        + (f" ({dropped} band files removed from the game's folder)" if dropped else ""), "ok")
                                 else:
                                     say(f"heightmap: {meta['bands_done']}/{meta['bands_total']} bands", "info")
                         except Exception as e:  # noqa: BLE001

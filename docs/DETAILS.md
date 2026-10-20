@@ -28,7 +28,7 @@ Developer demo without the game (repository only, not in the release): `run_dash
 Three independent parts:
 
 1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *Second Screen Dashboard*): a game
-   script that writes `<Steam>\userdata\<id>\3493540\local\towns_industries\tf3dash_live.lua` and
+   script that writes `<Steam>\userdata\<id>\3493540\local\heightmaps\tf3dash_live.lua` and
 `tf3dash_slow_<section>.lua` via
    `app.saveUserdata` (folder auto-detected by `collector/tf3paths.py`: Steam registry and libraries,
    `%APPDATA%\Transport Fever 3` for Epic/GOG, on Linux the same folder inside every Wine/Proton prefix found
@@ -36,7 +36,16 @@ Three independent parts:
    `~/.local/share/Transport Fever 3` for the native build, or `config.json`; most recent live file wins, then most
    recent `crash_dump/stdout.txt`. The game log's "User data folder" (a `C:\…` path under Wine) is translated
    through the prefix's `dosdevices` for the cross-check).
-   - **why `towns_industries` and a `tf3dash_` prefix (rev 9)**: game build 40420 (stability update, 8 Oct 2026)
+   - **why `heightmaps` (rev 27)**: of the three allowed folders it is the only one where no game list shows a
+  `.lua` file. Probe of 19 Oct 2026 (a temporary mod writing `tf3probe_*` everywhere): the map editor's heightmap
+  list comes from `app.getAllHeightmaps` (`.png` / `.tga` only, our file absent), its town/industry import lists
+  every file of `towns_industries` (`app.getAllUserdata`, map_editor.tl:1853) and the mod preset window every file
+  of `mod_presets` with a Load button (mod_selector_page.tl:124, 627-660; seen in game). Subfolders are refused in
+  every form: `dir/sub` and `dir\sub` give "The directory you trying to access is not available or invalid",
+  `sub/name` gives "Forbidden file name". Clean-up: the mod removes its `tf3dash_*` files from `towns_industries`
+  at start and the height bands numbered past the current map; the collector deletes the height bands once the
+  picture is in `db/`, and the files older revisions left (`tf3paths.cleanup_old_exports`).
+   - **why `towns_industries` and a `tf3dash_` prefix (revs 9-26)**: game build 40420 (stability update, 8 Oct 2026)
   restricted `app.saveUserdata` to three userdata folders: `heightmaps`, `mod_presets`, `towns_industries` (any
   other: `The directory you trying to access is not available or invalid`; the list sits next to that message in
   `TransportFever3.exe`). Up to rev 8 the export had its own `dashboard_export` folder, which stopped working that
@@ -121,7 +130,7 @@ Three independent parts:
    - cargo types are exported with their localized name AND a neutral key (`key`, name of the `.cargo` file); language
      and cargo names are re-read every slow cycle, so **changing the game language is picked up without restart** (the
      dashboard follows the game language while the selector is on "auto")
-   - **return channel (dashboard -> game)**: the mod reads `towns_industries\tf3dash_cmd.lua` 4x/s (`app.loadUserdata`),
+   - **return channel (dashboard -> game)**: the mod reads `heightmaps\tf3dash_cmd.lua` 4x/s (`app.loadUserdata`),
      executes the command if it is in the whitelist, deletes the file and reports `cmd_ack` in the next snapshot.
      Commands: set_speed (0 = pause, 1, 2, 4), set_calendar_speed (factor 0.25..4 = the game's "Calendar speed"
      slider; the engine stores a day length in ms, 1x = 4000 ms/day, so 0.25x = 16000 and 4x = 1000 — observed in
@@ -130,7 +139,7 @@ Three independent parts:
      line), close_windows, vehicle_stop, vehicle_start, vehicle_reverse, vehicle_depart, vehicle_to_depot, ping.
      Nothing irreversible (no buying, selling, demolishing).
    - **activity hint (dashboard -> mod, rev 6)**: on every real interaction with the dashboard (click, key, wheel,
-     throttled to one per 1.5 s) the server writes `towns_industries\tf3dash_activity.lua` (`POST /api/activity`). The mod
+     throttled to one per 1.5 s) the server writes `heightmaps\tf3dash_activity.lua` (`POST /api/activity`). The mod
      polls it with the same folder listing as `cmd.lua`, deletes it, and for `ACTIVITY_WINDOW` (2 s) relaxes its
      timing: a slow cycle is started at once if the previous one is older than `ACTIVITY_MIN_AGE` (5 s), slow steps
      run with `ACTIVITY_BUDGET` (50 ms per frame instead of 2 ms) and all `slow_*.lua` files are flushed in the same

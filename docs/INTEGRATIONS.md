@@ -17,7 +17,7 @@ How the dashboard relates to other mods, and the rule we follow before touching 
 4. **Credit.** The other mod is named in the README and the mod.io description of the dashboard, with a link, and a word
    of thanks goes to the author when the integration ships.
 5. **Never the other way round.** We do not expect, nor ask, other mods to adapt to us. If one wants to read our export
-   (`towns_industries/tf3dash_*.lua`), the format is documented in `API_CATALOGUE.md` and DETAILS.md and they are free to.
+   (`heightmaps/tf3dash_*.lua`, `towns_industries` up to mod revision 26), the format is documented in `API_CATALOGUE.md` and DETAILS.md and they are free to.
 
 The game itself enforces part of this: a savegame script cannot `require` another mod's files reliably (load order),
 and build 40420 restricts `app.saveUserdata` / `loadUserdata` to a few folders (see DETAILS.md), so "writing into another

@@ -2,8 +2,17 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Unreleased (companion 0.18.0, mod revision 27)
 
+- The files move to `userdata/heightmaps` (mod revision 27). In `towns_industries` the map editor listed every one of
+  them in its town/industry import (54 files on a big map). The game allows three folders and no subfolders (checked
+  in game); `heightmaps` is the only one where no list shows them: the editor only lists `.png` / `.tga` there. The
+  mod preset window lists every file of `mod_presets`, so that one was ruled out.
+- Clean folder: the companion deletes the terrain files (`tf3dash_height_*`, ~1 MB each) once it has the relief, and
+  removes what older revisions left in `towns_industries` and `dashboard_export` (only our own files). The mod
+  removes its old `towns_industries` files at start, and the terrain files of a bigger map it no longer needs.
+- Mod revision 27 needs companion 0.18.0: older companions do not look in `heightmaps` and stay empty. Companion
+  0.18.0 still reads the older layouts, so it can be installed first.
 - Vehicle icons for mod vehicles: the icon extraction also reads the installed mods (mod.io downloads, the game's
   `mods` folder, userdata `mods` / `staging_area`), so the UrbanGames vehicle packs (`*_v2` models) and other mod
   vehicles show their picture instead of the generic type glyph. Installing or updating a mod triggers a new

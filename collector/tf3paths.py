@@ -3,8 +3,8 @@
 Resolution order:
   1. ROOT/config.json  -> {"export_dir": "...", "port": 8765}   (written by the user, optional)
   2. environment TF3_EXPORT_DIR
-  3. Steam: <SteamPath>/userdata/<any id>/3493540/local/towns_industries   (registry, then default folders)
-  4. Epic / GOG (Windows): %APPDATA%/Transport Fever 3/towns_industries  (the game keeps save/, settings.lua,
+  3. Steam: <SteamPath>/userdata/<any id>/3493540/local/heightmaps   (registry, then default folders)
+  4. Epic / GOG (Windows): %APPDATA%/Transport Fever 3/heightmaps  (the game keeps save/, settings.lua,
      profile.lua there when it is not the Steam build; %LOCALAPPDATA% is scanned too, best effort)
   5. Linux, Windows build under Wine/Proton: the same %APPDATA% folder inside every Wine prefix we can find
      (Heroic, Steam compatdata, Lutris, Bottles, $WINEPREFIX, ~/.wine)
@@ -37,17 +37,24 @@ DATA_DIR = data_dir()
 CONFIG = DATA_DIR / "config.json"
 APP_ID = "3493540"
 # Game build 40420 (8 Oct 2026) only lets mods write to three userdata folders (heightmaps, mod_presets,
-# towns_industries). Mod rev 9 therefore writes to towns_industries with a tf3dash_ prefix; up to rev 8 the files were
-# live.lua, slow_*.lua, cmd.lua, activity.lua in a dashboard_export folder. The companion handles both layouts: the
-# one whose live file is the most recent wins (candidate_export_dirs), and commands are written where live is read.
-EXPORT_SUBDIR = "towns_industries"
+# towns_industries), no subfolders. Up to rev 8 the files were live.lua, slow_*.lua, cmd.lua, activity.lua in a
+# dashboard_export folder; revs 9-26 wrote tf3dash_*.lua to towns_industries, where the map editor's town/industry
+# import lists them; rev 27 writes them to heightmaps, where no game list shows a .lua file (the editor lists
+# heightmaps with getAllHeightmaps: .png / .tga only). The companion handles all three layouts: the one whose live file
+# is the most recent wins (candidate_export_dirs), and commands are written where live is read.
+EXPORT_SUBDIR = "heightmaps"
+OLD_SUBDIR = "towns_industries"
 FILE_PREFIX = "tf3dash_"
 LEGACY_SUBDIR = "dashboard_export"
 LEGACY_PREFIX = ""
+# the files of ours in the legacy folder (rev <= 8): removed by cleanup_old_exports, nothing else is
+LEGACY_FILES = ("live", "cmd", "activity", "slow_company", "slow_cargo_types", "slow_lines", "slow_stations",
+                "slow_towns", "slow_industries", "slow_depots", "slow_vehicles")
 
 
 def prefix_for(d: Path | None) -> str:
-    """File name prefix used in folder d: tf3dash_ in towns_industries (rev 9+), none in dashboard_export (<= rev 8)."""
+    """File name prefix used in folder d: tf3dash_ in heightmaps (rev 27+) and towns_industries (revs 9-26), none in
+    dashboard_export (<= rev 8)."""
     return LEGACY_PREFIX if d is not None and d.name.lower() == LEGACY_SUBDIR else FILE_PREFIX
 
 
@@ -314,7 +321,7 @@ def wine_to_host(win_path: str, prefix: Path) -> Path | None:
 
 def _game_folders(base: Path, store: str) -> list[tuple[str, Path]]:
     """The game's userdata folder(s) below an AppData-like folder: <base>/Transport Fever 3, plus its subfolders
-    named local or already holding an export folder (towns_industries, or the legacy dashboard_export)."""
+    named local or already holding an export folder (heightmaps, towns_industries, or the legacy dashboard_export)."""
     out: list[tuple[str, Path]] = []
     for name in GAME_FOLDER_NAMES:
         p = base / name
@@ -323,7 +330,7 @@ def _game_folders(base: Path, store: str) -> list[tuple[str, Path]]:
         out.append((store, p))
         try:
             for d in p.iterdir():
-                if d.is_dir() and (d.name == "local" or (d / EXPORT_SUBDIR).is_dir() or (d / LEGACY_SUBDIR).is_dir()):
+                if d.is_dir() and (d.name == "local" or any((d / s).is_dir() for s in (EXPORT_SUBDIR, OLD_SUBDIR, LEGACY_SUBDIR))):
                     out.append((store, d))
         except OSError:
             pass
@@ -378,20 +385,23 @@ def userdata_roots() -> list[tuple[str, Path]]:
 
 
 def candidate_export_dirs() -> list[Path]:
-    """All export folders that exist (or could exist) on this machine, most recent first: towns_industries (rev 9+)
-    and the legacy dashboard_export (<= rev 8) of every userdata root. A towns_industries folder without our files
-    ranks above an empty legacy folder; a legacy folder with a recent live.lua (old mod still running) ranks first.
-    Ties (no live file yet: mod not enabled, fresh install, several Wine prefixes) by the game's own log."""
+    """All export folders that exist (or could exist) on this machine, most recent first: heightmaps (rev 27+),
+    towns_industries (revs 9-26) and the legacy dashboard_export (<= rev 8) of every userdata root. Without any live
+    file, heightmaps ranks first, then towns_industries, then the legacy folder; an older folder with a recent live
+    file (old mod still running) ranks above. Ties (no live file yet: mod not enabled, fresh install, several Wine
+    prefixes) by the game's own log."""
     cands: list[Path] = []
     for _, root in userdata_roots():
         cands.append(root / EXPORT_SUBDIR)
+        cands.append(root / OLD_SUBDIR)
         cands.append(root / LEGACY_SUBDIR)
+    no_live = {EXPORT_SUBDIR: -1.0, OLD_SUBDIR: -1.5}
 
     def mtime(d: Path) -> tuple[float, float]:
         try:
             live = (d / live_name(d)).stat().st_mtime
         except OSError:
-            live = -1.0 if d.name.lower() == EXPORT_SUBDIR else -2.0
+            live = no_live.get(d.name.lower(), -2.0)
         try:
             log = (d.parent / "crash_dump" / "stdout.txt").stat().st_mtime
         except OSError:
@@ -402,6 +412,42 @@ def candidate_export_dirs() -> list[Path]:
     for c in cands:
         uniq.setdefault(_key(c), c)
     return sorted(uniq.values(), key=mtime, reverse=True)
+
+
+def cleanup_old_exports(current: Path) -> list[str]:
+    """Remove what older mod revisions left in the other export folders of the same userdata root, once the mod writes
+    to the current layout (`current` = heightmaps): tf3dash_*.lua in towns_industries (revs 9-26) and our own file
+    names in the legacy dashboard_export (rev <= 8), then that folder itself when it is empty. Nothing else is ever
+    touched: the player's own town/industry exports stay. The mod removes its towns_industries files itself too (it
+    cannot reach dashboard_export since build 40420). Returns the paths removed."""
+    if current.name.lower() != EXPORT_SUBDIR:
+        return []
+    root = current.parent
+    removed: list[str] = []
+    old = root / OLD_SUBDIR
+    for p in _glob(old, f"{FILE_PREFIX}*.lua"):
+        try:
+            p.unlink()
+            removed.append(str(p))
+        except OSError:
+            pass
+    legacy = root / LEGACY_SUBDIR
+    if legacy.is_dir():
+        for name in LEGACY_FILES:
+            p = legacy / f"{name}.lua"
+            if p.is_file():
+                try:
+                    p.unlink()
+                    removed.append(str(p))
+                except OSError:
+                    pass
+        try:
+            if not any(legacy.iterdir()):
+                legacy.rmdir()
+                removed.append(str(legacy))
+        except OSError:
+            pass
+    return removed
 
 
 def export_dir(explicit: str | os.PathLike | None = None) -> Path | None:
@@ -476,7 +522,7 @@ def port(explicit: int | None = None) -> int:
 
 
 def ensure_export_dir(explicit: str | os.PathLike | None = None) -> list[Path]:
-    """Create the export folder (towns_industries) wherever the game may look for it: the game creates it at its first
+    """Create the export folder (heightmaps) wherever the game may look for it: the game creates it at its first
     start, but app.saveUserdata does not create a missing folder, so the companion does: one empty folder per existing
     userdata root (and the configured/explicit folder when its parent exists). Returns the folders created now."""
     targets = [r / EXPORT_SUBDIR for _, r in userdata_roots()]
@@ -542,7 +588,7 @@ def _parse_game_log(log: Path) -> dict | None:
             elif body.startswith("seq ") and " written" in body:
                 info["written"] += 1
             elif body.startswith("writing ") and ".lua every" in body:
-                # "writing towns_industries/tf3dash_live.lua every 2s (...)": the folder/file the mod actually uses
+                # "writing heightmaps/tf3dash_live.lua every 2s (...)": the folder/file the mod actually uses
                 info["writes_to"] = body.split(" ", 2)[1]
     _LOG_CACHE[key] = (sig, info)
     return info

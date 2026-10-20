@@ -113,6 +113,9 @@ body.layout-dragging .panels > .card.dragging { opacity: .85; box-shadow: 0 12px
 /* a uPlot host in a user-sized card: the plot is sized by script, the legend above it must never push past the card */
 .panels > .card.sized > .uchart { flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .panels > .card.sized > .uchart > .uplot { flex: none; }
+/* ...except in a detail pane, which scrolls as a whole: there the charts keep their own height (data-h). Shrinking
+   them to fit the card squeezed the line detail's plots to a few pixels, axis labels piled over the next headers */
+.panels > .card.sticky > .uchart, .panels > .card.sticky > canvas { flex: none; min-height: auto; overflow: visible; }
 /* the card scrolls, the table keeps its full width (a display:block table shrinks to its content) */
 .panels > .card.tablecard.sized { display: flex; overflow: auto; }
 .panels > .card.tablecard.sized > table, .panels > .card.sized:has(> table) > table { flex: none; overflow: visible; }

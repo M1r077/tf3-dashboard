@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased (companion 0.18.0, mod revision 27)
+## Companion 0.18.0 - 20 October 2026 (mod revision 27)
 
 - The files move to `userdata/heightmaps` (mod revision 27). In `towns_industries` the map editor listed every one of
   them in its town/industry import (54 files on a big map). The game allows three folders and no subfolders (checked

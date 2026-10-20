@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.18.1 - 21 October 2026 (mod revision 27, unchanged)
 
 - Lines: average load over the last 12 months of game time (carried / capacity over every recorded sample), in the lines table and the line detail; marked "~" while the save has less than 12 months of history. Computed by the companion from the samples already recorded: no mod change, and it survives reloads.
 - Lines table: shorter headers for the balance and the average load (full wording in their tooltip).

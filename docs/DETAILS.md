@@ -557,8 +557,13 @@ Three independent parts:
      table (load, condition, average speed, idle), alerts with age, load & average speed over time, idle / no-line
      vehicles, wear (service first), vehicles stuck en route (zero speed over several samples), most unhappy / busiest
      lines
-   - **Lines**: sortable/filterable table (stops, vehicles, headway, load, on board, % unhappy pax, % late cargo,
-     cargos); click -> route, capacities per cargo, history (vehicles/on board, quality)
+   - **Lines**: sortable/filterable table (stops, vehicles, headway, load, average load, on board, balance, % unhappy
+     pax, % late cargo, cargos); click -> route, capacities per cargo, history (vehicles/on board, quality)
+   - **Average load** (`/api/lines`: `avg_load` 0..1, `avg_load_full`): sum(used) / sum(capacity) of `line_capacity`
+     over the snapshots of the last 12 months of game time (`GAME_YEAR_MS` before the last snapshot), one snapshot per
+     `game_time_ms` (snapshots taken while paused repeat the same values and would weigh more). The game's own Usage
+     formula applied over time, as Line Manager Plus does in game - but from the database, so it survives reloads.
+     `avg_load_full` = false while the save's history is shorter than 12 months (shown with "~").
    - **Vehicles**: text/carrier/state/wear/problem filter; line, state (no path, stopped), speed, load, condition, idle
      days, cost/year, value, nearest town; click -> sheet + speed/load/condition history
    - **Towns**: res/com/ind capacities (used/total), unhappy, public transport share, traffic, noise, pollution,

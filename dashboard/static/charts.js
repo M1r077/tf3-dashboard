@@ -143,12 +143,26 @@
   function dateTick(labels, idx) { return labels && labels[idx] != null ? String(labels[idx]) : ""; }
 
   // tooltip plugin
+  // The bubble lives in <body>, outside the chart. When a panel re-renders (refresh, click on the chart, sort) its
+  // innerHTML is replaced: the chart vanishes under the mouse without uPlot's destroy() nor a mouseleave, and its
+  // bubble stayed on screen until the page was reloaded. Every bubble is therefore tracked here and swept away as
+  // soon as its chart is no longer in the page or no longer under the mouse.
+  const tips = new Set();  // { el, u }
+  function sweepTips() {
+    tips.forEach(t => {
+      if (!document.body.contains(t.u.root)) { t.el.remove(); tips.delete(t); }
+      else if (t.el.style.display !== "none" && !t.u.over.matches(":hover")) t.el.style.display = "none";
+    });
+  }
+  ["pointermove", "pointerdown", "wheel"].forEach(ev => document.addEventListener(ev, sweepTips, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", sweepTips);
   function tooltipPlugin(getLabel, series, opts) {
-    let el;
+    let el, tip;
     return {
       hooks: {
         init: (u) => {
           el = document.createElement("div"); el.className = "chart-tip"; document.body.appendChild(el);
+          tip = { el, u }; tips.add(tip);
           u.over.addEventListener("mouseleave", () => { el.style.display = "none"; });
         },
         setCursor: (u) => {
@@ -170,7 +184,7 @@
           const x = r.left + u.cursor.left, y = r.top + u.cursor.top;
           el.style.left = Math.min(window.innerWidth - 240, x + 14) + "px"; el.style.top = Math.max(4, y - 10) + "px";
         },
-        destroy: () => { if (el) el.remove(); },
+        destroy: () => { if (el) el.remove(); if (tip) tips.delete(tip); },
       },
     };
   }

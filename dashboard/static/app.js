@@ -41,7 +41,7 @@
   // sizes (px): icons, text, table row padding, gap between cards, card corner radius, default chart height, gauge bar
   // height, map marker base size (marker was tied to the icon size before 0.7.2: a missing value falls back to it)
   // smooth: vehicles glide along their line between two samples (costs a few ms per frame in the browser; off by default)
-  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, finance: true, keys: true, clock: false, smooth: false, defaultTab: "overview", range: "1gy" };
+  const DEFAULTS = { ico: 28, fs: 14, rowpad: 6, gap: 14, radius: 10, charth: 200, barh: 10, marker: null, refresh: 3, history: 400, balYears: 5, finance: true, keys: true, clock: false, smooth: false, defaultTab: "overview", range: "1gy" };
   const SIZE_KEYS = ["ico", "fs", "rowpad", "gap", "radius", "charth", "barh", "marker"];
   // one range per question: since the game was set running, the last month played, this year, the trend, everything
   const RANGES = ["run", "1gm", "1gy", "5gy", "all"];
@@ -57,6 +57,7 @@
     $$("#settings input[data-range]").forEach(r => { r.value = settings[r.dataset.range]; const v = r.nextElementSibling; if (v) v.textContent = settings[r.dataset.range] + " px"; });
     $("#set-refresh").value = settings.refresh; $("#set-refresh-val").textContent = t("seconds_unit", { n: settings.refresh });
     $("#set-history").value = settings.history; $("#set-history-val").textContent = t("samples_unit", { n: settings.history });
+    $("#set-bal-years").value = settings.balYears; $("#set-bal-years-val").textContent = t("years_unit", { n: settings.balYears });
     if (new URLSearchParams(location.search).get("smooth")) settings.smooth = true;  // ?smooth=1: shortcut for tests and links
     $("#set-finance").checked = settings.finance; $("#set-keys").checked = settings.keys; $("#set-clock").checked = settings.clock; $("#set-smooth").checked = !!settings.smooth; $("#set-default-tab").value = settings.defaultTab;
     if (typeof motionKick === "function") motionKick();
@@ -81,6 +82,7 @@
   }));
   $("#set-refresh").addEventListener("input", e => { settings.refresh = +e.target.value; applySettings(); });
   $("#set-history").addEventListener("input", e => { settings.history = +e.target.value; applySettings(); refresh(true); });
+  $("#set-bal-years").addEventListener("input", e => { settings.balYears = +e.target.value; applySettings(); refresh(true); });
   $("#set-finance").addEventListener("change", e => { settings.finance = e.target.checked; applySettings(); });
   $("#set-keys").addEventListener("change", e => { settings.keys = e.target.checked; applySettings(); });
   $("#set-clock").addEventListener("change", e => { settings.clock = e.target.checked; applySettings(); refresh(true); });
@@ -1017,8 +1019,11 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
   const vehType = (v) => v.icon_type ? (String(v.icon_type).startsWith("Train") ? "Train" : v.icon_type) : ({ ROAD: "Bus", RAIL: "Train", TRAM: "Tram", AIR: "Aircraft", WATER: "Ship" }[v.carrier] || null);
   const avgLoad = (l) => l.avg_load == null ? "–" : `<span title="${esc(t(l.avg_load_full ? "avg_load_tip" : "avg_load_partial_tip"))}">${l.avg_load_full ? "" : "~"}${Math.round(l.avg_load * 100)} %</span>`;
+    // average yearly balance over the last settings.balYears full financial years (server: avg_balance); "~" = fewer years
+    const avgBal = (l) => { if (l.avg_balance == null) return "-"; const n = settings.balYears, k = l.avg_balance_years, part = k < n;
+      return `<span class="${l.avg_balance < 0 ? "mneg" : "mpos"}" title="${esc(t("avg_balance_tip", { n }) + (part ? "\n" + t("avg_balance_partial_tip", { k, n }) : ""))}">${part ? "~" : ""}${money(l.avg_balance)}</span>`; };
   async function renderLines() {
-    const d = await api("/api/lines"); const lines = d.lines || []; state.cache.lines = lines;
+    const d = await api("/api/lines", { years: settings.balYears }); const lines = d.lines || []; state.cache.lines = lines;
     state.cache.cargoTypes = d.cargo_types || [];
     if (!state.selLine) { const u = +new URLSearchParams(location.search).get("line"); if (u && lines.some(l => l.line_id === u)) state.selLine = u; }  // deep link ?tab=lines&line=<id>
     // the selected line was deleted in game: drop the selection and the detail panel instead of keeping the last picture
@@ -1044,6 +1049,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       { key: "throughput", label: t("th_per_year"), num: true, render: l => l.throughput == null ? "–" : int(l.throughput), sortValue: l => l.throughput },
       // the game's line "Last Year" balance: income - running costs over the last 12 months (mod rev 23+)
       { key: "balance_year", label: t("line_balance"), title: t("th_line_balance"), num: true, render: l => l.balance_year == null ? NA : `<span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span>`, sortValue: l => l.balance_year },
+      { key: "avg_balance", label: t("th_avg_balance_short"), title: `${t("th_avg_balance", { n: settings.balYears })}\n${t("avg_balance_tip", { n: settings.balYears })}`, num: true, render: avgBal, sortValue: l => l.avg_balance },
       // one "quality" column: unhappy pax, late cargo, or both stacked (one small row each, icon in front) for mixed lines
       { key: "quality", label: t("th_unhappy"), render: l => { const q = []; if (carriesPax(l) && l.pax_total) q.push(ico("passengers", "sm") + barQuality(l.pax_bad, l.pax_total)); if (carriesCargo(l) && l.cargo_total) q.push(ico("cargo", "sm") + barQuality(l.cargo_bad, l.cargo_total)); return q.length ? `<span class="qstack">${q.map(r => `<span>${r}</span>`).join("")}</span>` : NA; }, sortValue: l => Math.max(l.pax_total ? l.pax_bad / l.pax_total : -1, l.cargo_total ? l.cargo_bad / l.cargo_total : -1) },
       { key: "act", label: "", render: l => entBtns(l.line_id, { line: true }) },
@@ -1069,6 +1075,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
         <tr><td>${t("th_headway")}</td><td>${headway(l.max_frequency)}</td></tr>
         <tr><td>${t("det_throughput")}</td><td>${int(l.throughput)}</td></tr>
         ${l.balance_year != null ? `<tr><td>${t("th_line_balance")}</td><td><span class="${l.balance_year < 0 ? "mneg" : "mpos"}">${money(l.balance_year)}</span></td></tr>` : ""}
+        ${l.avg_balance != null ? `<tr><td>${t("th_avg_balance", { n: settings.balYears })}</td><td>${avgBal(l)}</td></tr>` : ""}
         <tr><td>${t("det_vehicles")}</td><td>${int(l.vehicles)}${l.live ? ` <span class="muted">· ${int(l.live.en_route)} ${t("state.EN_ROUTE").toLowerCase()} · ${kmh(l.live.speed)}</span>` : ""}</td></tr>
         ${carriesPax(l) ? `<tr><td>${t("det_on_line")}</td><td>${int(l.persons_on_line)}</td></tr><tr><td>${t("th_pax_unhappy")}</td><td>${l.pax_total ? barQuality(l.pax_bad || 0, l.pax_total) : "–"}${l.pax_avg_quality != null && l.pax_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.pax_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}
         ${carriesCargo(l) ? `<tr><td>${t("th_cargo_late")}</td><td>${l.cargo_total ? barQuality(l.cargo_bad || 0, l.cargo_total) : "–"}${l.cargo_avg_quality != null && l.cargo_total ? ` <span class="muted">${t("det_quality").toLowerCase()} ${Math.round(l.cargo_avg_quality * 100)} %</span>` : ""}</td></tr>` : ""}

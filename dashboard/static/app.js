@@ -790,7 +790,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const drillMatch = (v, d) => v.carrier === d.carrier && (d.kind === "all" || (d.kind === "stuck" ? v.state === "EN_ROUTE" && (v.speed_ms ?? 1) < 0.5 : v.state === d.kind));
   const miniRow = (v, right) => `<div class="row" data-veh="${v.vehicle_id}"><div><div class="n">${vehIcon(v, "sm")}${esc(v.name)}</div><div class="d">${CA(v.carrier)} · ${esc(v.line_name || t("no_line"))}</div></div><div class="r">${right}</div></div>`;
   async function renderOverview(o) {
-    const [fleet, al, ld, sd] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines"), api("/api/stations")]);
+    const [fleet, al, ld, sd] = await Promise.all([api("/api/fleet", { limit: settings.history, range: settings.range }), api("/api/alerts"), api("/api/lines", { years: settings.balYears }), api("/api/stations")]);
     state.cache.fleet = fleet; state.cache.lines = ld.lines || [];
     if (fleet.empty) return;
     const hist = fleet.history || [];
@@ -1717,7 +1717,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     try {
       const o = await api("/api/overview");
       const [jw, jh, fin, veh, cat, lf] = await Promise.all([api("/api/journal", { view: "window" }), api("/api/journal", { view: "history" }), api("/api/finance", { all: 1, range: "all" }), api("/api/vehicles"), api("/api/models"), api("/api/line_finance").catch(() => ({ lines: [] }))]);
-      const ln = await api("/api/lines").catch(() => ({ lines: [] }));
+      const ln = await api("/api/lines", { years: settings.balYears }).catch(() => ({ lines: [] }));
       const journalSheet = (j) => {
         if (!j || !j.cols.length) return { rows: [[t("no_data_yet")]], kinds: [] };
         const L = j.lines, n = j.cols.length, kinds = [], row = (label, vals) => [label, ...Array.from({ length: n }, (_, i) => (vals || [])[i] || 0)];
@@ -1761,8 +1761,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const hex = (r, g, b) => [r, g, b].map(v => Math.round(Math.max(0, Math.min(1, v || 0)) * 255).toString(16).padStart(2, "0")).join("").toUpperCase();
       const POS = "8AB4F8", NEG = "F08080", TOT = "D6DAE0";
       const nowLines = (ln.lines || []).slice().sort((a, b) => (b.balance_year ?? -Infinity) - (a.balance_year ?? -Infinity));
-      const nowRows = [[t("th_line"), t("th_type"), t("th_stops"), t("th_veh"), `${t("th_headway")} (min)`, t("th_per_year"), t("th_onboard"), t("th_line_balance")],
-        ...nowLines.map(l => { const ty = lineType(l); return [l.name, ty ? t("line_type." + ty) : "", l.stops, l.vehicles, l.max_frequency != null ? Math.round(l.max_frequency / 6) / 10 : null, l.throughput, carriesPax(l) ? l.persons_on_line : null, l.balance_year]; })];
+      const nowRows = [[t("th_line"), t("th_type"), t("th_stops"), t("th_veh"), `${t("th_headway")} (min)`, t("th_per_year"), t("th_onboard"), t("th_line_balance"), t("th_avg_balance", { n: settings.balYears }), t("xlsx_years_counted")],
+        ...nowLines.map(l => { const ty = lineType(l); return [l.name, ty ? t("line_type." + ty) : "", l.stops, l.vehicles, l.max_frequency != null ? Math.round(l.max_frequency / 6) / 10 : null, l.throughput, carriesPax(l) ? l.persons_on_line : null, l.balance_year, l.avg_balance ?? null, l.avg_balance == null ? null : l.avg_balance_years]; })];
       // one row per financial year of game time (the engine's columns as is, labelled like the journal), never
       // regrouped by calendar year: the calendar can be slowed or paused while the money goes on
       const finLines = lf.lines || [], fcols = lf.cols || [];
@@ -1775,7 +1775,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const lineSheets = [];
       if (nowLines.length || finLines.length) {
         const iNow = 1, iYears = 2;  // sheet indices in the workbook below (journal is 0)
-        const charts = [], at = (row) => ({ col: 9, row }), W = 760;
+        const charts = [], at = (row) => ({ col: 11, row }), W = 760;
         let row = 0;
         if (fcols.length) {
           charts.push({ type: "line", title: t("xlsx_chart_lines_total"), src: iYears, cat: 1, r0: 2, r1: fcols.length + 1, money: true, at: at(row), w: W, h: 340,

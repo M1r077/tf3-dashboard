@@ -2,6 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Excel export, "Lines - now" sheet: the average balance over the financial years chosen in Settings, and how many full years each line counts (fewer for young lines).
+- Overview and Excel export: they use the number of years chosen in Settings for the average balance, like the Lines panel (they always used 5).
+
 ## Companion 0.18.2 - 23 October 2026 (mod revision 27, unchanged)
 
 - Lines: average balance over the last financial years (income - running costs per year, averaged), in the lines table (sortable) and the line detail. Number of years in Settings ("Average balance over", 1 to 20, 5 by default); the current, unfinished year is left out. Marked "~" for a line or save with fewer full years. Computed by the companion from the line finances already recorded: no mod change.

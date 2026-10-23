@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.18.3 - 23 October 2026 (mod revision 27, unchanged)
 
 - Excel export, "Lines - now" sheet: the average balance over the financial years chosen in Settings, and how many full years each line counts (fewer for young lines).
 - Overview and Excel export: they use the number of years chosen in Settings for the average balance, like the Lines panel (they always used 5).

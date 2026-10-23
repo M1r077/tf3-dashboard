@@ -564,6 +564,10 @@ Three independent parts:
      `game_time_ms` (snapshots taken while paused repeat the same values and would weigh more). The game's own Usage
      formula applied over time, as Line Manager Plus does in game - but from the database, so it survives reloads.
      `avg_load_full` = false while the save's history is shorter than 12 months (shown with "~").
+   - **Average balance** (`/api/lines?years=N`, N = Settings "Average balance over", 1-20, default 5: `avg_balance`,
+     `avg_balance_years`): mean of the line's yearly balance (income - running costs, `_line_finance`) over the last N
+     full financial years of game time (1460 s each, `GAME_YEAR_MS`); the current, unfinished year is left out. A line
+     or save with fewer full years is averaged over those it has (`avg_balance_years` < N, shown with "~").
    - **Vehicles**: text/carrier/state/wear/problem filter; line, state (no path, stopped), speed, load, condition, idle
      days, cost/year, value, nearest town; click -> sheet + speed/load/condition history
    - **Towns**: res/com/ind capacities (used/total), unhappy, public transport share, traffic, noise, pollution,
@@ -673,8 +677,9 @@ and if it ever did, multi-byte characters would come out as Latin-1 mojibake (fi
      journal's yearly `ChartConfig`: the engine ignores the interval and returns its own columns - quarters ("2/1963"),
      coarser in the far past - as `series[i] = { {x...}, {y...} }`, series 1 = income and 2 = running costs, both
      positive; the column labels come from `api.engine.util.chart.getChartLabel(cfg, x, false)` like the game's axis.
-     Stored as given in `line_finance` (replaced each time: the engine keeps the whole account); the server sums the
-     columns per calendar year (the label's last 4 digits; the current year is partial, as in the game). ~4 ms for 54 lines.
+     Stored as given in `line_finance` (replaced each time: the engine keeps the whole account); the server gives
+     one point per financial year of game time (`_line_finance`), never regrouped by calendar year (the calendar can be
+     slowed or paused while the money goes on). ~4 ms for 54 lines.
 - `game`: one row per savegame (key = player entity)
 - `snapshot`: one row per export (seq, real time, game date, speed, error count); every fact table points to it
 - rule (0.6.1 audit): a column exists because a page shows it. Everything the collector stores is read by a route and

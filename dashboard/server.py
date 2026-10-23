@@ -562,6 +562,17 @@ def api_lines(q: dict) -> dict:
             a = amap.get(l["line_id"])
             l["avg_load"] = round(a["used"] / a["cap"], 4) if a and a["cap"] else None
             l["avg_load_full"] = full
+    # average yearly balance over the last `years` (Settings) full financial years (the game's line Balance chart,
+    # _line_finance): the current, unfinished year is left out. `avg_balance_years` = years actually averaged (fewer
+    # for a younger line or save; the dashboard then marks the value with "~").
+    years = _int_param(q, "years", 5, 1, 50)
+    if last and last["t"] is not None:
+        cur = int(last["t"] // GAME_YEAR_MS)
+        fin = _line_finance(gid)
+        for l in lines:
+            pts = [p["balance"] for p in fin.get(l["line_id"], []) if cur - years <= p["col"] < cur]
+            l["avg_balance"] = round(sum(pts) / len(pts)) if pts else None
+            l["avg_balance_years"] = len(pts)
     cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
     return {"lines": lines, "cargo_types": cargo_types}
 
@@ -1662,6 +1673,13 @@ def _merged_series(gid: int, rng: str, limit: int, detail_sql: str, agg_sql: str
 def _limit(q: dict, default: int, cap: int = 5000) -> int:
     try:
         return max(10, min(cap, int(q.get("limit", [default])[0])))
+    except (TypeError, ValueError):
+        return default
+
+
+def _int_param(q: dict, name: str, default: int, lo: int, hi: int) -> int:
+    try:
+        return max(lo, min(hi, int(q.get(name, [default])[0])))
     except (TypeError, ValueError):
         return default
 

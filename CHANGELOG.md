@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Lines: average balance over the last financial years (income - running costs per year, averaged), in the lines table (sortable) and the line detail. Number of years in Settings ("Average balance over", 1 to 20, 5 by default); the current, unfinished year is left out. Marked "~" for a line or save with fewer full years. Computed by the companion from the line finances already recorded: no mod change.
+
 ## Companion 0.18.1 - 21 October 2026 (mod revision 27, unchanged)
 
 - Lines: average load over the last 12 months of game time (carried / capacity over every recorded sample), in the lines table and the line detail; marked "~" while the save has less than 12 months of history. Computed by the companion from the samples already recorded: no mod change, and it survives reloads.

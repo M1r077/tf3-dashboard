@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.18.4 - 25 October 2026 (mod revision 28)
 
 - Map: the camera cone was mirrored east / west (right looking north or south). Looking east, it pointed west and the camera was drawn on the wrong side of the target: standing outside the map and looking in, the camera showed inside the map, looking out. The travelling eye track on the map uses the same corrected direction. The direction is now measured against a keyframe file of the game's camera tool taken at the same spot (eye position matches to 0.3 m).
 - Mod revision 28, travellings with cinematic framing instead of a map seen from above:

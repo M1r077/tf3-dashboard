@@ -356,8 +356,18 @@ ICONS: dict[str, tuple[str, str]] = {
 }
 
 
-def to_png(data: bytes) -> Image:
+# colored icons without alpha (opaque black background) used as CSS masks: the brightest channel becomes the alpha,
+# the camera tool's red record dot would otherwise show as a full square
+MASK_FROM_COLOR = {"ct_record"}
+
+
+def to_png(data: bytes, key: str = "") -> Image:
     im = Image.open(data)
+    if key in MASK_FROM_COLOR and not im.gray:
+        n = im.size[0] * im.size[1]
+        lum = bytearray(n * 4)
+        lum[0::4] = bytes(max(im.rgba[i * 4:i * 4 + 3]) for i in range(n))
+        return Image(im.size[0], im.size[1], lum, True).white_mask()
     return im.white_mask() if im.gray else im
 
 
@@ -380,7 +390,7 @@ def extract(game: Path, out: Path) -> int:
         except KeyError:
             missing.append(path)
             continue
-        to_png(data).save(out / f"{key}.png")
+        to_png(data, key).save(out / f"{key}.png")
         n += 1
 
     # cargo icons: cargos/<name>.zip -> <name>/<name>@2x.tga (colored)

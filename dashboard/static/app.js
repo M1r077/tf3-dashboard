@@ -2319,6 +2319,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
   async function trvExport(s) {
     if (!hmap.data) await loadHeightmap();
+    // a line tour needs the map data (stops, legs): not fetched yet, or fetched before all its stops were known -
+    // fetch it again once, as lineTravelling does
+    if (s.kind === "line" && !lineTrack(s.line, { ...TRAVEL_DEFAULTS, ...s })) { try { map.data = await api("/api/map"); } catch (e) { /* reported below */ } }
     const k = keyframesOf(s);
     const st = $("#cmd-status");
     if (k.error) { st.textContent = t("act_failed", { msg: k.error }); st.className = "cmdstatus bad"; return; }

@@ -1,5 +1,5 @@
-"""The few icons the dashboard draws itself: the camera movements of a travelling (orbit, dolly, flyover, sweep,
-spiral) and "reverse the movement". The game has no icon for these, and borrowing one of its icons for another
+"""The few icons the dashboard draws itself: the camera movements of a travelling (pan, truck, push, reveal, orbit,
+dolly, flyover, sweep, spiral) and "reverse the movement". The game has no icon for these, and borrowing one of its icons for another
 meaning would mislead the player; everything else in the dashboard uses the game's own icons (extract_icons.py).
 
 White strokes on transparent, 48x48 like the game's @2x icons, drawn with PIL at 4x then downsampled, so they sit
@@ -103,6 +103,47 @@ def spiral():
     save(im, "move_spiral")
 
 
+def pan():
+    # the camera stays put and turns: a camera body with a short arc in front of it, arrow on the arc
+    im, d = canvas(); c = (14 * K, 30 * K); r = 22 * K
+    cam(d, c)
+    d.arc([c[0] - r, c[1] - r, c[0] + r, c[1] + r], start=-70, end=10, fill="white", width=int(W))
+    a = math.radians(10)
+    arrow_head(d, (c[0] + r * math.cos(a), c[1] + r * math.sin(a)), a + math.pi / 2)
+    save(im, "move_pan")
+
+
+def truck():
+    # sideways past the subject: the camera with an arrow beside it, the subject ahead
+    im, d = canvas()
+    dot(d, (24 * K, 10 * K), 4 * K)
+    cam(d, (24 * K, 34 * K))
+    d.line([(8 * K, 44 * K), (38 * K, 44 * K)], fill="white", width=int(W))
+    arrow_head(d, (42 * K, 44 * K), 0)
+    save(im, "move_truck")
+
+
+def push():
+    # slow approach: the camera, a short arrow towards a subject drawn as a frame
+    im, d = canvas()
+    d.rectangle([28 * K, 14 * K, 44 * K, 34 * K], outline="white", width=int(W * 0.8))
+    dot(d, (36 * K, 24 * K), 3 * K)
+    cam(d, (9 * K, 24 * K))
+    d.line([(16 * K, 24 * K), (22 * K, 24 * K)], fill="white", width=int(W))
+    arrow_head(d, (25 * K, 24 * K), 0)
+    save(im, "move_push")
+
+
+def reveal():
+    # back and up: a subject below, an arrow rising away from it
+    im, d = canvas()
+    dot(d, (12 * K, 38 * K), 4 * K)
+    d.line([(18 * K, 32 * K), (36 * K, 14 * K)], fill="white", width=int(W))
+    arrow_head(d, (39 * K, 11 * K), math.radians(-45))
+    d.line([(6 * K, 44 * K), (42 * K, 44 * K)], fill="white", width=int(W * 0.8))
+    save(im, "move_reveal")
+
+
 def reverse():
     # the movement played backwards: a play triangle pointing left with a bar, like "rewind" but a single one
     im, d = canvas()
@@ -112,6 +153,7 @@ def reverse():
 
 
 if __name__ == "__main__":
-    for f in (orbit, dolly, flyover, sweep, spiral, reverse):
+    fs = (pan, truck, push, reveal, orbit, dolly, flyover, sweep, spiral, reverse)
+    for f in fs:
         f()
-    print(f"6 icons -> {OUT}")
+    print(f"{len(fs)} icons -> {OUT}")

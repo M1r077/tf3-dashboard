@@ -365,15 +365,47 @@ Three independent parts:
      one speed profile for the whole path with minimum-jerk quintic ramps (Flash & Hogan 1985) of at most 3 s at both
      ends and constant speed between (none on a loop); heading and pitch through a first-order filter (0.6 s) fed with
      the spline 0.6 s ahead, so a change of turning rate is rounded off without lag at constant rate. The heading
-     convention (`camLook`: the camera looks along (cos a, -sin a) in map coordinates) is checked against the compass
-     and shared with the dashboard's cone drawing. Cost: a few multiplications and one Vec5f per frame. It stops by
+     convention (`camLook`: the camera looks along (-cos a, -sin a) in map coordinates, rev 28; revs 18-27 used
+     (cos a, -sin a), mirrored east / west) is measured against a keyframe file of the game's camera tool taken at
+     the same spot (free camera angle = orbit angle - pi; the eye position matches to 0.3 m) and shared with the
+     dashboard's cone drawing. Ground clearance (rev 28) only raises the pitch: the eye is kept above the highest
+     terrain of a 12 m cross around it (margin 1.5 m + 5 % of the distance, at most 14 m) and the line of sight above
+     the terrain at 1/2 and 3/4 of the way back (margin 3 % of the distance, at most 5 m); the lift then goes through
+     a low-pass + rate limit (0.35 rad/s up, 0.025 down) with a hard floor 1.5 m above that cross, held and released
+     at 0.02 rad/s. The lift asked for is the highest of now and of the path 0.5, 1 and 1.5 s ahead
+     (`CAM.LOOK_AHEAD`), so the camera rises before a bump instead of reacting to it.
+     *Lead-in* (rev 28): `camera_path` / `camera_tour` take `lead` = seconds; the mod builds a short path from the
+     current camera to the first point (`CAM.lead`: one leg, or two over a middle point at 0.6 x the distance and at
+     least 0.45 rad down when the hop is longer than 1.5 x the viewing distance), eased over its whole length, then
+     hands over to the travelling with the filter and lift state (no jolt at the seam). `snapshot.camera.path.lead`
+     is true meanwhile and `progress` stays 0. The dashboard computes `lead` with the same formula (2.5 s + 1 s per
+     600 m + turn / 0.6 + 0.8 x |log zoom ratio| + 2 x pitch change, 14 s at most, 0 when already there): the music
+     is started inside the click (browsers allow audio only there) but silent, rewound and faded in at the end of the
+     lead-in, or earlier when the snapshot says the lead-in is over.
+     *Random travelling*: `trvRandom` in app.js picks a line tour (lines with a route are twice as likely), a
+     `spot` (station 70-220 m, town 250-700 m, industry 120-320 m away, 7-20 degrees down, any heading) with one of
+     the view movements, a saved view, or the chain of the views. A `spot` recipe stores its framing, so it can be
+     saved like the others.
+     *Export* (`POST /api/keyframes`, server.py `write_keyframes`): the dashboard samples the travelling every 0.5 s
+     with a copy of the mod's spline (`pathSampler`, checked against `camPathAt` / `camPathWarp`: identical). It
+     writes the free camera of the game's Camera Manager: eye = target - look x dist x cos(pitch), height = target
+     ground + dist x sin(pitch), angle = atan2 of the look direction (the orbit angle - pi), pitch negative looking
+     down, fovY 1.0472. The ground under and around the eye comes from the relief picture (the coarse grid without
+     it). The eye is lifted where the terrain needs it (highest need within 1.5 s, smoothed). The server writes only
+     numbers, in the layout of the tool's own files, to `<userdata>/keyframes/tf3dash_<ascii name>.lua` (the folder
+     next to the export folder). A line tour is rebuilt from its stops along the track (`lineTourPoints`, the
+     mod's `camTourBuild` without the vehicles). Revs 18-27 forced 0.25 rad and 60 m, so no low shot survived; the first rev 28 build applied the
+     raw lift every frame and shook close to the ground. Cost: a few multiplications and one Vec5f per frame. It stops by
      itself at the end (or loops), on `camera_stop`, on `set_camera` / a new path, when a follow camera is active,
      or when the camera is no longer where the mod left it (the player grabbed it). `snapshot.camera.path
      {playing, progress, loop, n}` is exported while it plays; the panel shows a progress bar and the map draws the
      path (dashed when idle, solid while playing). An older mod answers "unknown command": the panel says revision
      10 is needed. Three ways to make a path, all in the dashboard except the last:
      - *Around one view* (camera button on a view's row, or pick a view and press Play): the view is the subject,
-       the points are generated around it — orbit (full turn), dolly (far -> view, or away), flyover (high and
+       the points are generated around it — pan (the eye stays, the heading turns onto the view), truck (sideways
+       past it, heading kept), push in (slow approach along the line of sight, the default), reveal (back and up from
+       the view); these four keep the view's height and pitch and end on it (after a hand-made camera-tool
+       sequence: low, nearly level, one slow move per shot) — orbit (full turn), dolly (far -> view, or away), flyover (high and
        far, levelling out), sweep (back and forth +-45 degrees), spiral (turn while coming closer). Direction,
        amplitude (x0.5/1/2), duration (10/20/40/90 s), loop. The duration is a minimum: the pan speed is capped at
        0.1 rad/s (the cinematographers' rule of one frame width per 7 s with the game's ~40 degree field of view), a
@@ -383,9 +415,10 @@ Three independent parts:
        sends the stops of the line; **the mod reads the positions of the line's vehicles at that moment**, inserts
        them along the route, merges points closer than alt/2, puts an approach and an exit point around every point
        of interest (heading swinging -17 -> +17 degrees across it, so the camera pans over the subject) and a high
-       waypoint every 2 x alt along long stretches, then plays it as a normal path. Altitude = 15 % of the span
-       of the line, 250-900 m, x amplitude; stops at 0.8x, vehicles at 0.7x, approach/exit at 1.05x, stretches at
-       1.15x; constant ground speed = alt/16 per second (the duration preference can only speed it up, capped at
+       waypoint every 2 x alt along long stretches, then plays it as a normal path. Distance = 8 % of the span
+       of the line, 150-500 m, x amplitude; rev 28: stops at 0.6x, vehicles at 0.45x, approach/exit at 1.0x,
+       stretches at 1.4x (was 0.8 / 0.7 / 1.05 / 1.15); pitch 0.25-0.38 rad (a low three-quarter shot, the horizon in the frame; was 0.9-1.0), heading
+       0.6 rad off the direction of travel (`CAM.TOUR_SIDE`), swing +-0.2 rad; constant ground speed = alt/16 per second (the duration preference can only speed it up, capped at
        alt/6). It is a snapshot: a vehicle that
        moves on during the flight is not followed - a live-tracking version was tried and dropped because vehicle
        positions only change on simulation ticks and the picture jerked.

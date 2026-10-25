@@ -2,6 +2,27 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Map: the camera cone was mirrored east / west (right looking north or south). Looking east, it pointed west and the camera was drawn on the wrong side of the target: standing outside the map and looking in, the camera showed inside the map, looking out. The travelling eye track on the map uses the same corrected direction. The direction is now measured against a keyframe file of the game's camera tool taken at the same spot (eye position matches to 0.3 m).
+- Mod revision 28, travellings with cinematic framing instead of a map seen from above:
+  - The camera is no longer lifted when it flies low. Revisions 18-27 forced at least 14 degrees down and kept the eye 60 m above the highest ground, so every low view turned into a view of the ground. Now only the angle down is raised, just enough to keep the eye above the ground around it and the line of sight above the terrain.
+  - No more shaking close to the ground: the lift was recomputed from four points every frame, and a bump in front of the subject could tip a close shot to 70 degrees down from one frame to the next. Now the eye is checked over a small cross around it, the line of sight only in its back half, the margins shrink for close shots, and the lift follows the terrain smoothly (up to 20 degrees per second when the ground rises, 1.5 when it falls), never letting the eye under the ground. The camera also looks 0.5 to 1.5 s ahead along its path: it starts rising before a bump reaches it and stays up over a row of them. Measured on bumpy ground at 40 m: at most 0.08 degree per frame (was 3.4), a residual slow sway of 2 degrees (was 10.5).
+  - Line tour: a low three-quarter shot, 14-22 degrees down with the horizon in the frame (was 50-57 degrees, all ground), beside the track at about 35 degrees off the direction of travel so the vehicles are seen from the side, closer (150-500 m, was 250-900 m), with a smaller swing. The zoom changes more: close on the vehicles (0.45x) and stops (0.6x), wide between them (1.4x). The tour also looked backwards along east-west tracks (same east / west mirror as the cone), fixed.
+- Travellings around a view, four new movements after a hand-made sequence in the game's camera tool. They keep the angle down of the view, zoom while they move and end on the view:
+  - Pan: the camera turns onto the view, zooming in from 1.8x on the way.
+  - Truck: slides sideways past the view, the foreground moving across the background, coming in from 1.6x.
+  - Push in: approach along the line of sight from 3x the distance (reverse = pull out). The new default.
+  - Reveal: from the view, back and up, the surroundings open up (reverse = come down into the view).
+- Flyover starts at most about 35 degrees down (it started up to 83 degrees down, straight above the subject).
+- Starting a travelling no longer jumps to its first point: the camera flies there from where it is, eased all the way (2.5 s to 14 s depending on the distance, the turn and the zoom; over a long distance it rises over a middle point instead of skimming the ground), and the travelling begins from rest at its first point. The music starts on arrival, from the beginning of the track. Same for line tours.
+- Travellings that stopped early or looked very short:
+  - the dashboard took a snapshot written before the mod had read the command for "the travelling ended" (after 4 s): the music stopped and the panel went idle while the camera went on. It now waits for the mod to report the travelling playing, after its command;
+  - the mod took some of its own camera moves for the player's (the heading compared without wrapping, a zoom or pitch the game bends to its range): it now also compares with what the game reported after its last move, and logs the reason of every early stop in the game's log;
+  - line tours far from the camera stopped during the flight to their start: the lead-in rose to 4400-4600 m over a long hop, beyond the game's zoom limit (about 4300 m), and the game pulling the camera back was taken for the player. The hop now stays at 2500 m at most, the mod never asks for more than 3500 m, and lowers that to the game's limit if the game pulls the camera back anyway.
+- **Random travelling** (Travellings panel on the Map tab): one click picks a shot at random (a line tour, a movement around a station, a town, an industry or a saved view, or the chain of the saved views) and plays it. It becomes the draft, so Save keeps it.
+- **Export for the game's camera tool**: a new button on each saved travelling writes it as a keyframe file of the game's Camera Manager (`keyframes/tf3dash_<name>.lua` in the game's user folder), to render it with the game's own tool. The tool only shows when the game runs in debug mode; the file is written either way. The camera follows the same path as on the dashboard, with the ground kept clear. A line tour is exported along its stops, without the vehicles (they will not be where they were at render time). **Companion change (server.py):** new `POST /api/keyframes`, which only ever writes `tf3dash_*.lua` files in that folder.
+
 ## Companion 0.18.3 - 23 October 2026 (mod revision 27, unchanged)
 
 - Excel export, "Lines - now" sheet: the average balance over the financial years chosen in Settings, and how many full years each line counts (fewer for young lines).

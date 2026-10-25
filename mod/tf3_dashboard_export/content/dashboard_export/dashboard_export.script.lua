@@ -23,6 +23,7 @@ local MOD_ID = "tf3_dashboard_export"
 -- 7: files moved to towns_industries/tf3dash_* (game build 40420 whitelist; companion >= 0.3.2 reads both layouts)
 -- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (companion >= 0.3.1)
 -- (rev 27, same schema 7: folder heightmaps instead of towns_industries; companion >= 0.18.0 reads all layouts)
+-- (rev 28, same schema: camera heading east / west fixed, low cinematic line tour, clearance no longer lifts the camera)
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other, subfolders
@@ -1740,7 +1741,10 @@ local function collectCamera()
 		local e = num(f[1])
 		if e and e > 0 then cam.follow = e end
 	end
-	if camPath then cam.path = { playing = true, progress = camPathProgress(), loop = camPath.loop, n = #camPath.pts } end
+	if camPath then
+		local cp = camPath.after or camPath  -- during the lead-in: the travelling's own figures, lead = true
+		cam.path = { playing = true, progress = camPathProgress(), loop = cp.loop, n = #cp.pts, lead = camPath.isLead or nil }
+	end
 	return cam
 end
 
@@ -1785,7 +1789,7 @@ end
 local function rampArea(u) return u * u * u * u * (2.5 + u * (u - 3)) end
 
 camPathProgress = function()
-	if not camPath then return 0 end
+	if not camPath or camPath.isLead then return 0 end
 	local e = os.clock() - camPath.t0
 	if camPath.loop and camPath.total > 0 then e = e % camPath.total end
 	return math.max(0, math.min(1, e / camPath.total))
@@ -1802,73 +1806,163 @@ local function camLayersShow(show)
 end
 local function camPathStop(reason)
 	if camPath then
-		debug("camera path stopped: " .. tostring(reason))
+		-- an early stop is always logged (stdout.txt), with what was asked and what the game had: travellings that
+		-- ended too soon could not be explained without it
+		if reason == "finished" or reason == "new path" or reason == "camera_stop" then debug("camera path stopped: " .. tostring(reason))
+		else log(string.format("camera path stopped after %.1fs of %.1fs%s: %s", os.clock() - (camPath.t0 or os.clock()), camPath.total or 0, camPath.isLead and " (lead-in)" or "", tostring(reason))) end
 		camPath = nil
 		if reason == "finished" or reason == "camera_stop" then camLayersShow(false) end
 	end
 end
 
 -- the camera is "ours" if it is within a small tolerance of what we last wrote; otherwise the player moved it
+-- Rev 28c: (a) the heading is compared by the shortest turn (a game that hands the angle back wrapped looked like a
+-- player grabbing the camera); (b) the camera is also compared with what the game reported right after our last
+-- write (lastGot): where the game bends what it is given at once (zoom range, pitch range, map edge), the camera is
+-- still ours. Both must differ for the player to have moved it. The reason of every early stop goes to stdout.txt.
 local function camPathUserTouched()
 	if not camPath or not camPath.lastSet then return false end
 	local ok, c = pcall(api.gui.camera.getCameraData)
 	if not ok or not c then return false end
+	local function off(l)
+		local tol = math.max(2, l.dist * 0.01)
+		return math.abs(num(c.x) - l.x) > tol or math.abs(num(c.y) - l.y) > tol or math.abs(num(c.z) - l.dist) > tol
+			or math.abs(angDelta(l.angle, num(c.w))) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
+	end
+	if not off(camPath.lastSet) then return false end
+	if camPath.lastGot and not off(camPath.lastGot) then return false end
+	-- Rev 28d: the game's zoom limit. Far out (a lead-in to a line across the map asked 4400-4600 m) the game pulls
+	-- the camera back to ~4300 m over a few frames, nothing else changing: that is not the player. The limit is
+	-- remembered (camSet stays under it from then on). A player zooming changes the distance only, too, but within
+	-- the game's range: only a far camera pulled closer counts as the limit.
 	local l = camPath.lastSet
 	local tol = math.max(2, l.dist * 0.01)
-	return math.abs(num(c.x) - l.x) > tol or math.abs(num(c.y) - l.y) > tol or math.abs(num(c.z) - l.dist) > tol
-		or math.abs(num(c.w) - l.angle) > 0.02 or math.abs(num(c.q) - l.pitch) > 0.02
+	if l.dist > 1500 and num(c.z) < l.dist and math.abs(num(c.x) - l.x) <= tol and math.abs(num(c.y) - l.y) <= tol
+		and math.abs(angDelta(l.angle, num(c.w))) <= 0.02 and math.abs(num(c.q) - l.pitch) <= 0.02 then
+		CAM.distCap = math.max(1500, num(c.z) * 0.97)
+		return false
+	end
+	camPath.touchedBy = string.format("asked x %.0f y %.0f dist %.0f angle %.3f pitch %.3f, camera at x %.0f y %.0f dist %.0f angle %.3f pitch %.3f",
+		camPath.lastSet.x, camPath.lastSet.y, camPath.lastSet.dist, camPath.lastSet.angle, camPath.lastSet.pitch, num(c.x), num(c.y), num(c.z), num(c.w), num(c.q))
+	return true
 end
 
--- Heading convention of getCameraData().angle, checked in game against the compass (same constants as
--- CAM_ANGLE_SIGN / CAM_ANGLE_OFFSET in the dashboard's app.js): the camera turns clockwise with the angle and looks
--- along (cos a, -sin a) in map coordinates (angle 0 = looking east, +Y north); the eye sits behind the target along
--- the opposite direction. Until rev 18 the tour and the clearance assumed (-sin a, cos a): the tour looked across the
--- track instead of along it in half the directions, and the terrain was sampled on the wrong side of the target.
-local function camLook(angle) return math.cos(angle), -math.sin(angle) end
+-- Heading convention of getCameraData().angle (same as camLook in the dashboard's app.js): the camera looks along
+-- (-cos a, -sin a) in map coordinates (+Y north); the eye sits behind the target along the opposite direction.
+-- Measured (rev 28) against a keyframe file of the game's camera tool taken at the same spot: the free camera's
+-- angle is this angle - pi and it looks along (cos, sin); target - look * dist gives the keyframe's eye position to
+-- 0.3 m. Revs 18-27 used (cos a, -sin a): right looking north / south, mirrored east / west (the tour looked back
+-- along east-west tracks, the clearance sampled the wrong side).
+local function camLook(angle) return -math.cos(angle), -math.sin(angle) end
 local atan2 = math.atan2 or math.atan  -- Lua 5.1 / 5.3+ (two-argument math.atan)
-local function headingOf(dx, dy) return atan2(-dy, dx) end  -- angle that looks along (dx, dy)
+local function headingOf(dx, dy) return atan2(-dy, -dx) end  -- angle that looks along (dx, dy)
 
--- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground; over a hill or a
--- town the terrain / buildings between the two can be higher than that, and a low pass clips through them. Before
--- every frame the height of the terrain is sampled under the target, under the eye and at two points in between;
--- if the eye would be lower than the highest of them + CAM.CLEARANCE, the distance is raised (same heading and
--- pitch, the camera backs up and climbs) so that it is not. Cheap: four getHeightAt per frame.
-CAM.CLEARANCE = 60      -- m above the highest ground sampled (buildings are rarely taller)
-CAM.MIN_PITCH = 0.25    -- a flatter camera cannot be lifted by distance alone: raise the pitch to this first
+-- Ground clearance: the eye of the camera sits dist * sin(pitch) above the TARGET's ground. Low, nearly level
+-- shots are the point of a cinematic travelling (a few degrees down, the horizon in the frame), so the camera is
+-- only kept out of the terrain, never lifted "for safety": the terrain is sampled under the eye and at three points
+-- of the line of sight; where the line would pass less than CAM.CLEARANCE above it (CAM.EYE_CLEARANCE under the
+-- eye), the pitch is raised just enough (same distance: the framing of the subject barely changes). Revs 18-27 forced
+-- every pitch to at least 0.25 and the eye to 60 m above the highest sample, which turned every low shot into a
+-- high one looking down at the ground.
+-- Rev 28b, close to the ground the camera shook: the lift was recomputed from scratch every frame from four point
+-- samples, so each bump of the terrain passing under a sample made the pitch jump. Now (a) the eye is sampled over
+-- a small cross around it and the line of sight at five points, so no single bump decides; (b) the margins are wider
+-- close to the ground; (c) camSet does not apply the lift directly but follows it through a filter that rises
+-- quickly (CAM.LIFT_UP s, the camera must not enter the ground) and comes back down slowly (CAM.LIFT_DOWN s), so
+-- small bumps leave no trace in the picture. Cost: nine getHeightAt per frame.
+CAM.CLEARANCE = 5       -- m between the line of sight and the terrain
+CAM.EYE_CLEARANCE = 14  -- m between the eye and the highest terrain around it
+CAM.EYE_RADIUS = 12     -- m: the eye is sampled at its point and 4 points this far around it
+CAM.LIFT_UP = 0.5       -- s, time constant of the lift when the terrain rises (the look-ahead gives it time)
+CAM.LIFT_DOWN = 3.0     -- s, when it falls again
+CAM.MAX_PITCH = 1.3
+CAM.TOUR_SIDE = 0.6     -- rad (~35 degrees): the line tour looks across the track at this angle, not along it
 local function camClear(x, y, dist, angle, pitch)
 	local terrain = api.engine.terrain
 	if not terrain or not terrain.getHeightAt then return dist, pitch end
-	if pitch < CAM.MIN_PITCH then pitch = CAM.MIN_PITCH end
-	local sp, cp = math.sin(pitch), math.cos(pitch)
 	local lx, ly = camLook(angle)
 	local function hAt(px, py) local ok, h = pcall(terrain.getHeightAt, api.type.Vec2f.new(px, py)); return ok and num(h) or 0 end
 	local h0 = hAt(x, y)
-	local back = dist * cp
-	local hmax = h0
-	for _, f in ipairs({ 0.33, 0.66, 1.0 }) do
-		local h = hAt(x - lx * back * f, y - ly * back * f)  -- from the target back towards the eye
-		if h > hmax then hmax = h end
+	local back = dist * math.cos(pitch)
+	local need = math.sin(pitch)
+	local function want(h, c, f)  -- the line of sight is h0 + dist * sin(pitch) * f high at fraction f
+		local s = (h + c - h0) / (dist * f)
+		if s > need then need = s end
 	end
-	local eyeZ = h0 + dist * sp
-	local need = hmax + CAM.CLEARANCE
-	if eyeZ < need and sp > 0.01 then dist = dist + (need - eyeZ) / sp end
-	return dist, pitch
+	-- the line of sight in the back half only: near the target it meets the ground anyway, and a bump a few metres
+	-- in front of the subject asked for 70 degrees down on a close shot (the shake). Clearance grows towards the eye.
+	local cl = math.min(CAM.CLEARANCE, dist * 0.03)  -- 1.2 m at 40 m: a close level shot is not tipped down
+	for _, f in ipairs({ 0.5, 0.75 }) do
+		want(hAt(x - lx * back * f, y - ly * back * f), cl * f, f)
+	end
+	local ex, ey, r = x - lx * back, y - ly * back, CAM.EYE_RADIUS
+	local he = hAt(ex, ey)
+	for _, o in ipairs({ { r, 0 }, { -r, 0 }, { 0, r }, { 0, -r } }) do he = math.max(he, hAt(ex + o[1], ey + o[2])) end
+	-- close shots: the eye margin shrinks with the distance, so a 40 m shot is not tipped down (5 m at 40 m)
+	want(he, math.min(CAM.EYE_CLEARANCE, 1.5 + dist * 0.05), 1.0)
+	if need > math.sin(pitch) then pitch = math.min(CAM.MAX_PITCH, math.asin(math.min(0.99, need))) end
+	-- hard floor: the eye just above the highest terrain around it (what must never be crossed; the cross, not the
+	-- single point under the eye, so the floor itself does not follow every bump)
+	local floor = math.asin(math.max(-0.99, math.min(0.99, (he + 1.5 - h0) / dist)))
+	return dist, pitch, floor
+end
+-- the lift camClear asks for (pitch added), followed smoothly: rate-limited (CAM.LIFT_RATE_UP / _DOWN rad/s, so a
+-- bump of the terrain becomes a slow tilt, not a jolt), except that it never lets the eye under the ground (floor)
+CAM.LIFT_RATE_UP = 0.35     -- rad/s (20 degrees per second)
+CAM.LIFT_RATE_DOWN = 0.025  -- rad/s (1.5 degrees per second: over a row of bumps the camera stays up)
+CAM.FLOOR_RELEASE = 0.02    -- rad/s (about 1 degree per second)
+local function camLift(cp, wanted, floor)
+	local now = os.clock()
+	local cur, last = cp.lift or wanted, cp.liftTime or now
+	local dt = math.max(0, math.min(0.25, now - last))
+	-- first a low-pass (the target of the rate limiter), then the rate limit: smooth start and stop of the tilt
+	local tau = wanted > cur and CAM.LIFT_UP or CAM.LIFT_DOWN
+	local goal = cur + (wanted - cur) * (1 - math.exp(-dt / tau))
+	local step = math.max(-CAM.LIFT_RATE_DOWN * dt, math.min(CAM.LIFT_RATE_UP * dt, goal - cur))
+	cur = cur + step
+	-- the floor rises at once but is held, then released slowly: over a row of bumps the camera stays at the
+	-- height of the highest one instead of bobbing over each of them
+	if floor then
+		local held = cp.floorHeld and math.max(floor, cp.floorHeld - CAM.FLOOR_RELEASE * dt) or floor
+		cp.floorHeld = held
+		if cur < held then cur = held end
+	end
+	cp.lift, cp.liftTime = cur, now
+	return cur
 end
 
-local function camSet(x, y, dist, angle, pitch)
-	dist, pitch = camClear(x, y, dist, angle, pitch)
+-- probes = { {x, y, dist, angle, pitch}, ... }: where the path will be CAM.LOOK_AHEAD seconds from now. The lift
+-- asked for is the highest of now and these, so the camera starts rising before a bump reaches it and stays up
+-- over a row of them, instead of reacting to each one as it arrives (what was left of the shake in rev 28b).
+CAM.LOOK_AHEAD = { 0.5, 1.0, 1.5 }
+-- the farthest the mod asks for: under the game's zoom limit (seen ~4300 m in rev 28c's log); lowered to what the
+-- game really allows the first time it pulls the camera back (CAM.distCap, camPathUserTouched)
+CAM.MAX_DIST = 3500
+local function camSet(x, y, dist, angle, pitch, probes)
+	dist = math.min(dist, CAM.distCap or CAM.MAX_DIST)
+	local _, cleared, floor = camClear(x, y, dist, angle, pitch)
+	local want = cleared - pitch
+	for _, p in ipairs(probes or {}) do
+		local _, c = camClear(p[1], p[2], p[3], p[4], p[5])
+		if c - p[5] > want then want = c - p[5] end
+	end
+	pitch = math.min(CAM.MAX_PITCH, pitch + camLift(camPath, want, floor - pitch))
 	local ok, err = pcall(api.gui.camera.setCameraData, api.type.Vec5f.new(x, y, dist, angle, pitch))
 	if not ok then camPathStop("setCameraData failed: " .. tostring(err)); return false end
 	camPath.lastSet = { x = x, y = y, dist = dist, angle = angle, pitch = pitch }
+	-- what the game made of it (it may bend a zoom or a pitch out of its range at once): still our camera
+	local okG, g = pcall(api.gui.camera.getCameraData)
+	camPath.lastGot = okG and g and { x = num(g.x), y = num(g.y), dist = num(g.z), angle = num(g.w), pitch = num(g.q) } or nil
+	if camPath.lastGot and not (camPath.lastGot.x and camPath.lastGot.dist and camPath.lastGot.angle and camPath.lastGot.pitch) then camPath.lastGot = nil end
 	camPath.tick = camPath.tick + 1
 	return true
 end
 -- Line tour: ONE camera path built when the command arrives, from the points of interest of the line =
 -- its stops (route sent by the dashboard, in order) + the positions of its vehicles AT THAT MOMENT, inserted at
 -- their place along the route. Then it is played exactly like camera_path (Catmull-Rom, constant ground speed).
--- Altitude: high enough to read the line (derived from the size of the route, never a ground-level shot);
--- the camera dips a little over a vehicle and over a stop, flies higher in between. Heading = direction of
--- travel along the route, bisector at the corners so the turns are gentle.
+-- Distance derived from the size of the route; low three-quarter shot (rev 28: 14-22 degrees down, the horizon in
+-- the frame), a little closer over a vehicle and over a stop. Heading = direction of travel along the route
+-- (bisector at the corners so the turns are gentle) turned CAM.TOUR_SIDE aside, so the track crosses the frame.
 local function camTourPos(v)
 	local ok, p = pcall(api.engine.util.vehicle.getPosition, v)
 	if not ok or not p then return nil end
@@ -1919,8 +2013,9 @@ local function camTourBuild(args)
 	end
 	if len < 1 then error("route has no length") end
 	local span = math.sqrt((maxx - minx) ^ 2 + (maxy - miny) ^ 2)
-	-- altitude: a line is read from a height comparable to its spacing between stops, 250..900 m by default
-	local alt = num(args.alt) or math.max(250, math.min(900, span * 0.15))
+	-- distance to the ground point: comparable to the spacing between stops, 150..500 m by default (with the low
+	-- pitch of rev 28 the eye is only 40-180 m up)
+	local alt = num(args.alt) or math.max(150, math.min(500, span * 0.08))
 	-- points of interest: stops, plus every vehicle of the line at its place along the route (now)
 	local poi = {}
 	for i, p in ipairs(pts) do if p.stop then poi[#poi + 1] = { s = cum[i], x = p.x, y = p.y, kind = "stop" } end end
@@ -1956,7 +2051,7 @@ local function camTourBuild(args)
 	-- the route), both high; the heading swings from -SWING through the route direction to +SWING across the
 	-- three, so the camera pans across the subject as it passes (a slow look, not an orbit). Long empty
 	-- stretches get a high waypoint in the middle so the path does not cut the corner of the route.
-	local SWING = 0.3  -- ~17 degrees either side (0.5 made the camera yaw too much, motion sickness)
+	local SWING = 0.2  -- ~11 degrees either side (0.5 made the camera yaw too much, motion sickness)
 	local gap = alt * 0.6
 	local out = {}
 	for i, q in ipairs(merged) do
@@ -1992,10 +2087,16 @@ local function camTourBuild(args)
 		if hx == 0 and hy == 0 then hy = 1 end
 		-- zoom profile, kept shallow: vehicle = 0.7 x alt, stop = 0.8 x alt, approach/exit = 1.05 x alt,
 		-- mid-stretch = 1.15 x alt. The former 0.45 .. 1.5 range made the camera dive and climb by a factor of three
-		-- every few seconds, together with the pitch swinging 0.75 .. 1.05: that is what turned stomachs.
-		local dist = q.kind == "vehicle" and alt * 0.7 or q.kind == "stop" and alt * 0.8 or q.swing and alt * 1.05 or alt * 1.15
-		local pitch = q.kind == "vehicle" and 0.9 or q.kind == "stop" and 0.95 or 1.0
-		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy) + (q.swing or 0), pitch = pitch, s = q.s }
+		-- every few seconds: that is what turned stomachs.
+		-- rev 28b: wider again (0.45 .. 1.4), the player wants the zoom to be felt; the pitch no longer swings with it,
+		-- which is what made the former wide range sickening
+		local dist = q.kind == "vehicle" and alt * 0.45 or q.kind == "stop" and alt * 0.6 or q.swing and alt * 1.0 or alt * 1.4
+		-- rev 28: a low three-quarter shot instead of a map seen from above (pitch 0.9-1.0 = 50-57 degrees down, the
+		-- frame was all ground). 14-22 degrees down keeps the horizon in the frame, like a helicopter shot; the
+		-- camera flies beside the track, CAM.TOUR_SIDE off the direction of travel, so the line crosses the frame
+		-- diagonally and the vehicles are seen from the side, not from behind.
+		local pitch = q.kind == "vehicle" and 0.25 or q.kind == "stop" and 0.3 or 0.38
+		path[#path + 1] = { x = q.x, y = q.y, dist = dist, angle = headingOf(hx, hy) + CAM.TOUR_SIDE + (q.swing or 0), pitch = pitch, s = q.s }
 	end
 	-- durations: constant ground speed; speed = alt/16 m/s by default (what the dashboard sends too)
 	local speed = math.max(10, num(args.speed) or alt / 16)
@@ -2066,16 +2167,21 @@ local function camPathTick()
 	if not camPath then return end
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then return camPathStop("follow camera active") end
-	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera") end
+	if camPath.tick > 0 and camPathUserTouched() then return camPathStop("player moved the camera (" .. tostring(camPath.touchedBy) .. ")") end
 	local now = os.clock()
 	local e = now - camPath.t0
 	local ended = e >= camPath.total and not camPath.loop
 	if ended then e = camPath.total end
 	local x, y, dist, angle, pitch
+	local probes = {}
 	if ended then
 		local p = camPath.pts[#camPath.pts]
 		x, y, dist, angle, pitch = p.x, p.y, p.dist, p.angle, p.pitch
 	else
+		for _, h in ipairs(CAM.LOOK_AHEAD) do
+			local t = camPath.loop and e + h or math.min(camPath.total, e + h)
+			probes[#probes + 1] = { camPathAt(camPath, camPathWarp(camPath, t)) }
+		end
 		x, y, dist = camPathAt(camPath, camPathWarp(camPath, e))
 		local ahead = camPath.loop and e + CAM.TAU or math.min(camPath.total, e + CAM.TAU)
 		local _, _, _, aT, pT = camPathAt(camPath, camPathWarp(camPath, ahead))
@@ -2090,11 +2196,22 @@ local function camPathTick()
 		end
 	end
 	camPath.angle, camPath.pitch, camPath.lastTime = angle, pitch, now
-	if not camSet(x, y, dist, angle, pitch) then return end
-	if ended then camPathStop("finished") end
+	if not camSet(x, y, dist, angle, pitch, probes) then return end
+	if ended then
+		local nxt = camPath.after
+		if nxt then
+			-- lead-in done: the travelling takes over from here, with the filters' state (no jolt at the seam)
+			nxt.t0, nxt.tick, nxt.lastSet, nxt.lastGot = os.clock(), camPath.tick, camPath.lastSet, camPath.lastGot
+			nxt.angle, nxt.pitch, nxt.lastTime = camPath.angle, camPath.pitch, camPath.lastTime
+			nxt.lift, nxt.liftTime, nxt.floorHeld = camPath.lift, camPath.liftTime, camPath.floorHeld
+			camPath = nxt
+			debug("camera path: lead-in done")
+		else camPathStop("finished") end
+	end
 end
 
-local function camPathStart(args)
+-- CAM.build(args): the path object of args.points (knots, unwrapped angles, ramps), not started
+function CAM.build(args)
 	local raw = args and args.points
 	if type(raw) ~= "table" or #raw < 2 then error("camera_path needs at least 2 points") end
 	local pts, legs, total = {}, {}, 0
@@ -2124,21 +2241,65 @@ local function camPathStart(args)
 	end
 	-- ramps: the dashboard's `ease` (default on) asks for the slow-in / slow-out; never on a loop
 	local ramp = (args.ease ~= false and not loop) and math.min(CAM.RAMP_MAX, total / 4) or 0
-	-- a follow camera would pull the view back to its vehicle: detach it first
+	return { pts = pts, legs = legs, knots = knots, total = total, loop = loop, ramp = ramp, tick = 0, lastSet = nil }
+end
+
+-- Lead-in (rev 28): a travelling no longer jumps to its first point. The camera flies there from where it is, eased
+-- all the way (a transition, not a shot), then the travelling starts from rest at its first point; the dashboard
+-- starts the music on arrival. T = seconds (args.lead, sent by the dashboard so both sides agree; computed here with
+-- the same formula when absent): 2.5 s + 1 s per 600 m + the turn, zoom and tilt to make, 14 s at most; none when the
+-- camera is already there. Further than 1.5x the viewing distance, the path hops over a middle point higher up,
+-- so the camera does not skim the ground across the map.
+function CAM.lead(c, p, T)
+	local x0, y0, d0, a0, q0 = num(c.x), num(c.y), num(c.z), num(c.w), num(c.q)
+	if not (x0 and y0 and d0 and a0 and q0) then return nil end
+	local D = math.sqrt((p.x - x0) ^ 2 + (p.y - y0) ^ 2)
+	local turn = math.abs(angDelta(a0, p.angle))
+	local zr = math.abs(math.log(math.max(10, p.dist) / math.max(10, d0)))
+	local dq = math.abs(p.pitch - q0)
+	-- the dashboard's figure wins when it sent one (it times the music on it); 0 or none = computed here
+	if T == nil or T <= 0.05 then
+		if D < math.max(5, 0.05 * p.dist) and zr < 0.1 and turn < 0.1 and dq < 0.05 then T = 0
+		else T = math.max(2.5, math.min(14, 2.5 + D / 600 + turn / 0.6 + zr * 0.8 + dq * 2)) end
+	end
+	if T <= 0.05 then return nil end
+	local pts = { { x = x0, y = y0, dist = d0, angle = a0, pitch = q0 } }
+	local dm = math.max(d0, p.dist)
+	if D > 1.5 * dm then
+		-- the hop: high enough to see the map pass under, never into the game's zoom limit (a 7 km hop asked 4400 m)
+		pts[2] = { x = (x0 + p.x) / 2, y = (y0 + p.y) / 2, dist = math.max(dm, math.min(2500, D * 0.6)), angle = a0 + angDelta(a0, p.angle) / 2,
+			pitch = math.max(q0, p.pitch, 0.45), duration = T / 2 }
+	end
+	pts[#pts + 1] = { x = p.x, y = p.y, dist = p.dist, angle = p.angle, pitch = p.pitch, duration = #pts == 2 and T / 2 or T }
+	local cp = CAM.build({ points = pts })
+	cp.ramp = cp.total / 2
+	cp.isLead = true
+	return cp
+end
+
+local function camPathStart(args)
+	local main = CAM.build(args)
+	local okC, c = pcall(api.gui.camera.getCameraData)
+	-- a follow camera would pull the view back to its vehicle: detach it first, where the camera IS (the lead-in
+	-- starts from there; focusing the first point, as before rev 28, jumped)
 	local okF, f = pcall(api.gui.camera.getFollowEntity)
 	if okF and type(f) == "table" and (num(f[1]) or 0) > 0 then
-		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(pts[1].x, pts[1].y, 0), pts[1].dist)
+		local x0, y0, d0 = okC and c and num(c.x), okC and c and num(c.y), okC and c and num(c.z)
+		pcall(api.gui.camera.focusPosition, api.type.Vec3f.new(x0 or main.pts[1].x, y0 or main.pts[1].y, 0), d0 or main.pts[1].dist)
 	end
-	camPath = { pts = pts, legs = legs, knots = knots, total = total, loop = loop, ramp = ramp, t0 = os.clock(), tick = 0, lastSet = nil }
+	local lead = okC and c and args.lead ~= false and CAM.lead(c, main.pts[1], num(args.lead)) or nil
+	if lead then lead.after = main end
+	camPath = lead or main
+	camPath.t0 = os.clock()
 	camPathTick()
 	camLayersShow(true)
-	debug(string.format("camera path started: %d points, %.1fs%s", #pts, total, camPath.loop and ", loop" or ""))
+	debug(string.format("camera path started: %d points, %.1fs%s, lead-in %.1fs", #main.pts, main.total, main.loop and ", loop" or "", lead and lead.total or 0))
 	return true
 end
 
 local function camTourStart(args)
 	local points, nv, alt, len = camTourBuild(args)
-	camPathStart({ points = points, loop = args.loop == true })
+	camPathStart({ points = points, loop = args.loop == true, lead = args.lead })
 	debug(string.format("camera tour: %d points (%d vehicles), route %.0f m, alt %.0f m", #points, nv, len, alt))
 	return true
 end

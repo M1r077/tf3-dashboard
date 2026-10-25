@@ -713,7 +713,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     updateCmdUi(o);
     renderOffline(o); renderCollectorErrors(o); renderNewMap(o);
     // the mod says the camera path ended (or the player grabbed the camera): forget the travelling, stop the music
-    if (travel.active && o && o.camera && Date.now() - travel.active.at > 4000 && !(o.camera.path && o.camera.path.playing)) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
+    // Only once the mod has been seen playing it: a snapshot written before the mod read the command (the mod polls,
+    // the snapshot comes every 2 s, more under load) has no path yet, and was taken for "ended" after 4 s - the music
+    // stopped and the panel said idle while the travelling went on. Never seen within 30 s = the command was lost.
+    // fresh = the snapshot was written after the mod took the command (its ack id has reached ours)
+    const tvA = travel.active, cp = o && o.camera && o.camera.path, ack = o && o.commands && o.commands.ack;
+    const fresh = !!(tvA && o && o.camera && tvA.cmdId != null && ack && ack.id >= tvA.cmdId);
+    if (tvA && fresh && cp && cp.playing) { tvA.seen = true; if (cp.lead) tvA.seenLead = true; }
+    if (tvA && o && o.camera && ((tvA.seen && fresh && !(cp && cp.playing)) || (!tvA.seen && Date.now() - tvA.at > 30000))) { travel.active = null; if (!travelPrefs().tail) musicStop(); renderWorkshop(); }
+    // the mod says the lead-in is over (it can arrive sooner than estimated): the music starts now
+    else if (tvA && tvA.seen && fresh && cp && cp.playing && !cp.lead && (tvA.seenLead || !tvA.lead)) musicArrive();
     return o;
   }
 
@@ -1135,21 +1144,39 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // dashboard derives altitude and speed from the size of the line and the travelling preferences.
   async function lineTravelling(l, prefs) {
     prefs = prefs || travelPrefs();
-    // audio may only start inside the click (no await before play): the music starts first, with a provisional
-    // duration, and is dropped again if the line turns out to have no route
-    musicStart({ ...prefs, dur: 120 });  // provisional; the real duration is set by musicRetime below
-    // the route = the stops of the line in order (map data)
-    const findRoute = () => { const ml = map.data && (map.data.lines || []).find(x => x.line_id === l.line_id); return ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : []; };
-    let route = findRoute();
+    // audio may only start inside the click (no await before play): the music starts first, silent, with a
+    // provisional duration, and is dropped again if the line turns out to have no route; it fades in when the
+    // camera reaches the start of the tour (lead-in, timed below)
+    musicStart({ ...prefs, dur: 120, delay: Infinity });  // provisional; the real duration is set by musicRetime below
+    let tr = lineTrack(l.line_id, prefs);
     // no map yet, or a line whose stops were not all known when the map was fetched: fetch it again once
-    if (route.length < 2) { try { map.data = await api("/api/map"); route = findRoute(); } catch (e) { musicStop(); return; } }
-    if (route.length < 2) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
+    if (!tr) { try { map.data = await api("/api/map"); tr = lineTrack(l.line_id, prefs); } catch (e) { musicStop(); return; } }
+    if (!tr) { musicStop(); $("#cmd-status").textContent = t("line_travel_noroute"); $("#cmd-status").className = "cmdstatus bad"; return; }
+    const { route, stops, closed, alt, speed, dur, stopsAlong } = tr;
+    // lead-in to the start of the tour: the mod's first point is the first stop, 0.6 x alt away, 0.3 rad down,
+    // looking along the route (turned CAM.TOUR_SIDE aside); the same estimate is sent so both sides agree
+    const r0 = route[0], r1 = route[1], hd = Math.atan2(-(r1.y - r0.y), -(r1.x - r0.x)) + 0.6;
+    const lead = leadTime(camViews.cur, { x: r0.x, y: r0.y, dist: alt * 0.6, angle: hd, pitch: 0.3 });
+    const act = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur, lead };  // dist 0 = eye drawn on the route itself
+    sendCmd("camera_tour", { line: l.line_id, route, stops, closed, alt, speed, loop: prefs.loop, lead }).then(ok => { if (ok && cmd.lastSent) act.cmdId = cmd.lastSent.id; });
+    travel.active = act;
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length, lead: lead > 0 };
+    musicRetime(dur);
+    if (music.el && !music.started) music.t0 = Date.now() + lead * 1000;
+    renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
+  }
+  // the ground track of a line tour (what camera_tour is sent) from the map data: null when the line has no route
+  function lineTrack(lineId, prefs) {
+    // the route = the stops of the line in order (map data)
+    const ml = map.data && (map.data.lines || []).find(x => x.line_id === lineId);
+    const stopsAlong = ml ? ml.points.map(p => ({ x: p[0], y: p[1] })) : [];
+    if (stopsAlong.length < 2) return null;
+    let route = stopsAlong;
     // along the network when the legs are known: the ground track = the legs' polylines chained in stop
     // order, thinned to ~every 60 m (the mod bends through the points), with the stops marked; the mod then flies
     // the rails / roads instead of the straight stop-to-stop route
-    const stopsAlong = findRoute();
     let stops = null;
-    const legs = linePolylines(l.line_id);
+    const legs = linePolylines(lineId);
     if (legs && legs.length) {
       const track = [], marks = [];
       const push = (p) => { const q = track[track.length - 1]; if (!q || Math.hypot(p[0] - q[0], p[1] - q[1]) > 60) track.push(p); };
@@ -1162,17 +1189,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const closed = stops ? (() => { const a = route[0], b = route[route.length - 1]; return Math.hypot(a.x - b.x, a.y - b.y) < 200; })() : route.length > 2;
     const len = route.reduce((a, p, i) => i ? a + Math.hypot(p.x - route[i - 1].x, p.y - route[i - 1].y) : 0, 0) + (closed ? Math.hypot(route[0].x - route[route.length - 1].x, route[0].y - route[route.length - 1].y) : 0);
     const xs = stopsAlong.map(p => p.x), ys = stopsAlong.map(p => p.y), span = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-    // altitude: 15 % of the span, 250..900 m (a 2-stop shuttle 4 km long is seen from 600 m, not 1700), x amp
-    const alt = Math.max(250, Math.min(900, span * 0.15)) * prefs.amp;
+    // distance to the ground point: 8 % of the span, 150..500 m, x amp (mod rev 28 flies low, 14-22° down, beside
+    // the track; the former 250..900 m at 50-57° down showed the line as a map)
+    const alt = Math.max(150, Math.min(500, span * 0.08)) * prefs.amp;
     // speed = apparent motion: a sixteenth of the altitude per second whatever the length (seen from 600 m, 37 m/s
     // reads as a calm helicopter; the former alt/8 = 75 m/s with the camera diving over every stop was nauseating);
     // the duration preference can only speed it up, and never beyond alt/6
     const speed = Math.min(alt / 6, Math.max(alt / 16, len / Math.max(20, prefs.dur * 4))), dur = len / speed;
-    sendCmd("camera_tour", { line: l.line_id, route, stops, closed, alt, speed, loop: prefs.loop });
-    travel.active = { kind: "line", id: l.line_id, points: route.concat(closed ? [route[0]] : []).map(p => ({ ...p, dist: 0, angle: 0, pitch: 0 })), loop: prefs.loop, at: Date.now(), dur };  // dist 0 = eye drawn on the route itself
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop: prefs.loop, n: stopsAlong.length };
-    musicRetime(dur);
-    renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
+    return { route, stops, closed, alt, speed, dur, len, stopsAlong };
   }
 
   // ------------------------------------------------------------ line: stops editor + bulk actions
@@ -1918,19 +1942,40 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
   function gotoView(v) { return v.follow ? sendCmd("follow_view", { entity: v.follow, dist: v.dist, angle: v.angle, pitch: v.pitch }) : sendCmd("set_camera", { x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch }); }
   // travelling preferences, this browser only: { dur, loop, move, dir, amp, music, vol }
-  const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "orbit", dir: 1, amp: 1, music: "auto", vol: 0.6 };
+  const TRAVEL_DEFAULTS = { dur: 20, loop: false, move: "push", dir: 1, amp: 1, music: "auto", vol: 0.6 };
   const travelPrefs = () => { try { return Object.assign({}, TRAVEL_DEFAULTS, JSON.parse(localStorage.getItem("tf3.travel") || "{}")); } catch (e) { return { ...TRAVEL_DEFAULTS }; } };
   const saveTravelPrefs = (p) => localStorage.setItem("tf3.travel", JSON.stringify(p));
   // Movements around ONE view (the view is the subject; the game's orbit camera is centre + distance + heading +
   // pitch, so a travelling is a curve in those four numbers). Each returns the camera_path points + whether the
   // mod should ease every leg (no: the generated points are dense, easing is baked into the sampling).
+  // eye on the ground plane of a view (behind the target by dist * cos(pitch)), and the target seen from an eye
+  const viewEye = (v) => { const [lx, ly] = camLook(v.angle), b = v.dist * Math.cos(v.pitch); return [v.x - lx * b, v.y - ly * b]; };
+  const targetFrom = (ex, ey, angle, dist, pitch) => { const [lx, ly] = camLook(angle), b = dist * Math.cos(pitch); return { x: ex + lx * b, y: ey + ly * b, dist, angle, pitch }; };
   const TRAVEL_MOVES = {
+    // The first four are camera-operator moves, after a hand-made sequence in the game's camera tool: the eye moves
+    // or turns, the height and the angle down stay those of the view (a low view stays low: the horizon in the frame),
+    // slow and in one direction, ending on the view. Linear sampling: the mod eases both ends of the path.
+    // The zoom is the distance (the orbit camera has no focal length): each move also changes it, like the focal
+    // changes of the hand-made sequence, so the subject grows (or shrinks) in the frame while the camera moves.
+    // pan: the camera stays where it is and turns onto the subject (35° x amp; dir = from which side), zooming in
+    // from 1.8x on the way (the eye moves forward along the line of sight as it turns)
+    pan: (v, p) => { const n = 24, w = 0.6 * p.amp, z = 1 + 0.8 * p.amp, [ex, ey] = viewEye(v); const pts = []; for (let i = 0; i <= n; i++) { const t = i / n, d = v.dist * (z + (1 - z) * t), back = (d - v.dist) * Math.cos(v.pitch), a = v.angle - p.dir * w * (1 - t), [lx, ly] = camLook(a); pts.push(targetFrom(ex - lx * back, ey - ly * back, a, d, v.pitch)); } return pts; },
+    // truck: sideways past the subject, heading kept, the foreground slides across the background (parallax),
+    // coming in from 1.6x to the view's distance at the end
+    truck: (v, p) => { const n = 24, [lx, ly] = camLook(v.angle), s = v.dist * Math.cos(v.pitch) * 0.45 * p.amp, z = 1 + 0.6 * p.amp; const pts = []; for (let i = 0; i <= n; i++) { const t = i / n, o = p.dir * s * (2 * t - 1); pts.push({ x: v.x - ly * o, y: v.y + lx * o, dist: v.dist * (z + (1 - z) * t), angle: v.angle, pitch: v.pitch }); } return pts; },
+    // push-in: an approach along the line of sight from 3x the distance, the subject grows in the frame
+    // (dir = -1 pulls out)
+    push: (v, p) => { const n = 24, far = v.dist * (1 + 2 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { const t = i / n, d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle, pitch: v.pitch }); } return pts; },
+    // reveal: from the view, back and up along the line of sight, the surroundings open up around the subject
+    // (dir = -1 comes down into the view instead)
+    reveal: (v, p) => { const n = 30, far = v.dist * (1 + 3 * p.amp), up = Math.min(0.7, v.pitch + 0.12 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; if (p.dir < 0) t = 1 - t; pts.push({ x: v.x, y: v.y, dist: v.dist + (far - v.dist) * t, angle: v.angle, pitch: v.pitch + (up - v.pitch) * t }); } return pts; },
     // full turn around the centre, distance and pitch kept; amp = fraction of a turn (1 = 360°)
     orbit: (v, p) => { const n = Math.max(8, Math.round(36 * p.amp)); const pts = []; for (let i = 0; i <= n; i++) { const a = v.angle + p.dir * 2 * Math.PI * p.amp * i / n; pts.push({ x: v.x, y: v.y, dist: v.dist, angle: a, pitch: v.pitch }); } return pts; },
     // dolly: from far (amp × dist) down to the view (dir = 1) or away from it (dir = -1), eased
     dolly: (v, p) => { const n = 24, far = v.dist * (1 + 2 * p.amp); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; t = t * t * (3 - 2 * t); const d = p.dir > 0 ? far + (v.dist - far) * t : v.dist + (far - v.dist) * t; pts.push({ x: v.x, y: v.y, dist: d, angle: v.angle, pitch: v.pitch }); } return pts; },
-    // flyover: arrive from high and far, slowly turning, levelling to the view's pitch (dir = -1 leaves instead)
-    flyover: (v, p) => { const n = 30, far = v.dist * (1 + 3 * p.amp), hi = Math.min(1.45, v.pitch + 0.6); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; if (p.dir < 0) t = 1 - t; t = t * t * (3 - 2 * t); pts.push({ x: v.x, y: v.y, dist: far + (v.dist - far) * t, angle: v.angle - 0.6 * (1 - t), pitch: hi + (v.pitch - hi) * t }); } return pts; },
+    // flyover: arrive from high and far, slowly turning, levelling to the view's pitch (dir = -1 leaves instead).
+    // At most 35° down at the start: the former pitch + 0.6 (up to 83°) began on a map seen from above
+    flyover: (v, p) => { const n = 30, far = v.dist * (1 + 3 * p.amp), hi = Math.max(v.pitch, Math.min(0.6, v.pitch + 0.3)); const pts = []; for (let i = 0; i <= n; i++) { let t = i / n; if (p.dir < 0) t = 1 - t; t = t * t * (3 - 2 * t); pts.push({ x: v.x, y: v.y, dist: far + (v.dist - far) * t, angle: v.angle - 0.6 * (1 - t), pitch: hi + (v.pitch - hi) * t }); } return pts; },
     // sweep: back and forth ±(45° × amp) around the heading, eased at the ends
     sweep: (v, p) => { const n = 32, w = Math.PI / 4 * p.amp; const pts = []; for (let i = 0; i <= n; i++) { const t = i / n; const a = v.angle + p.dir * w * Math.sin(2 * Math.PI * t); pts.push({ x: v.x, y: v.y, dist: v.dist, angle: a, pitch: v.pitch }); } return pts; },
     // spiral: orbit while coming closer (dir = 1) or drifting away
@@ -1951,15 +1996,27 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
   // duration a travelling really takes: the preference, or longer when the pan would exceed PAN_MAX
   const travelDuration = (points, loop, dur) => Math.max(dur, Math.ceil(panTurn(points, loop) / PAN_MAX));
+  // Lead-in (mod rev 28): the camera flies from where it is to the first point of the travelling instead of jumping
+  // there, and the music starts on arrival. Same formula as CAM.lead in the mod; the dashboard sends the result
+  // (lead) so both sides agree on when the travelling itself begins.
+  function leadTime(c, p) {
+    if (!c || c.x == null) return 0;
+    const D = Math.hypot(p.x - c.x, p.y - c.y), turn = angDiff(c.angle, p.angle);
+    const zr = Math.abs(Math.log(Math.max(10, p.dist) / Math.max(10, c.dist))), dq = Math.abs(p.pitch - c.pitch);
+    if (D < Math.max(5, 0.05 * p.dist) && zr < 0.1 && turn < 0.1 && dq < 0.05) return 0;
+    return Math.max(2.5, Math.min(14, 2.5 + D / 600 + turn / 0.6 + zr * 0.8 + dq * 2));
+  }
   function playTravelling(kind, points, prefs) {
-    const loop = prefs.loop && kind !== "dolly" && kind !== "flyover";
+    const loop = prefs.loop && !["dolly", "flyover", "push", "reveal"].includes(kind);
     // duration = total, spread over the legs
     const legs = points.length - 1 + (loop ? 1 : 0);
     const dur = travelDuration(points, loop, prefs.dur);
-    sendCmd("camera_path", { points: points.map(pt => ({ ...pt, duration: dur / legs })), loop });
-    prefs = { ...prefs, dur };
-    travel.active = { kind, points, loop, at: Date.now(), dur };
-    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop, n: points.length };
+    const lead = leadTime(camViews.cur, points[0]);
+    const act = { kind, points, loop, at: Date.now(), dur, lead };
+    sendCmd("camera_path", { points: points.map(pt => ({ ...pt, duration: dur / legs })), loop, lead }).then(ok => { if (ok && cmd.lastSent) act.cmdId = cmd.lastSent.id; });
+    prefs = { ...prefs, dur, delay: lead * 1000 };
+    travel.active = act;
+    if (camViews.cur) camViews.cur.path = { playing: true, progress: 0, loop, n: points.length, lead: lead > 0 };
     musicStart(prefs);
     renderCamViews(); renderTravellings(); renderWorkshop(); if (map.data) drawMap($("#map"));
   }
@@ -1972,9 +2029,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   async function musicTracks() { if (music.list) return music.list; try { const j = await api("/api/music"); music.list = j.tracks || []; music.game = j.game || []; } catch (e) { return []; } return music.list; }
   // Must stay synchronous up to el.play(): browsers only allow audio to start inside the user's click. "auto"
   // therefore picks from the list already fetched (the panel loads it; the line sheet prefetches it below).
+  // prefs.delay = ms of lead-in before the travelling itself (the camera flying to its first point): the track is
+  // started inside the click (browsers allow audio only there) but silent, then rewound and faded in on arrival.
+  // prefs.delay = Infinity waits for musicArrive() (line tour: the mod builds the path, the dashboard learns from
+  // the snapshot when the lead-in is over).
   function musicStart(prefs) {
+    const delay = prefs.delay || 0;
     // a track already playing (e.g. left to finish after the previous travelling) is kept: just retime its end
-    if (music.el && !music.el.ended && !music.el.paused) { music.total = Math.max(music.total || 0, (Date.now() - music.t0) + prefs.dur * 1000); music.kept = true; return; }
+    if (music.el && !music.el.ended && !music.el.paused && music.started) { music.total = Math.max(music.total || 0, (Date.now() - music.t0) + (Number.isFinite(delay) ? delay : 0) + prefs.dur * 1000); music.kept = true; return; }
     music.kept = false;
     musicStop();
     if (!prefs.music) return;  // "" = off; "auto" = any track of the folder (none there = silence); else a file name
@@ -1983,12 +2045,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (file === "auto" || file === "game") { const tracks = file === "game" || !(music.list && music.list.length) ? (music.game || []) : music.list; if (!tracks.length) { musicTracks(); return; } file = tracks[Math.floor(Math.random() * tracks.length)]; }
     const el = new Audio("music/" + encodeURIComponent(file)); el.loop = !!prefs.loop; el.volume = 0; music.el = el;
     el.play().catch(e => { $("#cmd-status").textContent = t("cam_music_blocked"); $("#cmd-status").className = "cmdstatus bad"; console.warn("music", e); });
-    const vol = prefs.vol ?? 0.6, t0 = Date.now();
+    const vol = prefs.vol ?? 0.6;
     // tail = let the track play to its end after the travelling (no fade-out at `total`); a manual stop still fades
     const tail = !!prefs.tail;
-    music.total = prefs.dur * 1000; music.t0 = t0;
+    music.total = prefs.dur * 1000; music.started = delay <= 0; music.t0 = Date.now() + (Number.isFinite(delay) ? delay : 0);
     music.timer = setInterval(() => {
-      const e = Date.now() - t0, total = music.total;
+      // lead-in: silent until the camera is at the first point, then from the start of the track
+      if (!music.started) { el.volume = 0; if (Date.now() < music.t0) return; music.started = true; music.t0 = Date.now(); try { el.currentTime = 0; } catch (e) { /* not seekable yet */ } }
+      const t0 = music.t0, e = Date.now() - t0, total = music.total;
       let v = Math.min(1, e / 2000);
       if (!prefs.loop && !tail) v = Math.min(v, Math.max(0, (total - e) / 3000));
       el.volume = Math.max(0, Math.min(1, v * vol));
@@ -1999,9 +2063,12 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // the travelling's real duration is known a moment after the music had to start: adjust the fade-out point
   function musicRetime(durS) {
     if (!music.el) return;
+    if (!music.started) { music.total = durS * 1000; return; }  // still in the lead-in: counted from the arrival
     const end = (Date.now() - music.t0) + durS * 1000;
     music.total = music.kept ? Math.max(music.total || 0, end) : end;  // a kept track is never shortened
   }
+  // the lead-in is over (line tour: told by the snapshot): start the music now if it is still waiting
+  function musicArrive() { if (music.el && !music.started) music.t0 = Math.min(music.t0, Date.now()); }
   // stop: quick 1 s fade so a manual stop does not cut the music dead
   function musicStop() {
     if (music.timer) clearInterval(music.timer); music.timer = null;
@@ -2076,8 +2143,9 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   //   Travellings   - the saved list (db/travellings.json, per savegame, max 20): play, edit, rename, order, delete.
   // Playing anything (a view's or a line's button included) makes it the draft, so Save always keeps what was just seen.
   const trv = { list: [], draft: null, loaded: false, editing: null, line: null };
-  const SPEC_KEYS = ["kind", "view", "line", "views", "move", "dir", "amp", "dur", "loop", "music", "vol", "tail"];
-  const KIND_ICO = { view: "star", chain: "line_stations", line: "configure_line" };
+  const SPEC_KEYS = ["kind", "view", "line", "views", "spot", "move", "dir", "amp", "dur", "loop", "music", "vol", "tail"];
+  // spot = a place picked by the random travelling (station, town, industry): its framing is stored in the recipe
+  const KIND_ICO = { view: "star", chain: "line_stations", line: "configure_line", spot: "ct_film" };
   // the views of a chain, in order: the recipe's own list (ids that still exist) or every view of the panel
   const chainViews = (s) => (s.views ? s.views.map(id => camViews.list.find(v => v.id === id)).filter(Boolean) : camViews.list);
   const specOf = (o) => { const s = {}; SPEC_KEYS.forEach(k => { if (o[k] !== undefined) s[k] = o[k]; }); return s; };
@@ -2087,6 +2155,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function trvSubjectName(s) {
     if (s.kind === "chain") return t("trv_chain_n", { n: chainViews(s).length });
     if (s.kind === "line") { const l = (state.lines || []).find(x => x.line_id === s.line) || (map.data && (map.data.lines || []).find(x => x.line_id === s.line)); return l ? l.name : t("line") + " " + s.line; }
+    if (s.kind === "spot") return (s.spot && s.spot.name) || t("trv_kind_spot");
     const v = camViews.list.find(x => x.id === s.view); return v ? v.name : t("trv_view_gone");
   }
   const trvFail = () => { $("#cmd-status").textContent = t("trv_gone"); $("#cmd-status").className = "cmdstatus bad"; };
@@ -2095,8 +2164,169 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   function trvPath(s) {
     const tp = { ...TRAVEL_DEFAULTS, ...s };
     if (s.kind === "chain") { const vs = chainViews(s), points = vs.map(liveView).filter(Boolean).map(v => ({ x: v.x, y: v.y, dist: v.dist, angle: v.angle, pitch: v.pitch })); return points.length < 2 ? null : { kind: "chain", points, prefs: { ...tp, dur: tp.dur * Math.max(1, vs.length - 1) / 2 } }; }
-    const v = camViews.list.find(x => x.id === s.view), lv = v && liveView(v); if (!lv) return null;
+    const v = s.kind === "spot" ? s.spot : camViews.list.find(x => x.id === s.view), lv = v && liveView(v); if (!lv || !TRAVEL_MOVES[tp.move]) return null;
     return { kind: tp.move, points: TRAVEL_MOVES[tp.move](lv, tp), prefs: tp };
+  }
+
+  // ------------------------------------------------------------ random travelling
+  // One click, one shot: a line tour (a line with a route), a movement around a saved view or around a place of the
+  // map (station, town, industry: framed like the game's own views of it, low three-quarter, the size of the thing),
+  // or the chain of the saved views. It becomes the draft and plays, so Save keeps it (and Export after that).
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  const RANDOM_MOVES = ["push", "reveal", "pan", "truck", "orbit", "flyover", "sweep", "spiral", "dolly"];
+  function randomSpec() {
+    const d = map.data || {}, pf = travelPrefs();
+    // 40 s at least: a 20 s shot with its slow-in and slow-out reads as a jump cut
+    const base = { dur: pick([40, 40, 90]), amp: pick([1, 1, 2]), dir: Math.random() < 0.5 ? 1 : -1, loop: false, music: pf.music, vol: pf.vol, tail: pf.tail };
+    const lines = (d.lines || []).filter(l => l.points && l.points.length >= 2);
+    const spots = [];
+    // framing: distance from the size of the subject, 7-20 degrees down (the horizon in the frame), any heading
+    const frame = (o, name, d0, d1) => ({ x: o.x, y: o.y, dist: d0 + Math.random() * (d1 - d0), angle: Math.random() * 2 * Math.PI, pitch: 0.12 + Math.random() * 0.23, name: String(name || "").slice(0, 40) });
+    (d.stations || []).forEach(s => spots.push(() => frame(s, s.name, 70, 220)));
+    (d.towns || []).forEach(tw => spots.push(() => frame(tw, tw.name, 250, 700)));
+    (d.industries || []).forEach(i => spots.push(() => frame(i, i.name, 120, 320)));
+    const kinds = [];
+    if (lines.length) kinds.push("line", "line");           // the moving things first: twice as likely
+    if (spots.length) kinds.push("spot", "spot");
+    if (camViews.list.length) kinds.push("view");
+    if (camViews.list.length >= 2) kinds.push("chain");
+    if (!kinds.length) return null;
+    const k = pick(kinds);
+    if (k === "line") return { ...base, kind: "line", line: pick(lines).line_id, amp: pick([0.7, 1, 1.4]) };
+    if (k === "chain") return { ...base, kind: "chain", views: camViews.list.map(v => v.id).sort(() => Math.random() - 0.5) };
+    const move = pick(RANDOM_MOVES);
+    if (k === "view") return { ...base, kind: "view", view: pick(camViews.list).id, move };
+    return { ...base, kind: "spot", spot: pick(spots)(), move };
+  }
+  async function trvRandom() {
+    if (!map.data) { try { map.data = await api("/api/map"); } catch (e) { /* views only */ } }
+    const s = randomSpec(); if (!s) { $("#cmd-status").textContent = t("trv_random_none"); $("#cmd-status").className = "cmdstatus bad"; return; }
+    trvDraft(s);
+    if (cmdOff()) return;  // game closed or control not permitted: the draft is there to save / export
+    if (!trvPlay(trv.draft)) trvFail();
+  }
+
+  // ------------------------------------------------------------ export for the game's camera tool
+  // A saved travelling written as a keyframe file of the game's Camera Manager (<userdata>/keyframes/tf3dash_<name>.lua,
+  // written by the companion), to render it with the game's own tool. The tool only shows when the game runs in debug
+  // mode; the file is written either way. The path is sampled here exactly like the mod plays it (same points and leg
+  // durations, Catmull-Rom with the same knots, the same slow-in / slow-out), every 0.5 s, and turned into the free
+  // camera of the tool: the eye (x, y, z) behind the target, the heading - pi (it looks along (cos, sin)), the pitch
+  // negative looking down, the focal of the orbit camera (60 degrees). Measured on a file of the tool taken at the same
+  // place: the eye matches to 0.3 m. Heights come from the terrain the dashboard already has (relief picture, else the
+  // coarse grid); the eye is kept above the ground around it, the lift smoothed over 1.5 s so it never shakes.
+  // A line tour is rebuilt from the stops along the track (the vehicles are not there at render time anyway).
+  const KF_STEP = 0.5, KF_FOV = 1.0472;
+  function groundAt(x, y) {
+    const m = hmap.meta, H = hmap.data;
+    if (m && H) {
+      const b = m.bounds, st = m.step || 4, px = (x - b[0]) / st, py = (b[3] - y) / st;
+      const x0 = Math.floor(px), y0 = Math.floor(py), fx = px - x0, fy = py - y0;
+      const g = (i, j) => H[Math.max(0, Math.min(hmap.h - 1, j)) * hmap.w + Math.max(0, Math.min(hmap.w - 1, i))] * m.res_z + m.offset_z;
+      const v = (g(x0, y0) * (1 - fx) + g(x0 + 1, y0) * fx) * (1 - fy) + (g(x0, y0 + 1) * (1 - fx) + g(x0 + 1, y0 + 1) * fx) * fy;
+      return m.water_level != null ? Math.max(v, m.water_level) : v;
+    }
+    return heightAt(x, y);
+  }
+  // the mod's spline (camPathAt / camPathWarp in dashboard_export.script.lua), for points with leg durations
+  function pathSampler(points, legs) {
+    const n = points.length, knots = [0];
+    for (let i = 1; i < n; i++) knots[i] = knots[i - 1] + legs[i - 1];
+    const ua = [points[0].angle];
+    const dA = (a, b) => { let d = (b - a) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
+    for (let i = 1; i < n; i++) ua[i] = ua[i - 1] + dA(points[i - 1].angle, points[i].angle);
+    const T = knots[n - 1], ramp = Math.min(3, T / 4), v = ramp > 0 ? T / (T - ramp) : 1;
+    const area = (u) => u * u * u * u * (2.5 + u * (u - 3));
+    const warp = (e) => ramp <= 0 ? e : e <= ramp ? v * ramp * area(e / ramp) : e >= T - ramp ? T - v * ramp * area((T - e) / ramp) : v * (e - ramp / 2);
+    const crom = (p0, p1, p2, p3, t0, t1, t2, t3, t) => {
+      const a1 = ((t1 - t) * p0 + (t - t0) * p1) / (t1 - t0), a2 = ((t2 - t) * p1 + (t - t1) * p2) / (t2 - t1), a3 = ((t3 - t) * p2 + (t - t2) * p3) / (t3 - t2);
+      const b1 = ((t2 - t) * a1 + (t - t0) * a2) / (t2 - t0), b2 = ((t3 - t) * a2 + (t - t1) * a3) / (t3 - t1);
+      return ((t2 - t) * b1 + (t - t1) * b2) / (t2 - t1);
+    };
+    const at = (e) => {
+      const s = warp(Math.max(0, Math.min(T, e)));
+      let i = 0; while (i < n - 2 && s >= knots[i + 1]) i++;
+      const t1 = knots[i], t2 = knots[i + 1], t0 = i > 0 ? knots[i - 1] : t1 - (t2 - t1), t3 = i + 2 < n ? knots[i + 2] : t2 + (t2 - t1);
+      const P = (k) => points[Math.max(0, Math.min(n - 1, k))], A = (k) => ua[Math.max(0, Math.min(n - 1, k))];
+      const f = (g) => crom(g(i > 0 ? i - 1 : i), g(i), g(i + 1), g(i + 2 < n ? i + 2 : i + 1), t0, t1, t2, t3, s);
+      return { x: f(k => P(k).x), y: f(k => P(k).y), dist: Math.max(10, f(k => P(k).dist)), angle: f(A), pitch: f(k => P(k).pitch) };
+    };
+    return { at, total: T };
+  }
+  // the line tour of the mod (camTourBuild) from the stops along the track, without the vehicles
+  function lineTourPoints(tr) {
+    const pts = tr.route.map((p, i) => ({ x: p.x, y: p.y, stop: !tr.stops || tr.stops.includes(i) }));
+    if (tr.closed) pts.push({ ...pts[0] });
+    const cum = [0]; for (let i = 1; i < pts.length; i++) cum[i] = cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const alt = tr.alt, gap = alt * 0.6, SWING = 0.2;
+    const routeAt = (s) => { let j = 1; while (j < pts.length - 1 && cum[j] < s) j++; const a = pts[j - 1], b = pts[j], seg = cum[j] - cum[j - 1], u = seg > 0 ? (s - cum[j - 1]) / seg : 0; return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }; };
+    const merged = [];
+    pts.forEach((p, i) => { if (!p.stop) return; const last = merged[merged.length - 1]; if (!last || cum[i] - last.s >= alt * 0.5) merged.push({ s: cum[i], x: p.x, y: p.y, kind: "stop" }); });
+    if (!merged.length) merged.push({ s: 0, x: pts[0].x, y: pts[0].y, kind: "stop" });
+    const out = [];
+    merged.forEach((q, i) => {
+      const prv = merged[i - 1], nxt = merged[i + 1];
+      if (prv && q.s - prv.s > gap * 2) out.push({ ...routeAt(q.s - gap), s: q.s - gap, kind: "mid", swing: -SWING });
+      out.push(q);
+      if (nxt && nxt.s - q.s > gap * 2) out.push({ ...routeAt(q.s + gap), s: q.s + gap, kind: "mid", swing: SWING });
+      if (nxt && nxt.s - q.s > alt * 4) { const span = nxt.s - q.s - 2 * gap, k = Math.max(1, Math.floor(span / (alt * 2))); for (let j = 1; j <= k; j++) { const s = q.s + gap + span * j / (k + 1); out.push({ ...routeAt(s), s, kind: "mid" }); } }
+    });
+    out.sort((a, b) => a.s - b.s);
+    const path = out.map((q, i) => {
+      let prv = out[i - 1], nxt = out[i + 1];
+      if (tr.closed && !nxt) nxt = out[1]; if (tr.closed && !prv) prv = out[out.length - 2];
+      let hx = 0, hy = 0;
+      if (nxt) { const dx = nxt.x - q.x, dy = nxt.y - q.y, n = Math.hypot(dx, dy); if (n > 0) { hx = dx / n; hy = dy / n; } }
+      if (prv) { const dx = q.x - prv.x, dy = q.y - prv.y, n = Math.hypot(dx, dy); if (n > 0) { hx += dx / n; hy += dy / n; } }
+      if (!hx && !hy) hy = 1;
+      const dist = q.kind === "stop" ? alt * 0.6 : q.swing ? alt * 1.0 : alt * 1.4, pitch = q.kind === "stop" ? 0.3 : 0.38;
+      return { x: q.x, y: q.y, dist, angle: Math.atan2(-hy, -hx) + 0.6 + (q.swing || 0), pitch, s: q.s };
+    });
+    const legs = path.slice(1).map((q, i) => Math.max(1.5, (q.s - path[i].s) / tr.speed));
+    return { points: path, legs };
+  }
+  // the keyframes of a recipe, or a reason why not: { keys } | { error }
+  function keyframesOf(s) {
+    const tp = { ...TRAVEL_DEFAULTS, ...s };
+    let pl;
+    if (s.kind === "line") { const tr = lineTrack(s.line, tp); if (!tr) return { error: t("line_travel_noroute") }; pl = lineTourPoints(tr); }
+    else { const p = trvPath(s); if (!p) return { error: t("trv_gone") }; const dur = travelDuration(p.points, false, p.prefs.dur), legs = p.points.length - 1; pl = { points: p.points, legs: p.points.slice(1).map(() => dur / legs) }; }
+    if (pl.points.length < 2) return { error: t("trv_gone") };
+    if (groundAt(pl.points[0].x, pl.points[0].y) == null) return { error: t("trv_export_noterrain") };
+    const sp = pathSampler(pl.points, pl.legs), raw = [];
+    for (let e = 0; e <= sp.total + 1e-6; e += KF_STEP) raw.push({ t: e, ...sp.at(e) });
+    if (raw[raw.length - 1].t < sp.total - 1e-3) raw.push({ t: sp.total, ...sp.at(sp.total) });
+    // eye behind the target, at the height the orbit camera puts it (target ground + dist * sin(pitch))
+    const ks = raw.map(r => {
+      const [lx, ly] = camLook(r.angle), b = r.dist * Math.cos(r.pitch), ex = r.x - lx * b, ey = r.y - ly * b, gz = groundAt(r.x, r.y) || 0;
+      const R = 12; let he = -Infinity; [[0, 0], [R, 0], [-R, 0], [0, R], [0, -R]].forEach(([a, c]) => { he = Math.max(he, groundAt(ex + a, ey + c) || 0); });
+      const ez = gz + r.dist * Math.sin(r.pitch), need = he + Math.min(14, 1.5 + r.dist * 0.05) - ez;
+      return { t: r.t, ex, ey, ez, tx: r.x, ty: r.y, tz: gz, need: Math.max(0, need) };
+    });
+    // the lift: highest need within +-1.5 s, then averaged twice over +-1 s (rises before a bump, no jolt)
+    const W = Math.round(1.5 / KF_STEP), A = Math.round(1 / KF_STEP);
+    let lift = ks.map((k, i) => Math.max(...ks.slice(Math.max(0, i - W), i + W + 1).map(q => q.need)));
+    for (let pass = 0; pass < 2; pass++) lift = lift.map((_, i) => { const w = lift.slice(Math.max(0, i - A), i + A + 1); return w.reduce((a, b) => a + b, 0) / w.length; });
+    let prevA = null;
+    const keys = ks.map((k, i) => {
+      const ez = k.ez + Math.max(lift[i], k.need), dx = k.tx - k.ex, dy = k.ty - k.ey;
+      let a = Math.atan2(dy, dx);
+      if (prevA != null) { while (a - prevA > Math.PI) a -= 2 * Math.PI; while (a - prevA < -Math.PI) a += 2 * Math.PI; }  // continuous: the tool must not turn the long way
+      prevA = a;
+      return { t: Math.round(k.t * 1000) / 1000, x: k.ex, y: k.ey, z: ez, angle: a, pitch: Math.atan2(k.tz - ez, Math.hypot(dx, dy)), fov: KF_FOV };
+    });
+    return { keys };
+  }
+  async function trvExport(s) {
+    if (!hmap.data) await loadHeightmap();
+    const k = keyframesOf(s);
+    const st = $("#cmd-status");
+    if (k.error) { st.textContent = t("act_failed", { msg: k.error }); st.className = "cmdstatus bad"; return; }
+    let j;
+    try { const r = await fetch("/api/keyframes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: s.name || trvSubjectName(s), keys: k.keys }) }); j = await r.json(); }
+    catch (e) { j = { ok: false, error: e.message }; }
+    if (!j.ok) { st.textContent = t("act_failed", { msg: j.error }); st.className = "cmdstatus bad"; return; }
+    st.textContent = t("trv_exported", { f: j.name, s: Math.round(j.duration) }); st.className = "cmdstatus ok"; st.title = j.file;
   }
   // run a recipe: returns false when the subject no longer exists
   function trvPlay(s) {
@@ -2154,7 +2384,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (!tp) { box.innerHTML = cmdHint() + `<p class="cv-empty">${t("trv_no_view")}</p>` + trvPlayer(null, off); bindPlayer(box, null); return; }
     const seg = (name, opts, val, fmt) => `<span class="seg" data-tset="${name}">${opts.map(o => `<button data-v="${o}" class="${String(val) === String(o) ? "active" : ""}">${fmt ? fmt(o) : o}</button>`).join("")}</span>`;
     // subject: a view (number + name), the chain of views, the line handed over by a line sheet (kept in the draft)
-    const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat(tp.kind === "line" || trv.line ? ["line"] : []);
+    const kinds = ["view"].concat(camViews.list.length >= 2 ? ["chain"] : []).concat(tp.kind === "line" || trv.line ? ["line"] : []).concat(tp.kind === "spot" ? ["spot"] : []);
     const viewPick = tp.kind === "view" ? `<span class="seg wrap" data-tset="view">${camViews.list.map((v, i) => `<button data-v="${v.id}" class="${v.id === tp.view ? "active" : ""}" title="${esc(v.name)}"><b>${i + 1}</b> ${esc(v.name.length > 12 ? v.name.slice(0, 11) + "…" : v.name)}</button>`).join("")}</span>` : "";
     const tops = scrollSnapshot(box);
     box.innerHTML = cmdHint() + `<div class="cv-travel ${editing ? "editing" : ""}">
@@ -2163,7 +2393,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
           ${tp.kind !== "view" ? `<span class="muted small">${esc(trvSubjectName(tp))}</span>` : ""}</div>
         ${viewPick ? `<div class="tr-row">${viewPick}</div>` : ""}
         ${tp.kind === "chain" ? `<div class="tr-chain" data-chain>${chainViews(tp).map((v, i) => `<div class="cv ch" draggable="true" data-ci="${i}"><span class="cv-n">${i + 1}</span><span class="ch-name">${v.follow ? ico("follow", "sm") : ""}${esc(v.name)}</span><button class="btn" data-chrm="${i}" title="${esc(t("trv_chain_remove"))}">${ico("ct_remove", "sm")}</button></div>`).join("")}<div class="ch-drop muted small">${t("trv_chain_hint")}</div></div>` : ""}
-        ${tp.kind === "view" ? `<div class="tr-row"><span class="lbl">${t("cam_travel")}</span>${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico("own/move_" + m, "sm")}</span>`)}
+        ${tp.kind === "view" || tp.kind === "spot" ? `<div class="tr-row"><span class="lbl">${t("cam_travel")}</span>${seg("move", Object.keys(TRAVEL_MOVES), tp.move, m => `<span title="${esc(t("cam_move_" + m))}">${ico("own/move_" + m, "sm")}</span>`)}
           <button class="btn tgl ${tp.dir < 0 ? "active" : ""}" data-tset="dir" title="${esc(t("cam_travel_dir"))}">${ico("own/move_reverse", "sm")}</button></div>
         <div class="tr-row"><span class="muted small tr-desc">${t("cam_move_" + tp.move)}</span></div>` : ""}
         <div class="tr-row"><span class="lbl">${t("cam_travel_dur")}</span>${seg("dur", [10, 20, 40, 90], tp.dur, x => x + " s")}
@@ -2240,18 +2470,22 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       <span class="cv-n">${i + 1}</span>
       <button class="cv-go" data-act="play" title="${esc(t("trv_play"))} · ${esc(trvSubjectName(s))} · ${esc(summary(s))}" ${off ? "disabled" : ""}>${ico(KIND_ICO[s.kind] || "star", "sm")}<span class="cv-name">${esc(s.name)}</span></button>
       <span class="cv-tools">
+        <button class="btn" data-act="export" title="${esc(t("trv_export_hint"))}">${ico("ct_record", "sm")}</button>
         <button class="btn" data-act="edit" title="${esc(t("trv_edit"))}">${ico("ct_edit", "sm")}</button>
         <button class="btn" data-act="up" title="${esc(t("cam_move_up"))}" ${i === 0 ? "disabled" : ""}>${ico("ct_up", "sm")}</button>
         <button class="btn" data-act="down" title="${esc(t("cam_move_down"))}" ${i === trv.list.length - 1 ? "disabled" : ""}>${ico("ct_down", "sm")}</button>
         <button class="btn" data-act="delete" title="${esc(t("cam_delete"))}">${ico("ct_trash", "sm")}</button>
       </span></div>`;
     const tops = scrollSnapshot(box);
-    box.innerHTML = cmdHint() + (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`);
+    box.innerHTML = cmdHint() + `<button class="btn cv-save" data-trandom title="${esc(t("trv_random_hint"))}">${ico("refresh", "sm")}${t("trv_random")}</button>` +
+      (trv.list.length ? `<div class="cv-list">${trv.list.map(row).join("")}</div>` : `<p class="cv-empty">${t("trv_empty")}</p>`);
+    $("[data-trandom]", box).addEventListener("click", trvRandom);
     $$(".cv", box).forEach(el => {
       const id = +el.dataset.id, s = trv.list.find(x => x.id === id); if (!s) return;
       $$("[data-act]", el).forEach(b => b.addEventListener("click", async e => {
         e.stopPropagation(); const a = b.dataset.act;
         if (a === "play") { if (!trvPlay(s)) trvFail(); }
+        else if (a === "export") trvExport(s);
         else if (a === "edit") { if (trv.editing === id) trv.editing = null; else { trv.editing = id; trv.edit = { ...TRAVEL_DEFAULTS, ...specOf(s) }; } renderTravellings(); renderWorkshop(); }
         else if (a === "rename") { const name = await modal.prompt(t("cam_name_prompt"), { value: s.name, ok: t("cam_rename_ok") }); if (name) editTravellings({ action: "rename", id, name }); }
         else if (a === "up" || a === "down") editTravellings({ action: "move", id, delta: a === "up" ? -1 : 1 });
@@ -2962,13 +3196,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     const o = oc.getContext("2d"); o.clearRect(0, 0, size, size); o.drawImage(im, 0, 0, size, size); o.globalCompositeOperation = "source-in"; o.fillStyle = color; o.fillRect(0, 0, size, size); o.globalCompositeOperation = "source-over";
     ctx.drawImage(oc, x - size / 2, y - size / 2); return true;
   }
-  // Heading convention of api.gui.camera.getCameraData().angle, checked in game with the compass: the camera turns
-  // clockwise with the angle (sign -1), and looking north / east the cone came out west / south with offset 0, i.e.
-  // our picture was a quarter turn counter-clockwise -> a -90 deg offset
-  const CAM_ANGLE_OFFSET = -Math.PI / 2, CAM_ANGLE_SIGN = -1, CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
-  // unit vector eye -> target in game coordinates for a raw game angle: (cos angle, -sin angle). The mod's camLook()
-  // in dashboard_export.script.lua is the same function; the two must stay identical
-  function camLook(angle) { const a = CAM_ANGLE_SIGN * angle + CAM_ANGLE_OFFSET; return [-Math.sin(a), Math.cos(a)]; }
+  // Heading convention of api.gui.camera.getCameraData().angle: the camera looks along (-cos a, -sin a) in game
+  // coordinates. Measured against a keyframe file of the game's camera tool taken at the same spot (free camera
+  // angle = this angle - pi, looking along (cos, sin); target - look * dist = the keyframe's eye position to 0.3 m).
+  // The former (cos a, -sin a) was right looking north / south but mirrored east / west: standing outside the map
+  // and looking in, the cone sat inside the map and pointed out. The mod's camLook() in dashboard_export.script.lua
+  // is the same function (rev 28+); the two must stay identical.
+  const CAM_HALF_FOV = 0.35;  // ~40° horizontal field of view
+  function camLook(angle) { return [-Math.cos(angle), -Math.sin(angle)]; }
   function drawViewCone(ctx, c, color) {
     const [dx, dy] = camLook(c.angle);                                    // unit vector eye -> target (game coords)
     // horizontal distance eye -> target, in metres; kept readable on screen (>= 36 px) when the map is zoomed out
@@ -3367,7 +3602,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // camera EYE is on the ground (centre pushed back along the heading by dist*cos(pitch)); dashed preview of the
     // selected movement when idle. The current camera itself is the view cone drawn just below.
     // preview = the draft of the travellings panel when it is a movement around a view (dotted eye track)
-    const tv = travel.active || (trv.draft && trv.draft.kind === "view" && camViews.list.find(v => v.id === trv.draft.view) ? (() => { const tp = { ...TRAVEL_DEFAULTS, ...trv.draft }, v = liveView(camViews.list.find(x => x.id === tp.view)); return v ? { points: TRAVEL_MOVES[tp.move](v, tp), preview: true } : null; })() : null);
+    const tv = travel.active || (trv.draft && (trv.draft.kind === "view" || trv.draft.kind === "spot") ? (() => { const p = trvPath(trv.draft); return p ? { points: p.points, preview: true } : null; })() : null);
     if (tv && tv.points.length > 1 && $("#map-views").checked) {
       ctx.save(); ctx.strokeStyle = tv.preview ? "rgba(232,176,75,.45)" : "#e8b04b"; ctx.lineWidth = 2; if (tv.preview) ctx.setLineDash([6, 6]);
       ctx.beginPath();

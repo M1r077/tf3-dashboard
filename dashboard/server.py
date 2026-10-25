@@ -1792,9 +1792,76 @@ def _travel_clean(spec: dict) -> dict:
     views = spec.get("views")
     if isinstance(views, list):
         out["views"] = [int(v) for v in views if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)][:VIEWS_MAX]
-    if out.get("kind") not in ("view", "chain", "line"):
+    # a place picked by the random travelling (station, town, industry): the framing itself, not a saved view
+    spot = spec.get("spot")
+    if isinstance(spot, dict):
+        s = {k: float(spot[k]) for k in ("x", "y", "dist", "angle", "pitch") if isinstance(spot.get(k), (int, float)) and not isinstance(spot.get(k), bool) and math.isfinite(spot[k])}
+        if len(s) == 5:
+            s["name"] = str(spot.get("name") or "")[:VIEWS_NAME_MAX]
+            out["spot"] = s
+    if out.get("kind") not in ("view", "chain", "line", "spot") or (out["kind"] == "spot" and "spot" not in out):
         raise ValueError("bad travelling kind")
     return out
+
+
+# Export of a travelling for the game's own camera tool (Camera Manager, shown when the game runs in debug mode):
+# <userdata>/keyframes/tf3dash_<name>.lua, next to the export folder (heightmaps). The mod cannot write there (the game
+# lets mods write to three folders only), the companion can. The dashboard samples the travelling (eye position,
+# heading, pitch every 0.5 s); the Lua is written here from numbers only, in the layout of the files the tool saves
+# itself: function data() return { camera = { {angle, fovY, pitch, position, roll, speed, time}, ... }, ... } end.
+# Only tf3dash_ files are ever written (a re-export of the same travelling replaces its own file, nothing else).
+KEYFRAMES_MAX = 4000
+_KF_SLUG = re.compile(r"[^A-Za-z0-9_-]+")
+_KF_MUSIC = re.compile(r"[A-Za-z0-9_-]*::/[A-Za-z0-9_\-/. ']+\.ogg")
+
+
+def keyframes_dir() -> Path:
+    d = cmd_dir() or tf3paths.export_dir()
+    if d is None:
+        raise ValueError("Transport Fever 3 userdata folder not found (start the game with the mod once, or set export_dir in config.json)")
+    return d.parent / "keyframes"
+
+
+def write_keyframes(body: dict) -> dict:
+    """POST /api/keyframes: {name, keys: [{t, x, y, z, angle, pitch, fov}], music?} -> {file, name, keys, duration}."""
+    import unicodedata
+    raw = unicodedata.normalize("NFKD", str(body.get("name") or "")).encode("ascii", "ignore").decode()
+    slug = _KF_SLUG.sub("_", raw).strip("_")[:40] or "travelling"
+    keys = body.get("keys")
+    if not isinstance(keys, list) or not 2 <= len(keys) <= KEYFRAMES_MAX:
+        raise ValueError(f"keys: 2..{KEYFRAMES_MAX} keyframes")
+
+    def n(k: dict, f: str, lo: float, hi: float) -> float:
+        v = k.get(f)
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or not lo <= v <= hi:
+            raise ValueError(f"keyframe {f} out of range")
+        return float(v)
+    out, last = [], -1.0
+    for k in keys:
+        if not isinstance(k, dict):
+            raise ValueError("keyframe must be an object")
+        t = n(k, "t", 0, 36000)
+        if t < last:
+            raise ValueError("keyframe times must not go back")
+        last = t
+        x, y, z = n(k, "x", -1e5, 1e5), n(k, "y", -1e5, 1e5), n(k, "z", -1e4, 1e5)
+        a, p, fov = n(k, "angle", -1e4, 1e4), n(k, "pitch", -1.6, 1.6), n(k, "fov", 0.05, 3.0)
+        out += ["\t\t\t{ ", f"\t\t\t\tangle = {a:.6f},", f"\t\t\t\tfovY = {fov:.6f},", f"\t\t\t\tpitch = {p:.6f},",
+                f"\t\t\t\tposition = {{ {x:.3f}, {y:.3f}, {z:.3f}, }},", "\t\t\t\troll = 0,", "\t\t\t\tspeed = 50,",
+                f"\t\t\t\ttime = {round(t, 3):g},", "\t\t\t},"]
+    music = body.get("music")
+    music = music if isinstance(music, str) and len(music) < 200 and _KF_MUSIC.fullmatch(music) else ""
+    text = "\n".join(["function data()", "return { ", "\t\tcamera = {", *out, "\t\t},", "\t\tenvironmentParams = { },", "\t\tfades = { },",
+                      "\t\tmusic = " + lua_literal(music) + ",", "\t\tportraits = { },", "\t\tsubtitles = { },", "\t\tvoiceOvers = { },",
+                      "\t}", "end", ""])
+    d = keyframes_dir()
+    d.mkdir(parents=True, exist_ok=True)  # the folder exists once the game's camera tool saved something; created otherwise
+    target = d / f"tf3dash_{slug}.lua"
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(target)
+    console.say(f"keyframes written: {target} ({len(keys)} keys, {last:.0f} s)", "info")
+    return {"file": str(target), "name": "keyframes/" + target.name, "keys": len(keys), "duration": last}
 
 
 def api_travellings(q: dict) -> dict:
@@ -2355,7 +2422,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
+        if u.path not in ("/api/cmd", "/api/activity", "/api/views", "/api/travellings", "/api/keyframes", "/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
             self._send(404, b"not found", "text/plain")
             return
         # local only: never accept commands from another host, nor from another site open in the local browser
@@ -2387,8 +2454,8 @@ class Handler(BaseHTTPRequestHandler):
                 res = (edit_views if u.path == "/api/views" else edit_travellings)(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return
-            if u.path in ("/api/backup", "/api/restore", "/api/select_game", "/api/forget_game"):
-                fn = {"/api/backup": make_backup, "/api/restore": restore_backup, "/api/select_game": select_game, "/api/forget_game": forget_game}[u.path]
+            if u.path in ("/api/backup", "/api/restore", "/api/select_game", "/api/forget_game", "/api/keyframes"):
+                fn = {"/api/backup": make_backup, "/api/restore": restore_backup, "/api/select_game": select_game, "/api/forget_game": forget_game, "/api/keyframes": write_keyframes}[u.path]
                 res = fn(body if isinstance(body, dict) else {})
                 self._send(200, json.dumps({"ok": True, **res}, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
                 return

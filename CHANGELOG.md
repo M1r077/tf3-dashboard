@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- Finances, Bank account and Result per period charts: with the calendar paused, the game keeps closing financial periods that all carry the same date. They were drawn on top of each other at the right edge, as a near-vertical line. The two charts now give one slot to each period, in order, like the game's own journal; the axis still reads the dates. In the tooltip, repeated dates are numbered ("1/1/81 (2)", "1/1/81 (3)"). Reported by x4dzior.
+
 ## Companion 0.18.4 - 25 October 2026 (mod revision 28)
 
 - Map: the camera cone was mirrored east / west (right looking north or south). Looking east, it pointed west and the camera was drawn on the wrong side of the target: standing outside the map and looking in, the camera showed inside the map, looking out. The travelling eye track on the map uses the same corrected direction. The direction is now measured against a keyframe file of the game's camera tool taken at the same spot (eye position matches to 0.3 m).

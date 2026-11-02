@@ -1883,7 +1883,14 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     // engine column placed at the START of its period on a game-time axis (months), labelled with the engine's header
     const [jt, jh] = await Promise.all([api("/api/journal", { view: journalUi.view }), api("/api/journal", { view: "history" })]);
     journalUi.data = jt; journalUi.history = jh; renderJournalTable();
-    const hc = (jh.cols || []).filter(c => c.start != null), hl = hc.map(c => c.label), hx = hc.map(c => c.start * 2629800);  // months -> "seconds" so the axis is monotonic
+    const hc = (jh.cols || []).filter(c => c.start != null);
+    // x = the period's rank, one slot per engine column like the game's own journal, labelled with its date. Not the
+    // period's start date: with the calendar paused the simulation keeps closing periods that all carry the same date,
+    // and on a date axis they piled up on one x at the right edge (a near-vertical line)
+    const hx = hc.map((c, i) => i);
+    // same date twice: number the repeats in the tooltip ("1/3/90 (2)") so the periods can be told apart
+    const seen = new Map();
+    const hl = hc.map(c => { const k = (seen.get(c.label) || 0) + 1; seen.set(c.label, k); return k > 1 ? `${c.label} (${k})` : c.label; });
     const pick = (name) => hc.map(c => (jh.lines && jh.lines[name] || [])[c.col]);
     const monthName = (c) => { const y = Math.floor(c.start / 12), m = Math.floor(c.start % 12); return c.end - c.start >= 12 ? String(y) : `${m + 1}/${String(y).slice(-2)}`; };
     const xg = hc.map(monthName);

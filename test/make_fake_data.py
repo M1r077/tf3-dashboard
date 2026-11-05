@@ -185,7 +185,7 @@ for k in range(N):
     store.ingest(snap)
 
 # retention: fold everything older than 2 h into per-minute aggregates (like the live collector does)
-print(store.rollup(detail_hours=2.0, slow_days=14, say=print))
+print(store.rollup(detail_hours=2.0, say=print))
 print(store.status())
 print("db:", DB)
 

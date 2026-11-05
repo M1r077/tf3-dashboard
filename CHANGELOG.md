@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased
+
+- History of a save without transport lines: the clean-up that runs every few minutes deleted its town and company history older than two hours, instead of keeping one point per game day like for any other save. Kept now. (It also lost the daily point of a day whose only snapshots had no line rows, e.g. when the lines section failed.) History already deleted cannot come back. Reported by Abigail Anderson (Perch Scan).
+
 ## Companion 0.18.5 - 2 November 2026 (mod revision 28, unchanged)
 
 - Finances, Bank account and Result per period charts: with the calendar paused, the game keeps closing financial periods that all carry the same date. They were drawn on top of each other at the right edge, as a near-vertical line. The two charts now give one slot to each period, in order, like the game's own journal; the axis still reads the dates. In the tooltip, repeated dates are numbered ("1/1/81 (2)", "1/1/81 (3)"). Reported by x4dzior.

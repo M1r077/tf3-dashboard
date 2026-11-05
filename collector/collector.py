@@ -940,12 +940,14 @@ class Store:
             # 2) delete detail snapshots older than detail_hours (CASCADE removes vehicle_state, finance, alert...)
             #    only if their minute has been aggregated. Slow-section rows ride on snapshots too, so keep the
             #    snapshot row itself when it carries slow data (thinned in step 3): we delete only the heavy
-            #    children instead.
+            #    children instead. A slow snapshot is one with a company row (what step 3 keys on) or line rows:
+            #    a save without lines has no line_state at all, and its town / company history must survive too.
             cutoff = iso(now - detail_hours * 3600)
             cutoff_min = int((now - detail_hours * 3600) // 60) * 60
             if cutoff_min - 60 <= last_closed:
                 old = [r["snapshot_id"] for r in c.execute(
-                    "SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ? AND snapshot_id NOT IN (SELECT snapshot_id FROM line_state)",
+                    "SELECT snapshot_id FROM snapshot WHERE game_id=? AND real_time < ? AND snapshot_id NOT IN (SELECT snapshot_id FROM line_state)"
+                    " AND snapshot_id NOT IN (SELECT snapshot_id FROM company)",
                     (gid, cutoff)).fetchall()]
                 if old:
                     for chunk in _chunks(old, 500):

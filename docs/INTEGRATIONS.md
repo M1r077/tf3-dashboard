@@ -29,21 +29,21 @@ Not legal advice, just what the pages say, to know who can be read and who could
 
 | Mod | Author | Licence shown | Copy code/assets? |
 |---|---|---|---|
-| Timetables | — | GPL-3 | yes, under GPL-3 (would force our mod part to GPL-3: no) |
+| [Timetables](https://mod.io/g/transportfever3/m/timetables) | — | GPL-3 | yes, under GPL-3 (would force our mod part to GPL-3: no) |
 | Auto Line Namer | — | MIT | yes, with attribution |
-| N-Signalsystem | — | all rights reserved | no |
-| Comfort Cameras | brian | all rights reserved | no |
-| ModWerkstatt Base | ModWerkstatt | "use with dependency" | as a dependency only |
+| [N-Signalsystem](https://mod.io/g/transportfever3/m/n-signalsystem) | — | all rights reserved | no |
+| [Comfort Cameras](https://mod.io/g/transportfever3/m/comfort-cameras) | brian | all rights reserved | no |
+| [ModWerkstatt Base](https://mod.io/g/transportfever3/m/modwerkstatt-base-mod6) | ModWerkstatt | "use with dependency" | as a dependency only |
 | Realistic Smoke | — | "permission required" | ask |
-| akoya_camera_bookmarks | akoya | not stated | ask |
-| Auto Passenger Cameras | Dome_e39 | not stated | ask |
-| Cockpit Speedometers | — | not stated | nothing to copy |
+| [akoya_camera_bookmarks](https://mod.io/g/transportfever3/m/camera-bookmarks) (now *Camera Bookmarks*) | akoya | not stated | ask |
+| [Auto Passenger Cameras](https://mod.io/g/transportfever3/m/wagon-cameras) | Dome_e39 | not stated | ask |
+| [Cockpit Speedometers](https://mod.io/g/transportfever3/m/cockpit-speedometers) | — | not stated | nothing to copy |
 
 Reading their published data is covered by rule 1 whatever the licence.
 
 ## Candidates
 
-### akoya_camera_bookmarks (mod.io 6435426)
+### akoya_camera_bookmarks ([mod.io 6435426](https://mod.io/g/transportfever3/m/camera-bookmarks), now *Camera Bookmarks*)
 
 Saves camera bookmarks in the script state and answers a gui script event:
 `pcall(api.gui.fireGuiScriptEvent, "AKOYA_CAMERA_BOOKMARKS", "AkoyaBookmarkRead", {})` returns the list
@@ -53,12 +53,12 @@ Saves camera bookmarks in the script state and answers a gui script event:
 Not implemented. Note that `fireGuiScriptEvent` does not answer inside a React deferred step (see DETAILS.md,
 "API is currently restricted"): read from `guiUpdate`, not from a timer.
 
-### Auto Passenger Cameras (Dome_e39, mod.io 6422630)
+### Auto Passenger Cameras (Dome_e39, [mod.io 6422630](https://mod.io/g/transportfever3/m/wagon-cameras))
 
 Stores per-vehicle cameras in `metadata.domeWagonCameras` of the vehicle model. Readable from the export like any
 other metadata field. Nothing to show for the dashboard today; kept as an example of rule 1 data.
 
-### Comfort Cameras (brian, 6432412), Cockpit Speedometers (6431326)
+### Comfort Cameras (brian, [6432412](https://mod.io/g/transportfever3/m/comfort-cameras)), Cockpit Speedometers ([6431326](https://mod.io/g/transportfever3/m/cockpit-speedometers))
 
 Nothing persistent to read. No integration possible or needed.
 

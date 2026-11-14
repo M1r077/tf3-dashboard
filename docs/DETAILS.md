@@ -3,7 +3,7 @@
 Short version: [../README.md](../README.md). Repository: https://github.com/M1r077/tf3-dashboard
 Other mods (what we may read, what needs permission): [INTEGRATIONS.md](INTEGRATIONS.md).
 
-Quick start (game running, mod "Second Screen Dashboard" enabled in the savegame):
+Quick start (game running, mod "[Second Screen Dashboard](https://mod.io/g/transportfever3/m/second-screen-dashboard)" enabled in the savegame):
 - Windows: `run_dashboard.cmd` -> opens a Windows Terminal window (2 panes: collector | server; the "TF3 Dashboard"
   profile is used if it exists, otherwise the default profile). Closing the window stops everything. Without Windows
   Terminal: both in one console, lines prefixed `[collector]` / `[server]`.
@@ -27,7 +27,7 @@ Developer demo without the game (repository only, not in the release): `run_dash
 
 Three independent parts:
 
-1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *Second Screen Dashboard*): a game
+1. **Mod `tf3_dashboard_export`** (`mod/tf3_dashboard_export`, published on mod.io as *[Second Screen Dashboard](https://mod.io/g/transportfever3/m/second-screen-dashboard)*): a game
    script that writes `<Steam>\userdata\<id>\3493540\local\heightmaps\tf3dash_live.lua` and
 `tf3dash_slow_<section>.lua` via
    `app.saveUserdata` (folder auto-detected by `collector/tf3paths.py`: Steam registry and libraries,
@@ -635,7 +635,7 @@ Three independent parts:
      altitude ramp above the water level, water below the level refined by the shore masks of the grid (mod 14 samples them at the same 4 m: sub 11 per 44 m cell, the mask a string of base-64 digits since 121 bits exceed a double) - and caches
      the bitmap; the grid relief remains the fallback for older mods. New style **satellite**, the look of the game's
      own map preview: olive meadows, lighter and drier higher up, grey rock where the slope exceeds ~30 %, blue-grey
-     water (the game renders its preview in C++, `MapPreviewComp`, which a mod cannot export; Better Minimap shows
+     water (the game renders its preview in C++, `MapPreviewComp`, which a mod cannot export; [Better Minimap](https://mod.io/g/transportfever3/m/better-minimap) shows
      that component in a window, we rebuild the look from the same heights).
    - **Ruler** (companion 0.5.2 / 0.6.0): two clicks on the map. `/api/distance?ax&ay&bx&by` answers the straight
      distance, the height difference and the distance the game pays (straight + 8 x the climb), then the distance by

@@ -2,6 +2,10 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Unreleased (companion only, mod revision 28 unchanged)
+
+- New Wiki tab, last of the tabs: the TF3 Mechanics fan wiki (https://m1r077.github.io/tf3-mechanics/) inside the dashboard, in the dashboard's language (English when the wiki does not have it). It keeps its page when you switch tabs, and "Open in browser" opens it in a browser tab. Needs an internet connection; nothing is downloaded until the tab is opened.
+
 ## Companion 0.18.6 - 5 November 2026 (mod revision 28, unchanged)
 
 - History of a save without transport lines: the clean-up that runs every few minutes deleted its town and company history older than two hours, instead of keeping one point per game day like for any other save. Kept now. (It also lost the daily point of a day whose only snapshots had no line rows, e.g. when the lines section failed.) History already deleted cannot come back. Reported by Abigail Anderson (Perch Scan).

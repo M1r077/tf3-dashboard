@@ -935,7 +935,8 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       // thrown_away_cargo points at a stock list = an industry (no line is involved): camera / select target the
       // industry and an extra button opens the Industries tab on it
       const focus = a.kind === "thrown_away_cargo"
-        ? (a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
+        ? (a.industry_id != null && a.is_warehouse ? entBtns(a.industry_id)
+          : a.industry_id != null ? `<span class="entbtns">${entBtns(a.industry_id)}<button class="btn iconbtn goto" data-ind="${esc(a.entity_name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button></span>` : "")
         : a.entity_id != null ? entBtns(a.entity_id) : "";
       return `<div class="alert"><div class="sev ${sev}"></div><div style="color:${sev === "bad" ? "var(--bad)" : sev === "warn" ? "var(--warn)" : "var(--info)"}">${ico(ALERT_ICON[a.kind] || "alert")}</div><div><div class="what">${esc(alertLabel(a.kind))}${extra ? " — " + esc(extra) : ""}</div><div class="who">${esc(who)}</div></div><div class="age">${a.seen > 1 ? t("seen_n", { n: a.seen }) : t("new")}${a.since ? "<br>" + t("since", { ago: ago(a.since) }) : ""}</div>${focus}</div>`;
     }).join("");
@@ -1656,7 +1657,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   //   - pax: the game's quality figures (mod rev 15+), red when some have waited too long, plus a grey "in transit"
   //     chip when the station counts more items than wait (boarding, transferring between platforms);
   //   - freight: the output piles the station can load from (mod rev 16+), one chip per cargo, summed over the
-  //     catchable industries, with the amount / capacity in the tooltip.
+  //     catchable industries and warehouses (warehouses from mod rev 29), with the amount / capacity in the tooltip.
   // Nothing at all when the mod does not say, rather than a misleading 0.
   const stationWaitingChips = (st) => {
     const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
@@ -1687,7 +1688,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       const ctById = new Map((state.cache.cargoTypes || []).map(c => [c.cargo_id, c]));
       const rows = st.catch.filter(c => c.name).map(c => {
         const piles = (c.stock || []).map(p => { const ct = ctById.get(p.cargo), name = ct ? ct.name : String(p.cargo); return `<span class="chip" title="${esc(cargoName(name))}: ${p.amount} / ${p.capacity}">${cargoIcon({ cargo: name, cargo_key: ct && ct.key })}${p.amount}</span>`; });
-        return `<div class="catchrow"><button class="btn iconbtn goto" data-ind="${esc(c.name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button>${esc(c.name)} ${piles.join(" ")}</div>`; });
+        // a warehouse (mod rev 29+) is not in the Industries tab: plain icon, no link (no kind = older mod = industry)
+        const head = c.kind === "warehouse" ? `<span class="iconbtn" title="${esc(t("warehouse"))}">${ico("industry", "sm")}</span>`
+          : `<button class="btn iconbtn goto" data-ind="${esc(c.name)}" title="${esc(t("tab_industries"))}">${ico("industry", "sm")}</button>`;
+        return `<div class="catchrow">${head}${esc(c.name)} ${piles.join(" ")}</div>`; });
       h += `<tr><td>${t("st_catch")}</td><td>${rows.join("") || `<span class="muted">${t("none_m")}</span>`}</td></tr>`;
     }
     return h;

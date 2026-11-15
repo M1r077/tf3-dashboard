@@ -24,6 +24,7 @@ local MOD_ID = "tf3_dashboard_export"
 -- 6: vehicles[].cargo {cargo id = count on board}, slow vehicles[].capacities {cargo id = capacity}, horn command, company.headquarterId/X/Y (companion >= 0.3.1)
 -- (rev 27, same schema 7: folder heightmaps instead of towns_industries; companion >= 0.18.0 reads all layouts)
 -- (rev 28, same schema: camera heading east / west fixed, low cinematic line tour, clearance no longer lifts the camera)
+-- (rev 29, same schema: stations[].catch also lists warehouses, entries carry kind; warehouses exported in the industries section with warehouse = true)
 local SCHEMA = 7
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other, subfolders
@@ -1261,17 +1262,24 @@ local function stationItem(s, ctx)
 				end
 				rec.waiting = w
 			end)
-			-- what the station can load: the industries (warehouses are industries too) in its catchment area. In TF3
-			-- freight never waits at a station - it sits in those piles until a vehicle calls - so this is the freight
-			-- side of "waiting". getStationCatchables(s, true) also lists every town building with a cargo demand
-			-- (a bus stop in a town centre gets a hundred of them), hence the INDUSTRY filter. One cached lookup per
-			-- station; the piles themselves are in the industries section (stock_list).
+			-- what the station can load: the industries and warehouses in its catchment area. In TF3 freight never
+			-- waits at a station - it sits in those piles until a vehicle calls - so this is the freight side of
+			-- "waiting". Warehouses are not industries: they carry their own WAREHOUSE component (stockList,
+			-- construction), as gui/main/cargo_util.tl resolves it. getStationCatchables(s, true) also lists every
+			-- town building with a cargo demand (a bus stop in a town centre gets a hundred of them), so those
+			-- (TOWN_BUILDING) are left out. One cached lookup per station; the piles themselves are in the
+			-- industries section (stock_list), where warehouses are exported too (warehouse = true).
 			pcall(function()
 				local cs = {}
 				for _, e in pairs(api.engine.system.catchmentAreaSystem.getStationCatchables(s, true)) do
 					local id = num(e)
 					local ind = id and comp(e, api.type.ComponentType.INDUSTRY)
-					if ind then cs[#cs + 1] = { entity = id, stock_list = num(ind.stockList) or id } end
+					if ind then
+						cs[#cs + 1] = { entity = id, stock_list = num(ind.stockList) or id, kind = "industry" }
+					else
+						local wh = id and comp(e, api.type.ComponentType.WAREHOUSE)
+						if wh then cs[#cs + 1] = { entity = id, stock_list = num(wh.stockList) or id, kind = "warehouse" } end
+					end
 				end
 				rec.catch = cs
 			end)
@@ -1420,12 +1428,46 @@ end
 local function industriesBegin(cargoNames)
 	local ctx = { names = cargoNames }
 	pcall(function() local gt = comp(api.engine.util.getWorld(), api.type.ComponentType.GAME_TIME); ctx.game_time_ms = num(gt and gt.gameTime) end)
-	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)), ctx
+	-- industries, then warehouses (exported in the same section, flagged warehouse = true)
+	local list = arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY))
+	pcall(function() for _, w in ipairs(arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.WAREHOUSE))) do list[#list + 1] = w end end)
+	return list, ctx
 end
 
 local function industryItem(i, ctx)
 	local cargoNames = ctx.names
+	-- what lies in the piles now: per stock (input / output / storage) and cargo type, amount and capacity.
+	-- getStockCount is the figure of the industry window; stocks are 0-based ids in StockList.stocks order.
+	-- Shared by industries and warehouses (a warehouse's piles are StorageStock, kind "store").
+	local function readPiles(rec, sl)
+		local s = comp(sl, api.type.ComponentType.STOCK_LIST)
+		if not s then return end
+		rec.thrown_away = num(s.thrownAwayCargo)
+		local sys = api.engine.system.simEntityAtStockSystem
+		rec.stock = {}
+		for idx, st in ipairs(arr(s.stocks)) do
+			local sid = idx - 1
+			local ok, n = pcall(sys.getStockCount, sl, sid)
+			if ok then
+				local ct = num(st.cargoType)
+				local kind = ({ OutputStock = "out", InputStock = "in", StorageStock = "store" })[enumName("StockListType", { "InputStock", "OutputStock", "StorageStock" }, st.type) or ""] or "store"
+				rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
+			end
+		end
+	end
 	do
+		-- a warehouse (WAREHOUSE component, not INDUSTRY): name, position and piles only - no level, rules or boosters.
+		-- Named like the game's warehouse statistics (getEntityName on the warehouse entity).
+		local wh = comp(i, api.type.ComponentType.WAREHOUSE)
+		if wh then
+			local rec = { id = i, name = entityName(i), warehouse = true, stock_list = num(wh.stockList) }
+			pcall(function()
+				local c = comp(wh.construction, api.type.ComponentType.CONSTRUCTION)
+				if c then local m = c.transf; rec.pos = { x = num(m[13]), y = num(m[14]), z = num(m[15]) }; rec.construction = c.fileName end
+			end)
+			pcall(readPiles, rec, wh.stockList)
+			return rec
+		end
 		local ind = comp(i, api.type.ComponentType.INDUSTRY)
 		if ind then
 			local rec = { id = i, name = entityName(i), level = num(ind.level), max_level = num(ind.maxLevel), closure_time = num(ind.closureTimeStamp),
@@ -1440,24 +1482,7 @@ local function industryItem(i, ctx)
 				local p = api.engine.util.industry.getIndustryProductivityInfo(i)
 				rec.producing = p.producing and true or false; rec.boost_rule = p.boostFromRule and true or false; rec.boost_persons = p.boostFromPersonCapacity and true or false
 			end)
-			pcall(function()
-				local s = comp(sl, api.type.ComponentType.STOCK_LIST)
-				if not s then return end
-				rec.thrown_away = num(s.thrownAwayCargo)
-				-- what lies in the piles now: per stock (input / output / storage) and cargo type, amount and capacity.
-				-- getStockCount is the figure of the industry window; stocks are 0-based ids in StockList.stocks order.
-				local sys = api.engine.system.simEntityAtStockSystem
-				rec.stock = {}
-				for idx, st in ipairs(arr(s.stocks)) do
-					local sid = idx - 1
-					local ok, n = pcall(sys.getStockCount, sl, sid)
-					if ok then
-						local ct = num(st.cargoType)
-						local kind = ({ OutputStock = "out", InputStock = "in", StorageStock = "store" })[enumName("StockListType", { "InputStock", "OutputStock", "StorageStock" }, st.type) or ""] or "store"
-						rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
-					end
-				end
-			end)
+			pcall(readPiles, rec, sl)
 			-- boosters, as the industry window's "Boosters" card computes them (gui/main/industry_util.tl):
 			--   cargo boosters = the stock-list rules flagged `booster`: active while the last apply's interval still runs,
 			--     or when the input piles hold what the rule needs; factor = rule.boostFactor (+50 % ...)

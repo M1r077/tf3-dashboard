@@ -168,9 +168,16 @@ Three independent parts:
      cycles on the reference save). Freight sits in the piles of the industries and warehouses in the station's catchment
      area until a vehicle calls. So (mod rev 16+) each station also carries `catch` = the stock lists in reach
      (catchmentAreaSystem.getStationCatchables(station, true), a cached lookup, one per station), stored once on
-     station.catch since it only changes when something is built. The server joins it to the industries' output piles
-     (`/api/stations` catch[].stock) and the dashboard shows "Can load" chips in the table and one row per industry in
-     the detail. When `used` exceeds the sum of waiting passengers the difference is shown as a grey "in transit" chip
+     station.catch since it only changes when something is built. Only entities with an `INDUSTRY` or (mod rev 29+) a
+     `WAREHOUSE` component are kept, each with `kind` industry / warehouse: warehouses are not industries in TF3, they
+     carry their own component (`stockList`, `construction`), as the game's gui/main/cargo_util.tl resolves it. Town
+     buildings with a cargo demand are left out (a town-centre stop catches about a hundred). Revs 16-28 kept industries
+     only, so a station next to a warehouse did not show it. From rev 29 the mod also exports the warehouses in the
+     industries section (`warehouse = true`, name, position, storage piles; no level, rules or boosters); the
+     collector flags them `industry.is_warehouse = 1` and the server leaves them out of the Industries tab, the map's
+     industry layer and the industry cargo layer. The server joins catch to the output piles (storage piles count as
+     output) (`/api/stations` catch[].stock, catch[].kind) and the dashboard shows "Can load" chips in the table and
+     one row per industry or warehouse in the detail. When `used` exceeds the sum of waiting passengers the difference is shown as a grey "in transit" chip
      (boarding, or moving between platforms).
      Full catalogue of what the API allows (done / doable / risky / impossible): docs/API_CATALOGUE.md.
 

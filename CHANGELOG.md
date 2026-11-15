@@ -2,7 +2,7 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
-## Unreleased
+## Companion 0.19.0 - 15 November 2026 (mod revision 29)
 
 - Stations, "Can load": warehouses in a station's catchment area were missing. The [mod](https://mod.io/g/transportfever3/m/second-screen-dashboard) kept only industries, on the wrong assumption that warehouses are industries too; in TF3 they are a separate kind of building. Mod revision 29 lists them as well and exports every warehouse with its name, position and piles, so the station detail shows "Can load" rows for nearby warehouses (with what lies in them) and the table's freight chips count their stock. Town buildings stay left out, as before (a town-centre stop catches about a hundred of them).
 - Companion: warehouses are kept apart from industries. They do not show in the Industries tab, its statistics, the map's industry layer or the industry cargo layer; in the station detail a warehouse row has no "open in Industries" button. A cargo-thrown-away alert on a warehouse keeps the camera and select buttons only. Older mod revisions keep working (their catchment lists only industries).

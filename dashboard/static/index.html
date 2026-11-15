@@ -101,6 +101,7 @@
   <button data-tab="industries"><i class="ico" data-ico="industry"></i><span data-i18n="tab_industries"></span></button>
   <button data-tab="stations"><i class="ico" data-ico="station"></i><span data-i18n="tab_stations"></span></button>
   <button data-tab="finance" class="dim"><i class="ico" data-ico="money"></i><span data-i18n="tab_finance"></span></button>
+  <button data-tab="mechanics"><i class="ico" data-ico="info"></i><span data-i18n="tab_mechanics"></span></button>
   <div id="range-bar" class="rangebar" data-i18n-title="range_title"><i class="ico sm" data-ico="calendar"></i>
     <button data-range="run" data-i18n="range.run" data-i18n-title="range_run_title"></button><button data-range="1gm" data-i18n="range.1gm"></button><button data-range="1gy" data-i18n="range.1gy"></button><button data-range="5gy" data-i18n="range.5gy"></button><button data-range="all" data-i18n="range.all"></button>
   </div>
@@ -323,6 +324,16 @@
         <canvas id="chart-costs"></canvas>
       </div>
     </div>
+  </section>
+
+  <!-- ------------------------------------------------ Mechanics: the public TF3 Mechanics fan wiki, framed (app.js creates
+       the iframe on first open only, so a dashboard that never opens this tab never contacts the site) -->
+  <section id="tab-mechanics" class="tab">
+    <div class="toolbar">
+      <a id="wiki-open" class="btn" target="_blank" rel="noopener" href="https://m1r077.github.io/tf3-mechanics/"><i class="ico sm" data-ico="info"></i><span data-i18n="wiki_open"></span></a>
+      <span class="muted" id="wiki-note" data-i18n="wiki_note"></span>
+    </div>
+    <div id="wiki-frame" class="wikiframe"></div>
   </section>
 </main>
 

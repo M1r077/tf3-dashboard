@@ -33,6 +33,7 @@
     $$("[data-i18n-title]").forEach(el => { el.title = t(el.dataset.i18nTitle); });
     applyIcons();
     if (window.Layout) Layout.applyAll();
+    wikiSync();  // an open wiki follows the UI language (no-op while the tab was never opened)
   }
   window.__t = t; window.__locale = () => i18n.dict._locale || "en";
   $("#lang").addEventListener("change", e => { if (e.target.value === "auto") { localStorage.removeItem("tf3.lang"); setLang(pickLang(), false); } else setLang(e.target.value, true); refresh(true); });
@@ -529,16 +530,59 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const state = { tab: "overview", sort: {}, selLine: null, selTown: null, selVeh: null, selInd: null, selSt: null, cache: {}, served: (() => { try { return JSON.parse(localStorage.getItem("tf3.served") || "{}") || {}; } catch (e) { return {}; } })() };
   /** Three-way "served" filter of a table: "all" passes everything, "yes" only what your network serves, "no" the rest. */
   const servedPass = (table, isServed) => { const m = state.served[table] || "all"; return m === "all" || (m === "yes") === !!isServed; };
+  // the strip scrolls sideways under the sticky range bar: bring the active tab out from under it (the last tabs).
+  // Again on load / resize: the tab widths change once fonts and icons are in
+  function tabIntoView() {
+    const s = $("#tabs"), b = $("#tabs button.active"), rb = $("#range-bar"); if (!s || !b) return;
+    const edge = rb && getComputedStyle(rb).position === "sticky" ? rb.getBoundingClientRect().left : s.getBoundingClientRect().right;
+    const over = b.getBoundingClientRect().right - edge + 8; if (over > 0) s.scrollLeft += over;
+  }
+  window.addEventListener("load", tabIntoView); window.addEventListener("resize", tabIntoView);
   function showTab(name, push = true) {
     const b = $(`#tabs button[data-tab="${name}"]`); if (!b) return;
     $$("#tabs button").forEach(x => x.classList.toggle("active", x === b));
+    tabIntoView();
     $$(".tab").forEach(tb => tb.classList.toggle("active", tb.id === "tab-" + name));
     state.tab = name;
     if (push) { const u = new URL(location.href); u.searchParams.set("tab", name); history.replaceState(null, "", u); }
+    if (name === "mechanics") renderWiki();  // at once, not after the refresh: the wiki does not need the companion server up
     refresh(true);
   }
   $$("#tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const tabFromUrl = () => new URLSearchParams(location.search).get("tab") || location.hash.slice(1);
+
+  // ------------------------------------------------------------ Mechanics tab (TF3 Mechanics, public fan wiki on GitHub Pages)
+  // The site sends no X-Frame-Options / frame-ancestors, so it can be framed. The iframe is created on the first visit
+  // of the tab only (no request to the site otherwise) and is never rebuilt on refresh: switching tabs only hides the
+  // section, the page read stays where it was. A change of UI language reloads it at the index of the matching
+  // language. The page inside is cross-origin: its current address cannot be read, so "Open in browser" points to the
+  // language index, not to the page being read. Offline, the frame shows the browser's own error page; nothing else
+  // depends on it.
+  const WIKI_BASE = "https://m1r077.github.io/tf3-mechanics/";
+  const WIKI_LANGS = ["en", "fr", "de", "es", "it", "ja", "ko", "nl", "pl", "pt-br", "ru", "zh-cn", "zh-tw"];
+  const wiki = { frame: null, lang: null, offline: false };
+  const wikiLang = () => { const l = { zh: "zh-cn", pt: "pt-br" }[i18n.lang] || i18n.lang; return WIKI_LANGS.includes(l) ? l : "en"; };
+  const wikiUrl = (l) => `${WIKI_BASE}${l}/index.html`;
+  // the frame fills the window below the toolbar (main scrolls; a page-tall frame would add a second scrollbar)
+  const wikiFit = () => { const box = $("#wiki-frame"); if (box && state.tab === "mechanics") box.style.height = Math.max(320, window.innerHeight - box.getBoundingClientRect().top - 14) + "px"; };
+  function wikiSync() {
+    if (!wiki.frame) return;  // never opened: stay off the network
+    const l = wikiLang(); if (l === wiki.lang) return;
+    wiki.lang = l; wiki.offline = navigator.onLine === false; wiki.frame.src = wikiUrl(l); $("#wiki-open").href = wikiUrl(l);
+  }
+  function renderWiki() {
+    if (!wiki.frame) {
+      const f = document.createElement("iframe");
+      f.title = "TF3 Mechanics"; f.referrerPolicy = "no-referrer"; f.loading = "eager";
+      $("#wiki-frame").appendChild(f); wiki.frame = f;
+    }
+    wikiSync(); wikiFit();
+    $("#wiki-note").classList.toggle("warn", navigator.onLine === false);  // the browser knows it is offline: say it louder
+  }
+  window.addEventListener("resize", wikiFit);
+  // back online after a load made offline: reload the wiki once instead of leaving the error page. Only then: a network
+  // blip while a page is open must not throw the reader back to the index (the frame's own address cannot be read)
+  window.addEventListener("online", () => { if (wiki.frame && wiki.lang && wiki.offline) { wiki.offline = false; wiki.frame.src = wikiUrl(wiki.lang); } });
 
   // ------------------------------------------------------------ sortable tables
   const COLW_KEY = "tf3.colw";
@@ -3678,7 +3722,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
 
   // ------------------------------------------------------------ refresh loop
-  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance };
+  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance, mechanics: renderWiki };
   let busy = false, again = false;
   // A pointer button held down = the user is mid-click. Re-rendering now would swap the element under
   // the pointer between mousedown and mouseup and the browser would drop the click (one had to click twice).

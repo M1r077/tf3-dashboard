@@ -32,7 +32,7 @@ window.I18N = {
     setup_footer: "TF3 Dashboard {v}. This checklist disappears as soon as data arrives. Stuck? Copy it into a comment on mod.io.",
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     // tabs
-    tab_overview: "Operations", tab_vehicles: "Vehicles", tab_lines: "Lines", tab_map: "Map", tab_towns: "Towns", tab_industries: "Industries", tab_stations: "Stations & depots", tab_finance: "Finances", tab_wiki: "Wiki",
+    tab_overview: "Operations", tab_vehicles: "Vehicles", tab_lines: "Lines", tab_map: "Map", tab_towns: "Towns", tab_industries: "Industries", tab_stations: "Stations & depots", tab_finance: "Finances", tab_mechanics: "Mechanics",
     wiki_open: "Open in browser", wiki_note: "TF3 Mechanics, the community wiki of the game's mechanics. Needs an internet connection.",
     // overview
     fleet_in_service: "Fleet in service", samples: "{n} samples", by_carrier: "By carrier", alerts: "Alerts", none: "none",
@@ -195,7 +195,7 @@ window.I18N = {
     setup_footer: "TF3 Dashboard {v}. Этот чек-лист исчезнет, как только поступят данные. Застряли? Скопируйте его в комментарий на mod.io.",
     dur_s: "{n} с", dur_m: "{n} мин", dur_h: "{n} ч",
     // tabs
-    tab_overview: "Операции", tab_vehicles: "Транспорт", tab_lines: "Линии", tab_map: "Карта", tab_towns: "Города", tab_industries: "Производства", tab_stations: "Станции и депо", tab_finance: "Финансы", tab_wiki: "Вики",
+    tab_overview: "Операции", tab_vehicles: "Транспорт", tab_lines: "Линии", tab_map: "Карта", tab_towns: "Города", tab_industries: "Производства", tab_stations: "Станции и депо", tab_finance: "Финансы", tab_mechanics: "Mechanics",
     wiki_open: "Открыть в браузере", wiki_note: "TF3 Mechanics, вики сообщества о механиках игры. Нужно подключение к интернету.",
     // overview
     fleet_in_service: "Парк в работе", samples: "точек: {n}", by_carrier: "По видам транспорта", alerts: "Оповещения", none: "нет",
@@ -353,7 +353,7 @@ window.I18N = {
     setup_footer: "TF3 Dashboard {v}. Cette liste disparaît dès que des données arrivent. Bloqué ? Copiez-la dans un commentaire sur mod.io.",
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     snapshot_status: "snapshot #{id} · il y a {ago}", game_quiet: "jeu silencieux", errors_n: "{n} erreur(s)", server_down: "serveur injoignable : {msg}", server_starting: "serveur en cours de démarrage…", collector_errors: "le collecteur n'a pas pu enregistrer {n} instantané(s), le dernier il y a {ago} : l'historique a des trous. Voir {path} (supprimez le fichier une fois la cause corrigée).",
-    tab_overview: "Exploitation", tab_vehicles: "Véhicules", tab_lines: "Lignes", tab_map: "Carte", tab_towns: "Villes", tab_industries: "Industries", tab_stations: "Gares & dépôts", tab_finance: "Finances", tab_wiki: "Wiki",
+    tab_overview: "Exploitation", tab_vehicles: "Véhicules", tab_lines: "Lignes", tab_map: "Carte", tab_towns: "Villes", tab_industries: "Industries", tab_stations: "Gares & dépôts", tab_finance: "Finances", tab_mechanics: "Mechanics",
     wiki_open: "Ouvrir dans le navigateur", wiki_note: "TF3 Mechanics, le wiki communautaire des mécaniques du jeu. Nécessite une connexion internet.",
     fleet_in_service: "Flotte en service", samples: "{n} relevés", by_carrier: "Par transporteur", alerts: "Alertes", none: "aucune",
     fill_speed: "Remplissage & vitesse moyenne", watch_idle: "À surveiller", worn_first: "Usure — à réviser en premier",
@@ -500,7 +500,7 @@ window.I18N = {
     setup_footer: "TF3 Dashboard {v}. Diese Checkliste verschwindet, sobald Daten ankommen. Kommen Sie nicht weiter? Kopieren Sie sie in einen Kommentar auf mod.io.",
     dur_s: "{n} s", dur_m: "{n} min", dur_h: "{n} h",
     snapshot_status: "Snapshot #{id} · vor {ago}", game_quiet: "Spiel still", errors_n: "{n} Fehler", server_down: "Server nicht erreichbar: {msg}", server_starting: "Server startet…", collector_errors: "der Sammler konnte {n} Momentaufnahme(n) nicht speichern, zuletzt vor {ago}: die Historie hat Lücken. Siehe {path} (Datei löschen, sobald die Ursache behoben ist).",
-    tab_overview: "Betrieb", tab_vehicles: "Fahrzeuge", tab_lines: "Linien", tab_map: "Karte", tab_towns: "Städte", tab_industries: "Industrien", tab_stations: "Stationen & Depots", tab_finance: "Finanzen", tab_wiki: "Wiki",
+    tab_overview: "Betrieb", tab_vehicles: "Fahrzeuge", tab_lines: "Linien", tab_map: "Karte", tab_towns: "Städte", tab_industries: "Industrien", tab_stations: "Stationen & Depots", tab_finance: "Finanzen", tab_mechanics: "Mechanics",
     wiki_open: "Im Browser öffnen", wiki_note: "TF3 Mechanics, das Community-Wiki zu den Spielmechaniken. Benötigt eine Internetverbindung.",
     fleet_in_service: "Flotte im Einsatz", samples: "{n} Messungen", by_carrier: "Nach Verkehrsträger", alerts: "Warnungen", none: "keine",
     fill_speed: "Auslastung & Durchschnittsgeschwindigkeit", watch_idle: "Beobachten", worn_first: "Verschleiss — zuerst warten",
@@ -671,7 +671,7 @@ window.I18N = {
     cam_delete_confirm: "Apagar a visão “{name}”?", cam_save_ok: "Salvar", cam_replace_ok: "Substituir",
     cam_delete_title: "Apagar a visão", cam_rename_ok: "Renomear", cam_update_title: "Substituir a visão",
     confirm_title: "Confirmação", cam_needs_rev7: "As visões de câmera precisam da revisão 7 do mod (o jogo ainda não exporta a câmera). Atualize o mod no Mod Hub e recarregue o jogo salvo.",
-    tab_overview: "Operações", tab_vehicles: "Veículos", tab_lines: "Linhas", tab_map: "Mapa", tab_towns: "Cidades", tab_industries: "Indústrias", tab_stations: "Estações e depósitos", tab_finance: "Finanças", tab_wiki: "Wiki",
+    tab_overview: "Operações", tab_vehicles: "Veículos", tab_lines: "Linhas", tab_map: "Mapa", tab_towns: "Cidades", tab_industries: "Indústrias", tab_stations: "Estações e depósitos", tab_finance: "Finanças", tab_mechanics: "Mechanics",
     wiki_open: "Abrir no navegador", wiki_note: "TF3 Mechanics, a wiki da comunidade sobre as mecânicas do jogo. Requer conexão com a internet.",
     // overview
     fleet_in_service: "Frota em serviço", samples: "{n} amostras", by_carrier: "Por modal", alerts: "Alertas", none: "nenhum",
@@ -803,7 +803,7 @@ window.I18N.zh = Object.assign({}, window.I18N.en, {
   sim_speed: "游戏速度", calendar_speed: "日历速度", pause: "已暂停", en_route: "在途", at_terminal: "装卸中", in_depot: "车库", no_path: "无通路", seats: "{a} / {b} 座位",
   worn_count: "{n} 辆载具 < 50 %", pax: "乘客", cargo: "货物", connecting: "连接中…",
   // tabs
-  tab_overview: "概览", tab_vehicles: "载具", tab_lines: "线路", tab_map: "地图", tab_towns: "城镇", tab_industries: "产业", tab_stations: "车站与车库", tab_finance: "资金", tab_wiki: "维基",
+  tab_overview: "概览", tab_vehicles: "载具", tab_lines: "线路", tab_map: "地图", tab_towns: "城镇", tab_industries: "产业", tab_stations: "车站与车库", tab_finance: "资金", tab_mechanics: "Mechanics",
   wiki_open: "在浏览器中打开", wiki_note: "TF3 Mechanics：社区编写的游戏机制维基。需要联网。",
   // overview
   fleet_in_service: "运营中的载具", by_carrier: "按运输方式", alerts: "警告", none: "无",

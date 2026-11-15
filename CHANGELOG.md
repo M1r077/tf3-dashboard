@@ -4,7 +4,7 @@ Mod revision and companion version are released together (see README, Install). 
 
 ## Unreleased (companion only, mod revision 28 unchanged)
 
-- New Wiki tab, last of the tabs: the TF3 Mechanics fan wiki (https://m1r077.github.io/tf3-mechanics/) inside the dashboard, in the dashboard's language (English when the wiki does not have it). It keeps its page when you switch tabs, and "Open in browser" opens it in a browser tab. Needs an internet connection; nothing is downloaded until the tab is opened.
+- New Mechanics tab, last of the tabs: the TF3 Mechanics fan wiki (https://m1r077.github.io/tf3-mechanics/) inside the dashboard, in the dashboard's language (English when the wiki does not have it). It keeps its page when you switch tabs, and "Open in browser" opens it in a browser tab. Needs an internet connection; nothing is downloaded until the tab is opened.
 
 ## Companion 0.18.6 - 5 November 2026 (mod revision 28, unchanged)
 

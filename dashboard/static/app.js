@@ -545,13 +545,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     $$(".tab").forEach(tb => tb.classList.toggle("active", tb.id === "tab-" + name));
     state.tab = name;
     if (push) { const u = new URL(location.href); u.searchParams.set("tab", name); history.replaceState(null, "", u); }
-    if (name === "wiki") renderWiki();  // at once, not after the refresh: the wiki does not need the companion server up
+    if (name === "mechanics") renderWiki();  // at once, not after the refresh: the wiki does not need the companion server up
     refresh(true);
   }
   $$("#tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
   const tabFromUrl = () => new URLSearchParams(location.search).get("tab") || location.hash.slice(1);
 
-  // ------------------------------------------------------------ wiki tab (TF3 Mechanics, public fan wiki on GitHub Pages)
+  // ------------------------------------------------------------ Mechanics tab (TF3 Mechanics, public fan wiki on GitHub Pages)
   // The site sends no X-Frame-Options / frame-ancestors, so it can be framed. The iframe is created on the first visit
   // of the tab only (no request to the site otherwise) and is never rebuilt on refresh: switching tabs only hides the
   // section, the page read stays where it was. A change of UI language reloads it at the index of the matching
@@ -564,7 +564,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const wikiLang = () => { const l = { zh: "zh-cn", pt: "pt-br" }[i18n.lang] || i18n.lang; return WIKI_LANGS.includes(l) ? l : "en"; };
   const wikiUrl = (l) => `${WIKI_BASE}${l}/index.html`;
   // the frame fills the window below the toolbar (main scrolls; a page-tall frame would add a second scrollbar)
-  const wikiFit = () => { const box = $("#wiki-frame"); if (box && state.tab === "wiki") box.style.height = Math.max(320, window.innerHeight - box.getBoundingClientRect().top - 14) + "px"; };
+  const wikiFit = () => { const box = $("#wiki-frame"); if (box && state.tab === "mechanics") box.style.height = Math.max(320, window.innerHeight - box.getBoundingClientRect().top - 14) + "px"; };
   function wikiSync() {
     if (!wiki.frame) return;  // never opened: stay off the network
     const l = wikiLang(); if (l === wiki.lang) return;
@@ -3718,7 +3718,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   }
 
   // ------------------------------------------------------------ refresh loop
-  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance, wiki: renderWiki };
+  const RENDER = { overview: renderOverview, lines: renderLines, vehicles: renderVehicles, towns: renderTowns, industries: renderIndustries, stations: renderStations, map: renderMap, finance: renderFinance, mechanics: renderWiki };
   let busy = false, again = false;
   // A pointer button held down = the user is mid-click. Re-rendering now would swap the element under
   // the pointer between mousedown and mouseup and the browser would drop the click (one had to click twice).

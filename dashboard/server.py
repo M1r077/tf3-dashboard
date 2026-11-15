@@ -223,6 +223,17 @@ def _alive(table: str, alias: str) -> str:
     return f" AND {alias}.gone IS NULL"
 
 
+def _not_wh(alias: str) -> str:
+    """SQL fragment leaving warehouses out of an `industry` query: mod rev 29+ exports them in the industries section
+    (is_warehouse = 1) so stations can name them and show their piles, but they are not industries (no level,
+    production, rules). A database without the column (older collector) holds no warehouse: filter nothing."""
+    if "industry.is_warehouse" not in _gone_cols:
+        if "is_warehouse" not in {r["name"] for r in rows("PRAGMA table_info(industry)")}:
+            return ""
+        _gone_cols.add("industry.is_warehouse")
+    return f" AND {alias}.is_warehouse IS NULL"
+
+
 # ---------------------------------------------------------------- API
 def api_overview(q: dict) -> dict:
     # no database file yet (the collector creates it at the first snapshot) or no snapshot: the page shows the
@@ -472,9 +483,11 @@ def api_alerts(q: dict) -> dict:
     # thrown_away_cargo: the game reports stock lists (= industries, through industry.stock_list), not lines
     # town_problem: api.engine.util.town.getTownProblems() flags towns as "Disconnected" with no further detail and the
     # game's own UI never shows it; it is still stored but not displayed (see docs/DETAILS.md)
-    al = rows("""SELECT a.*, 
+    # a warehouse throwing cargo away (mod rev 29+ exports warehouses with is_warehouse = 1): no Industries tab link
+    wh_col = "si.is_warehouse" if _not_wh("si") else "NULL"
+    al = rows(f"""SELECT a.*, 
                  COALESCE(l.name, v.name, t.name, i.name, si.name, '') AS entity_name,
-                 si.industry_id AS industry_id
+                 si.industry_id AS industry_id, {wh_col} AS is_warehouse
                  FROM alert a
                  LEFT JOIN line l ON l.game_id=? AND l.line_id=a.entity_id AND a.kind IN ('line_problem','line_issue')
                  LEFT JOIN vehicle v ON v.game_id=? AND v.vehicle_id=a.entity_id AND a.kind IN ('vehicle_problem','blocked_train','no_path_vehicle')
@@ -857,7 +870,7 @@ def api_industries(q: dict) -> dict:
     gid = _gid()
     inds = rows(f"""SELECT i.industry_id, i.name, i.construction, i.max_level, i.x, i.y, st.* FROM industry i
                    JOIN industry_state st ON st.industry_id=i.industry_id
-                   WHERE i.game_id=?{_alive("industry", "i")} AND st.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state x WHERE x.industry_id=i.industry_id)
+                   WHERE i.game_id=?{_alive("industry", "i")}{_not_wh("i")} AND st.snapshot_id=(SELECT MAX(snapshot_id) FROM industry_state x WHERE x.industry_id=i.industry_id)
                    ORDER BY i.name""", (gid,))
     cargo = rows(f"""SELECT ic.*, ct.name AS cargo, ct.key AS cargo_key FROM industry_cargo ic LEFT JOIN cargo_type ct ON ct.game_id=? AND ct.cargo_id=ic.cargo_id
                     WHERE ic.snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})""", (gid,))
@@ -915,9 +928,12 @@ def api_stations(q: dict) -> dict:
                  ORDER BY ss.used DESC""", (gid,))
     # catchables (mod rev 16+): the stock lists in reach of each station, resolved to the industries we know and their
     # output piles at the latest industry snapshot = what the station can load (freight never waits at a station in TF3).
-    # Stock lists we do not know (a warehouse the mod does not export as an industry) are kept with their id only.
+    # Warehouses (mod rev 29+) are exported in the industries section (is_warehouse = 1), their storage piles count as
+    # "out"; an entry carries kind industry / warehouse (no kind = an older mod, which only listed industries).
+    # Stock lists we do not know are kept with their id only.
     piles: dict = {}
-    by_sl = {r["stock_list"]: r for r in rows("SELECT industry_id, stock_list, name FROM industry WHERE game_id=? AND stock_list IS NOT NULL", (gid,))}
+    wh_col = "i.is_warehouse" if _not_wh("i") else "NULL"
+    by_sl = {r["stock_list"]: r for r in rows(f"SELECT i.industry_id, i.stock_list, i.name, {wh_col} AS is_warehouse FROM industry i WHERE i.game_id=? AND i.stock_list IS NOT NULL", (gid,))}
     sid = one("SELECT MAX(x.snapshot_id) sid FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     if sid and sid["sid"]:
         for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.stock, ic.capacity FROM industry_cargo ic
@@ -939,7 +955,8 @@ def api_stations(q: dict) -> dict:
         out = []
         for c in catch:
             ind = by_sl.get(c.get("stock_list"))
-            out.append({"stock_list": c.get("stock_list"), "industry_id": ind["industry_id"] if ind else None,
+            kind = "warehouse" if c.get("kind") == "warehouse" or (ind and ind["is_warehouse"]) else "industry"
+            out.append({"stock_list": c.get("stock_list"), "industry_id": ind["industry_id"] if ind else None, "kind": kind,
                         "name": ind["name"] if ind else None, "stock": piles.get(ind["industry_id"], []) if ind else []})
         s["catch"] = out
     cargo_types = rows("SELECT cargo_id, name, key FROM cargo_type WHERE game_id=? ORDER BY cargo_id", (gid,))
@@ -997,7 +1014,7 @@ def api_map(q: dict) -> dict:
     # industries: also only those of the latest state, for a database filled before `gone` existed (every entity ever
     # seen under this game key, closed or from earlier saves, would litter the map with ghosts)
     ind = rows(f"""SELECT i.industry_id, i.name, i.x, i.y FROM industry i
-                  WHERE i.game_id=?{_alive("industry", "i")} AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
+                  WHERE i.game_id=?{_alive("industry", "i")}{_not_wh("i")} AND i.x IS NOT NULL AND (NOT EXISTS (SELECT 1 FROM industry_state) OR i.industry_id IN
                         (SELECT industry_id FROM industry_state WHERE snapshot_id=(SELECT MAX(x.snapshot_id) FROM industry_state x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id={int(gid)})))""", (gid,))
     dep = rows(f"""SELECT d.depot_id, d.name, d.carrier, d.x, d.y, ds.vehicles, ds.incoming FROM depot d
                   LEFT JOIN depot_state ds ON ds.depot_id=d.depot_id AND ds.snapshot_id=(SELECT MAX(snapshot_id) FROM depot_state x WHERE x.depot_id=d.depot_id)
@@ -1044,8 +1061,8 @@ def api_map_cargo(q: dict) -> dict:
         return out[kind].setdefault(str(oid), {"out": [], "in": [], "stock": []})
     sid = one("SELECT MAX(x.snapshot_id) sid FROM industry_cargo x JOIN snapshot sx ON sx.snapshot_id=x.snapshot_id WHERE sx.game_id=?", (gid,))
     if sid and sid["sid"]:
-        for r in rows("""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year, ic.stock, ic.capacity
-                         FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL
+        for r in rows(f"""SELECT ic.industry_id, ic.cargo_id, ic.direction, ic.produced_year, ic.max_prod_year, ic.consumed_year, ic.max_cons_year, ic.delivered_year, ic.stock, ic.capacity
+                         FROM industry_cargo ic JOIN industry i ON i.game_id=? AND i.industry_id=ic.industry_id AND i.x IS NOT NULL{_not_wh("i")}
                          WHERE ic.snapshot_id=?""", (gid, sid["sid"])):
             o = owner("industries", r["industry_id"])
             has_rule = any(r[k] is not None for k in ("produced_year", "max_prod_year", "consumed_year", "max_cons_year", "delivered_year"))

@@ -211,7 +211,7 @@ class Store:
         ("agg_meta", "thin_until", "TEXT"),  # slow snapshots older than this are thinned to one per game day
         ("industry_state", "boosters", "TEXT"),  # 0.6.1 added it to the schema but not here: pre-0.6.1 databases lost every slow cycle since
         ("station_state", "waiting", "TEXT"),  # JSON [{cargo_type, cargo, total, bad}] what waits at the station (mod rev 15+)
-        ("station", "catch", "TEXT"),  # JSON [{entity, stock_list}] stock lists in the station's catchment area (mod rev 16+)
+        ("station", "catch", "TEXT"),  # JSON [{entity, stock_list, kind}] stock lists in the station's catchment area (mod rev 16+)
         ("line", "gone", "INTEGER"),  # snapshot in which a line stopped being exported (deleted in game); NULL = alive
         ("line_stop", "gone", "INTEGER"),  # 1 = the stop's station was bulldozed, the line still lists it (mod rev 17+)
         ("station", "gone", "INTEGER"),  # snapshot in which a station stopped being exported (bulldozed); NULL = alive
@@ -219,6 +219,7 @@ class Store:
         ("depot", "gone", "INTEGER"),  # same for a depot
         ("line_state", "balance_year", "INTEGER"),  # income - running costs over the last 12 months (mod rev 23+)
         ("line_finance", "label", "TEXT"),  # the engine's column label of a yearly line finance point
+        ("industry", "is_warehouse", "INTEGER"),  # 1 = a warehouse (WAREHOUSE component, mod rev 29+), exported in the industries section
     )
 
     # one-shot data fixes, tracked with PRAGMA user_version
@@ -799,7 +800,7 @@ class Store:
                    is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y,
                    catch=COALESCE(excluded.catch, station.catch), gone=NULL""",
                 (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y,
-                 json.dumps([{"entity": x.get("entity"), "stock_list": x["stock_list"]} for x in catch], separators=(",", ":")) if "catch" in s else None),
+                 json.dumps([{"entity": x.get("entity"), "stock_list": x["stock_list"], "kind": "warehouse" if x.get("kind") == "warehouse" else "industry"} for x in catch], separators=(",", ":")) if "catch" in s else None),
             )
             waiting = as_list(s.get("waiting"))
             self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines, waiting) VALUES (?,?,?,?,?,?,?,?)",
@@ -855,11 +856,11 @@ class Store:
             seen.append(iid)
             x, y, _z = xyz(i.get("pos"))
             self.con.execute(
-                """INSERT INTO industry(game_id, industry_id, name, construction, stock_list, max_level, x, y)
-                   VALUES (?,?,?,?,?,?,?,?)
+                """INSERT INTO industry(game_id, industry_id, name, construction, stock_list, max_level, x, y, is_warehouse)
+                   VALUES (?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(game_id, industry_id) DO UPDATE SET name=excluded.name, construction=excluded.construction,
-                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y, gone=NULL""",
-                (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y),
+                   stock_list=excluded.stock_list, max_level=excluded.max_level, x=excluded.x, y=excluded.y, is_warehouse=excluded.is_warehouse, gone=NULL""",
+                (gid, iid, i.get("name"), i.get("construction"), i.get("stock_list"), i.get("max_level"), x, y, 1 if i.get("warehouse") else None),
             )
             self.con.execute(
                 """INSERT OR REPLACE INTO industry_state(snapshot_id, industry_id, level, closure_time, manual, producing, boost_rule,

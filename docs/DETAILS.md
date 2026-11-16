@@ -72,10 +72,17 @@ Three independent parts:
      and `guiUpdate` only runs steps for `SLOW_BUDGET` (2 ms) per frame, then resumes on the next frame. A cycle
      therefore spreads over a few dozen frames instead of stalling one frame for several hundred ms. The result replaces
      the previous slow data atomically when the job is complete (`slow_seq` semantics unchanged); only the very first
-     cycle after loading runs unthrottled so that the first snapshot is complete. Shared lookups (`getTpNetData`,
-     `getTown2BuildingMap`, station/town maps) are fetched once per cycle instead of once per entity. A town is split
+     cycle after loading runs unthrottled so that the first snapshot is complete. Shared lookups (`getTown2BuildingMap`,
+     station/town maps) are fetched once per cycle instead of once per entity. The transport network (`getTpNetData`)
+     is never kept across frames (rev 30, GitHub #188): a copy taken at the start of the lines section and used seconds
+     later, after a station was rebuilt, pointed at nodes that no longer existed and `getNodeData` crashed the game. It
+     is read only in the frame that uses it (line detail, `line_set_terminals`). A town is split
      further into one step per API call, and `getCargoSupplyAndLimit` (~55 ms per town, it walks every building) is
-     called for `SUPPLY_TOWNS_PER_CYCLE` (2) towns per cycle in rotation, the others keep their last figures. With
+     called for `CACHE.SUPPLY_TOWNS` (2) towns per cycle in rotation, the others keep their last figures. Rev 30 keeps
+     more in the mod's `CACHE` table instead of asking again every cycle: town reachability (only shown in the town
+     panel) for the town opened on the dashboard (activity hint `town`) and `CACHE.REACH_TOWNS` (2) towns per cycle;
+     station catchables (see below); model name and top speed per model id for the session; the entity of
+     `industry_workers.gs`. With
      *Debug log* on, the game console prints the duration of each cycle and its slowest steps (measured on a 10-town
      map: 0.7 s per cycle, worst step 40 ms for the longest line).
    - every section runs inside a `pcall`; a failing section shows up in `errors` without blocking the rest (in the
@@ -146,18 +153,30 @@ Three independent parts:
      frame. Rationale: the only moments when a hitch in the game is invisible are the moments when the player is
      looking at the second screen — and those are exactly the moments when fresh data is wanted. It is not a
      command: it works whatever *Permit game control* says and never changes the game state, only when the mod works.
+     The hint may name a line (`line`, rev 30): the mod then collects that line's **line detail** (`LD.collect`) in one
+     frame and writes `tf3dash_line_detail.lua` (`item = {line, stops = [{stop_index, terminals, waiting}]}`): the full
+     terminals (type / class / length / speed_mod / compatible / overlength) and the waiting cargo of every stop, read with
+     `getTpNetData()` in that same frame as the game's line window does (line_util.tl). The dashboard sends it when the
+     line panel or its stop editor opens, then every 10 s while the panel stays open on the Lines tab with `quiet = true`:
+     a quiet hint collects the detail only (no relaxed budget, no slow cycle restart). Same line at most every 3 s
+     (`LD.MIN_AGAIN`). The collector merges it into `line_stop` (`Store.ingest_line_detail`) and keeps it across later
+     cycles as long as the stop's station group is the same. The hint may also name a town (`town`): its reachability
+     is refreshed in the next cycle.
      **Line management**: line_set_stop (load mode, min/max stop time, extra wait, cargos not loaded, forced unload
      at a stop; the mod copies the Line component, changes the given fields and sends makeLineUpdateCmd, exactly like
      the game's filter window; the route is never touched), line_set_all_stops, line_stop_all / line_start_all /
      line_all_to_depot (one command per vehicle), rename_entity, line_set_terminals (preferred + alternative terminals
      of a stop; the station does not change, the game recomputes the path and may refuse if there is none, as in its
-     own window).
+     own window; from rev 30 a terminal the line's vehicles cannot use is refused, checked on the network of that frame,
+     and unknown, e.g. a line without vehicles or with a dead stop, is let through).
      The mod exports the configuration of every stop (stop_list: load_mode, min_wait, max_wait, max_add_wait,
-     waypoints, force_unload, no_load, max_load, terminals = the station's terminals with type / class / length /
-     speed_mod / compatible / overlength, alternatives = alternative terminals) + custom_filters / reservation_priority.
+     waypoints, force_unload, no_load, max_load, terminals = the numbering of the station group's terminals (n, station,
+     terminal; up to rev 29 also type / class / length / speed_mod / compatible / overlength, from rev 30 in the line
+     detail above), alternatives = alternative terminals) + custom_filters / reservation_priority.
      Depots export `pos` (streetConnectorSystem.getConstructionEntityForDepot -> CONSTRUCTION.transf), stored in depot.x/y.
-     Each stop also carries `waiting` = items waiting there for this line, per cargo type, with the number of unhappy
-     ones (api.engine.util.cargo.getCargoQualityDataAtStop; the figure of the game's line window), shown in the stops table.
+     Each stop also has `waiting` = items waiting there for this line, per cargo type, with the number of unhappy
+     ones (api.engine.util.cargo.getCargoQualityDataAtStop; the figure of the game's line window), shown in the stops
+     table; in the continuous export up to rev 29, in the line detail from rev 30.
      Stations (mod rev 15+) carry the same per cargo for the whole station (`waiting`, getCargoQualityDataAtStation),
      asked only for the cargo types carried by the lines calling there: ~1 engine call per line stop instead of
      stations x cargo types (67 x 14 = 938 on the reference save). Stored as JSON in station_state.waiting; the
@@ -167,8 +186,10 @@ Three independent parts:
      the game never calls it with another cargo type; freight-only stations have used = 0 and capacity 0 for ever (202
      cycles on the reference save). Freight sits in the piles of the industries and warehouses in the station's catchment
      area until a vehicle calls. So (mod rev 16+) each station also carries `catch` = the stock lists in reach
-     (catchmentAreaSystem.getStationCatchables(station, true), a cached lookup, one per station), stored once on
-     station.catch since it only changes when something is built. Only entities with an `INDUSTRY` or (mod rev 29+) a
+     (catchmentAreaSystem.getStationCatchables(station, true)), stored once on station.catch since it only changes when
+     something is built. Rev 30 caches it in the mod (`CACHE.catch`): read again when the number of industries or
+     warehouses changed, when the station's construction changed, and for `CACHE.CATCH_STATIONS` (5) stations per cycle
+     in rotation. `entity` is no longer exported (nothing read it). Only entities with an `INDUSTRY` or (mod rev 29+) a
      `WAREHOUSE` component are kept, each with `kind` industry / warehouse: warehouses are not industries in TF3, they
      carry their own component (`stockList`, `construction`), as the game's gui/main/cargo_util.tl resolves it. Town
      buildings with a cargo demand are left out (a town-centre stop catches about a hundred). Revs 16-28 kept industries
@@ -545,7 +566,8 @@ Three independent parts:
      stop; click -> window with all cargo types (passengers first), select then OK / Esc / click outside = immediate
      line_set_stop no_load (Cancel = nothing). Terminals (in the editor): one row per terminal of the station with its
      type (passengers / all cargo / specialised class), the loading bonus or malus for the line's cargo (+100 % / -75 %),
-     the length, a "too short" warning, the mention "incompatible (slow)" for terminals of another transport mode;
+     the length, a "too short" warning, the mention "incompatible" for terminals of another transport mode (from the
+     line detail, rev 30; "Loading the terminal details…" until it arrives);
      checkbox = vehicles may stop there, star = preferred terminal (at least one terminal must stay checked).
      Lines and Vehicles tabs: vehicle type icon in front of the name and a filter bar by type (several types can be
      combined, cross to clear).

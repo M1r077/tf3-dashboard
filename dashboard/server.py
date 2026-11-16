@@ -161,7 +161,7 @@ def write_command(cmd: str, args: dict) -> dict:
 _activity_seq = [0]
 
 
-def write_activity(line=None) -> dict:
+def write_activity(line=None, quiet=False, town=None) -> dict:
     """Write activity.lua: a hint that the player is interacting with the dashboard. The mod uses it to do its heavy
     work (slow cycle, big file writes) right now, while the player looks at the second screen. Not a command: it is
     sent whatever 'Permit game control' says, and the mod only changes *when* it works, never what it does."""
@@ -173,7 +173,11 @@ def write_activity(line=None) -> dict:
         aid = _activity_seq[0]
         hint = {"id": aid, "t": time.time()}
         if isinstance(line, int) and not isinstance(line, bool) and line > 0:
-            hint["line"] = line  # the line the player opened: the mod refreshes its slow per-stop checks in full
+            hint["line"] = line  # the line whose panel is open: the mod collects its detail (terminals, waiting; rev 30)
+            if quiet:
+                hint["quiet"] = True  # periodic refresh of that detail only: no relaxed budget, no slow cycle restart
+        if isinstance(town, int) and not isinstance(town, bool) and town > 0:
+            hint["town"] = town  # the town whose panel is open: the mod refreshes its reachability (rev 30)
         body = "function data()\nreturn " + lua_literal(hint) + "\nend\n"
         d.mkdir(parents=True, exist_ok=True)
         target = tf3paths.file_in(d, "activity")
@@ -2450,14 +2454,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if u.path == "/api/activity":
             try:
-                line = None
+                line, quiet, town = None, False, None
                 try:
                     n = int(self.headers.get("Content-Length") or 0)
                     if 0 < n <= 1024:
-                        line = (json.loads(self.rfile.read(n) or b"{}") or {}).get("line")
+                        body = json.loads(self.rfile.read(n) or b"{}") or {}
+                        line, quiet, town = body.get("line"), body.get("quiet") is True, body.get("town")
                 except (ValueError, AttributeError):
-                    line = None
-                res = write_activity(line)
+                    line, quiet, town = None, False, None
+                res = write_activity(line, quiet, town)
                 self._send(200, json.dumps({"ok": True, **res}).encode(), "application/json; charset=utf-8")
             except (ValueError, OSError) as e:
                 self._send(200, json.dumps({"ok": False, "error": str(e)}).encode(), "application/json; charset=utf-8")

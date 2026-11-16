@@ -101,8 +101,6 @@ Three independent parts:
      `_metadata\mod.io_fileid.txt` (git-ignored, written by the Mod Hub at the first upload) must be present in the
      staging copy so the Mod Hub offers *Update* instead of creating a new entry. Mod Hub -> My Mods -> Update, with a
      changelog. Title and description on mod.io are overwritten by `modinfo.json` / `description.html` at every update.
-      After an update the Mod Hub silently unsubscribes the author (the mod.io copy disappears from
-     `C:\Users\Public\mod.io\<game>\mods\<id>`): subscribe again.
      **Do not trust `stdout.txt` to tell whether the upload worked**: a successful update (rev 6) still logged
      `Uploading mod file .../.cooked_pc/` followed by `[Error][Http] Non 200-204 response received: {"error":{"code":500,...}}`,
      several `Mod with ID: <id> changed status: unknown error` and `Staging Mod ... has modified files`; the same
@@ -110,12 +108,9 @@ Three independent parts:
      the files were stored. Check on the website instead: mod page -> Admin -> Files, every update adds a pair of files
      (Win/Mac/Linux + XSX/PS5), the live pair has its *Publish* button greyed out. The site shows "Version 1.0" for every
      file (the game does not send the revision); the only reliable revision number is `revision` in the `mod.json` inside
-     the zip, or in the local copy after subscribing again (`C:\Users\Public\mod.io\<game>\mods\<id>\mod.json`, which
-     keeps the old revision until then). Platforms belong to the file, not to the mod, and are fixed at upload: the
-     XSX/PS5 file of each pair is useless (consoles do not load userdata mods). The previous pair can be deleted once
-     the new one is live, but **the live file of a platform cannot be deleted**: as long as the only console file is
-     the live one for XSX/PS5, it stays (rev 9: `8298711`). Untick Xbox/PS5 in the upload form of the next revision so
-     no new console file is created; the old one remains until mod.io allows removing the platform from the mod.
+     the zip (or `C:\Users\Public\mod.io\<game>\mods\<id>\mod.json` once the mod.io copy is updated). Every update
+     creates a pair of files, Win/Mac/Linux + XSX/PS5; the Mod Hub has no setting to leave the consoles out. The
+     previous pair can be deleted once the new one is live, but **the live file of a platform cannot be deleted**.
      Deleting a file is done on the website, mod page -> Admin -> Files; the file ids are listed by
      `GET https://g-10640.modapi.io/v1/games/10640/mods/<id>/files?api_key=...` (`api.mod.io` is deprecated, only the
      per-game `modapi.io` host answers, and Cloudflare rejects the default `Python-urllib` User-Agent with error 1010:

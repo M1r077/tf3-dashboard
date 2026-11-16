@@ -25,7 +25,9 @@ local MOD_ID = "tf3_dashboard_export"
 -- (rev 27, same schema 7: folder heightmaps instead of towns_industries; companion >= 0.18.0 reads all layouts)
 -- (rev 28, same schema: camera heading east / west fixed, low cinematic line tour, clearance no longer lifts the camera)
 -- (rev 29, same schema: stations[].catch also lists warehouses, entries carry kind; warehouses exported in the industries section with warehouse = true)
-local SCHEMA = 7
+-- 8 (rev 30): the lines section carries the terminal numbering only (n, station, terminal); terminal details, waiting
+--   cargo per stop and overlength are in tf3dash_line_detail.lua, for the line opened on the dashboard (companion >= 0.20.0)
+local SCHEMA = 8
 -- Build 40420 (8 Oct 2026) restricted app.saveUserdata to three userdata folders: heightmaps, mod_presets and
 -- towns_industries ("The directory you trying to access is not available or invalid" for any other, subfolders
 -- included: probe 19 Oct 2026, "dir/sub", "dir\sub" and "sub/name" are all refused). Up to rev 8 the export lived in
@@ -475,8 +477,8 @@ local function collectCompany()
 	local cv = api.engine.util.headquarters.getCompaniesValue()
 	local keys = { "totalScore", "railVehicles", "trams", "roadVehicles", "aircrafts", "ships", "trackTotalLength", "trackElectricLength",
 		"bridgeTotalLength", "tunnelTotalLength", "roadTotalLength", "suppliedTowns", "connectedIndustries", "numberOfLines", "totalStations",
-		"railStations", "tramStations", "roadStations", "aircraftStations", "shipStations", "topSpeed", "topLength", "oldestTransportVehicle",
-		"balance", "totalAssets", "debt" }
+		"railStations", "tramStations", "roadStations", "aircraftStations", "shipStations", "topSpeed", "topLength",
+		"totalAssets", "debt" }  -- oldestTransportVehicle, balance: not stored since collector 0.20 (rev 30 stops sending them)
 	local out = {}
 	for _, k in ipairs(keys) do out[k] = num(cv[k]) end
 	local hq = collectHeadquarterPos()
@@ -533,11 +535,21 @@ end
 
 -- "vehicle/train/alco_hh600.mdl" -> "train/alco_hh600" (matches dashboard/static/icons/vehicles/<key>.png).
 -- Resource names are static for the whole session, so the result is cached per model id.
-local modelKeyCache = {}
+-- CACHE (rev 30): what the slow cycle used to ask the engine again every cycle although it rarely or never changes.
+--   modelKey[id]   = "category/stem" or false (resource names are static for the session)
+--   model[id]      = { name = localized name, ts = top speed m/s } (model metadata, static for the session)
+--   catch[s]       = { rows, at }: catchables of station s; emptied when the network changes (new station, extension,
+--                    industry or warehouse), and CATCH_STATIONS stalest stations refreshed per cycle as a safety net
+--   reach[t]       = { r, at }: getTownReachability of town t, only shown in the town's side panel: refreshed for the
+--                    town opened on the dashboard (townWant, from the activity hint) and REACH_TOWNS stalest per cycle
+--   supply[t]      = { rows, at }: getCargoSupplyAndLimit of town t (~55 ms each), SUPPLY_TOWNS stalest per cycle
+--   workersGs      = entity of industry_workers.gs (the same for every industry; looked up again if it vanishes)
+local CACHE = { modelKey = {}, model = {}, catch = {}, CATCH_STATIONS = 5, reach = {}, REACH_TOWNS = 2, townWant = nil,
+	supply = {}, SUPPLY_TOWNS = 2, workersGs = nil }
 local function modelKey(modelId)
 	local id = num(modelId)
 	if not id then return nil end
-	local k = modelKeyCache[id]
+	local k = CACHE.modelKey[id]
 	if k ~= nil then return k or nil end
 	local ok, name = pcall(api.res.modelRep.getName, id)
 	if ok and type(name) == "string" and name ~= "" then
@@ -554,8 +566,47 @@ local function modelKey(modelId)
 	else
 		k = false
 	end
-	modelKeyCache[id] = k
+	CACHE.modelKey[id] = k
 	return k or nil
+end
+
+-- localized name and top speed (m/s) of a model, cached for the session (CACHE.model)
+function CACHE.modelInfo(modelId)
+	local id = num(modelId)
+	if not id then return nil end
+	local m = CACHE.model[id]
+	if m ~= nil then return m or nil end
+	m = false
+	pcall(function()
+		local md = api.res.modelRep.get(id); md = md and md.metadata
+		if not md then return end
+		local d, lv = md.description, (md.landVehicle or md.waterVehicle or md.airVehicle)
+		m = { name = d and d.name ~= "" and d.name or nil, ts = lv and num(lv.topSpeed) or nil }
+	end)
+	CACHE.model[id] = m
+	return m or nil
+end
+
+-- the n stalest keys of a { key = { at = clock } } cache among `keys` (never collected first): rotation helper
+function CACHE.stalest(cache, keys, n)
+	local order = {}
+	for _, k in ipairs(keys) do order[#order + 1] = k end
+	table.sort(order, function(a, b)
+		local ca, cb = cache[a], cache[b]
+		if (ca == nil) ~= (cb == nil) then return ca == nil end
+		if ca == nil then return a < b end
+		return ca.at < cb.at
+	end)
+	local out = {}
+	for i = 1, math.min(n, #order) do out[order[i]] = true end
+	return out
+end
+
+-- forget the entries of a cache whose key is not in `keys` any more
+function CACHE.prune(cache, keys)
+	local alive = {}
+	for _, k in ipairs(keys) do alive[k] = true end
+	for k in pairs(cache) do if not alive[k] then cache[k] = nil end end
 end
 
 -- ---------------------------------------------------------------- vehicle model catalogue (tf3dash_models.lua)
@@ -830,11 +881,9 @@ local function vehicleStaticItem(v)
 	if COST.on("feat_line_paths") then pcall(vehiclePathItem, v, tv) end
 	pcall(function() rec.icon_type = vehicleIconType(v) end)
 	pcall(function()
-		-- localized model name of the leading part (e.g. "Mercedes-Benz O303")
-		local part = tv.transportVehicleConfig.vehicles[1]
-		local model = api.res.modelRep.get(part.part.modelId)
-		local d = model and model.metadata and model.metadata.description
-		if d and d.name and d.name ~= "" then rec.model = d.name end
+		-- localized model name of the leading part (e.g. "Mercedes-Benz O303"), from the session cache (rev 30)
+		local m = CACHE.modelInfo(tv.transportVehicleConfig.vehicles[1].part.modelId)
+		if m and m.name then rec.model = m.name end
 	end)
 	pcall(function()
 		-- language-neutral model keys of every part ("train/alco_hh600", "waggon/bilevel"...) for icons;
@@ -850,9 +899,8 @@ local function vehicleStaticItem(v)
 		-- top speed of the consist in km/h = the slowest part (metadata.landVehicle / waterVehicle / airVehicle.topSpeed, m/s)
 		local top
 		for _, p in ipairs(arr(tv.transportVehicleConfig.vehicles)) do
-			local md = api.res.modelRep.get(p.part.modelId); md = md and md.metadata
-			local lv = md and (md.landVehicle or md.waterVehicle or md.airVehicle)
-			local ts = lv and num(lv.topSpeed)
+			local m = CACHE.modelInfo(p.part.modelId)
+			local ts = m and m.ts
 			if ts and ts > 0 and (not top or ts < top) then top = ts end
 		end
 		if top then rec.top_speed = math.floor(top * 3.6 + 0.5) end
@@ -884,7 +932,40 @@ end
 -- cargo class specialisation), length and transport modes. Per line we add: compatible (the line's transport modes
 -- can use the terminal's edge), speed_mod (loading speed factor for the cargo the line carries: >1 specialised,
 -- 0.25 specialisations don't match, nil neutral) and overlength (checkLineStopForVehicleOverlength).
-local IncompatibilityModifier = 0.25  -- cargo_react_util.tl
+--
+-- Rev 30: the dashboard shows these per-terminal fields, the waiting cargo per stop and the overlength warning only in
+-- the side panel of the line the player opened (stop table, stop editor), never in a table. So the continuous lines
+-- export keeps the stop configuration and the terminal numbering (n, station, terminal), and the rest is the "line
+-- detail" (LD below): collected for the opened line only, in ONE frame, while the panel is open. Up to rev 29 it was
+-- collected for every terminal of every line all the time, and `compatible` read a copy of the transport network taken
+-- at the start of the lines section, seconds earlier: a station rebuilt in between left that copy pointing at nodes
+-- that no longer existed and getNodeData crashed the game (GitHub #188, consp's report: 169 lines, 327 stations).
+local LD = { INCOMPAT = 0.25 }  -- INCOMPAT: IncompatibilityModifier of cargo_react_util.tl
+LD.FILE = PREFIX .. "line_detail"
+LD.want = nil
+
+-- Can the line's vehicles use this terminal? Same test as line_util.isLineCompatibleWithTransportMode: the modes of
+-- the edge at the terminal's vehicle node. tpNet must come from getTpNetData() in the SAME frame (the game does it that
+-- way, line_util.tl:1453-1474; a copy from an earlier frame is what crashed). nil = unknown, false = incompatible.
+function LD.termCompatible(term, lineModes, tpNet)
+	if tpNet == nil or lineModes == nil then return nil end
+	local node = term.vehicleNodeId
+	if not (node and exists(node.entity)) then return nil end
+	local nd = tpNet:getNodeData(node)
+	local edgeId = nd and nd.ports and nd.ports[1] and nd.ports[1].edgeId
+	local tn = edgeId and comp(edgeId.entity, api.type.ComponentType.TRANSPORT_NETWORK)
+	if not tn then return nil end
+	local edgeModes = tn.edges[edgeId.index + 1].transportModes
+	local any = false
+	for m, on in pairs(lineModes) do
+		if on then
+			any = true
+			if edgeModes[m] then return true end
+		end
+	end
+	if any then return false end
+	return nil
+end
 
 local function cargoClassesOf(cargoIds)
 	local classes = {}
@@ -934,7 +1015,8 @@ local function stopWhole(stop)
 	return true
 end
 
-local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
+-- full = false: numbering only (continuous export); full = true: every field (line detail, tpNet of this frame)
+local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet, full)
 	local out = {}
 	local sg = comp(groupEntity, api.type.ComponentType.STATION_GROUP)
 	if not sg then return out end
@@ -944,11 +1026,11 @@ local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 		for ti, term in ipairs(arr(station and station.terminals or {})) do
 			n = n + 1
 			local rec = { n = n, station = si - 1, terminal = ti - 1 }
-			pcall(function()
+			if full then pcall(function()
 				rec.pax = (term.passengersLoad or term.passengersUnload) and true or false
 				rec.cargo = (term.cargoLoad or term.cargoUnload) and true or false
-			end)
-			pcall(function()
+			end) end
+			if full then pcall(function()
 				-- specialisation: last cargo class included by any transfer-speed section (as the game does), plus the
 				-- loading speed factor for the line's cargo classes (max over matching sections)
 				local length, spec, best, anySection = 0, nil, nil, false
@@ -977,24 +1059,14 @@ local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 					end)
 				end
 				if anySection and rec.cargo and next(lineCargoClasses) then
-					if best == nil then rec.speed_mod = IncompatibilityModifier
+					if best == nil then rec.speed_mod = LD.INCOMPAT
 					elseif math.abs(best - 1) > 0.001 then rec.speed_mod = best end
 				end
-			end)
-			pcall(function()
-				-- transport modes usable on the terminal's edge vs the line's modes (line_util.isLineCompatibleWithTransportMode)
-				-- tpNet is a copy taken when the section began, frames ago: the node's entity (the station's track or
-				-- street, type index 49 in the crash report) may have been bulldozed since. Check both ends.
-				if tpNet == nil or not exists(term.vehicleNodeId and term.vehicleNodeId.entity) then return end
-				local nd = tpNet:getNodeData(term.vehicleNodeId)
-				local edgeId = nd and nd.ports and nd.ports[1] and nd.ports[1].edgeId
-				local tn = edgeId and comp(edgeId.entity, api.type.ComponentType.TRANSPORT_NETWORK)
-				if not tn then return end
-				local edgeModes = tn.edges[edgeId.index + 1].transportModes
-				local ok = false
-				for m, on in pairs(lineModes) do if on and edgeModes[m] then ok = true end end
-				rec.compatible = ok
-			end)
+			end) end
+			if full then pcall(function()
+				local c = LD.termCompatible(term, lineModes, tpNet)
+				if c ~= nil then rec.compatible = c end
+			end) end
 			out[#out + 1] = rec
 		end
 	end
@@ -1004,54 +1076,93 @@ end
 -- Each slow section is split in two: a "begin" that lists the items and fetches the shared maps once, and an
 -- "item" function called for one entity at a time by the time-sliced driver (see slowJob below).
 local function linesBegin(player, cargoNames)
-	local ctx = { names = cargoNames }
-	pcall(function() ctx.tpNet = api.engine.system.transportNetworkSystem.getTpNetData() end)
-	return arr(api.engine.system.lineSystem.getLinesForPlayer(player)), ctx
+	return arr(api.engine.system.lineSystem.getLinesForPlayer(player)), { names = cargoNames }
 end
 
--- "vehicle too long for the platform" per stop (checkLineStopForVehicleOverlength). The engine compares every
--- vehicle of the line with every terminal: on a 19-stop, 84-bus line that is ~110 ms for one call per stop, every
--- slow cycle, in one frame (measured October 2026). The answer only changes when vehicles or stations do, so it is
--- kept per line and stop and refreshed round-robin, a few ms per line and cycle (a small line still gets all its
--- stops each cycle). A line the player opens on the dashboard (activity hint with its id) is refreshed in full:
--- the player is looking at the second screen, not at the game.
-COST.over = {}       -- line id -> { stops = { [i] = { ["st:term"] = true } }, next = i, seen = cycle stamp }
-COST.lineWant = {}   -- line id -> os.clock() of the dashboard's request
-COST.OVER_BUDGET = 0.003
-COST.WANT_FOR = 30
-function COST.overlength(l, stops, sys)
-	local n = #stops
-	if n == 0 then return end
-	local oc = COST.over[l]
-	local fresh = oc == nil
-	if fresh then oc = { stops = {}, next = 1 }; COST.over[l] = oc end
-	local w = COST.lineWant[l]
-	local full = fresh or (w ~= nil and os.clock() - w < COST.WANT_FOR)
-	COST.lineWant[l] = nil  -- one full refresh per request
+-- The line detail (rev 30): what only the side panel of the opened line shows, collected for that one line, in ONE
+-- frame, when the dashboard asks (activity hint with a line id, repeated while the panel stays open). Per stop:
+--   terminals[]  every field of terminalsOfGroup (type, class, length, speed_mod, compatible) + overlength
+--   waiting[]    what waits at this stop for this line, per cargo the line carries (the game's line window figure)
+-- "vehicle too long for the platform" (checkLineStopForVehicleOverlength) compares every vehicle of the line with every
+-- terminal: ~110 ms per call on a 19-stop, 84-bus line (measured October 2026). Up to rev 29 it ran round-robin for
+-- every line all the time; now only here, behind feat_overlength, while the player looks at the second screen.
+-- Written to tf3dash_line_detail.lua (outside the slow_seq set); the collector merges it into the line's stops.
+LD.MIN_AGAIN = 3.0  -- s: the same line is not re-collected sooner (the panel re-asks every ~10 s)
+LD.last = {}        -- line id -> os.clock() of the last collection
+function LD.collect(l)
+	local sys = api.engine.system
+	local line = comp(l, api.type.ComponentType.LINE)
+	if not line then return nil end
+	local stops = arr(line.stops)
+	local whole, broken = {}, false
+	for i, s in ipairs(stops) do
+		local okW, w = pcall(stopWhole, s)
+		whole[i] = okW and w == true
+		if not whole[i] then broken = true end
+	end
 	local t0 = os.clock()
-	local i = oc.next > n and 1 or oc.next
-	for _ = 1, n do
-		local st = stops[i]
-		if st and not st.gone and st.terminals then
-			local over = {}
-			pcall(function()
+	local rec = { line = l, stops = {} }
+	-- on a broken line the engine's line utils assert on the dead station (pcall cannot catch it): bare terminals only
+	local lineModes, tpNet, ids = nil, nil, {}
+	if not broken then
+		pcall(function() lineModes = api.engine.util.line.getLineTransportModesUnion(l) end)
+		-- cargo the line carries: getLineCapacityUsages is a dense array over all cargo types (Lua key k = cargo k-1)
+		-- unless a key 0 is present (then a real id map), as in the lines section
+		pcall(function()
+			local usages = api.engine.util.line.getLineCapacityUsages(l, false)
+			local n, dense = 0, usages[0] == nil
+			for k in pairs(usages) do n = n + 1; if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then dense = false end end
+			dense = dense and n > 0 and usages[n] ~= nil
+			for k, u in pairs(usages) do
+				local ct = dense and (num(k) - 1) or num(k)
+				if ct and ((num(u.used) or 0) > 0 or (num(u.capacity) or 0) > 0) then ids[#ids + 1] = ct end
+			end
+		end)
+		pcall(function() tpNet = sys.transportNetworkSystem.getTpNetData() end)
+	end
+	local classes = cargoClassesOf(ids)
+	local overOn = not broken and COST.on("feat_overlength")
+	for i, s in ipairs(stops) do
+		local st = { stop_index = i }
+		if whole[i] then
+			pcall(function() st.terminals = terminalsOfGroup(s.stationGroup, lineModes, classes, tpNet, true) end)
+			if overOn and st.terminals then pcall(function()
+				local over = {}
 				for stTerm in pairs(sys.transportVehicleSystem.checkLineStopForVehicleOverlength(l, i - 1)) do
 					over[num(stTerm.station) .. ":" .. num(stTerm.terminal)] = true
 				end
-			end)
-			oc.stops[i] = over
+				for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
+			end) end
+			if not broken then pcall(function()
+				local w = {}
+				for _, ct in ipairs(ids) do
+					local q = api.engine.util.cargo.getCargoQualityDataAtStop(l, i - 1, ct)
+					local total = num(q.countTotal)
+					if total and total > 0 then w[#w + 1] = { cargo_type = ct, total = total, bad = num(q.countBad) or 0 } end
+				end
+				st.waiting = w
+			end) end
 		end
-		i = i % n + 1
-		if not full and os.clock() - t0 >= COST.OVER_BUDGET then break end
+		rec.stops[i] = st
 	end
-	oc.next = i
-	for k in pairs(oc.stops) do if k > n then oc.stops[k] = nil end end
-	for si, st in ipairs(stops) do
-		local over = oc.stops[si]
-		if over and st.terminals then
-			for _, tm in ipairs(st.terminals) do if over[tm.station .. ":" .. tm.terminal] then tm.overlength = true end end
-		end
-	end
+	rec.collect_ms = (os.clock() - t0) * 1000
+	return rec
+end
+
+-- called from COST.export after a hint named a line: collect and write in this frame (the player is on the dashboard)
+function LD.run()
+	local l = LD.want
+	LD.want = nil
+	if type(l) ~= "number" or not exists(l) then return false end
+	local now = os.clock()
+	if LD.last[l] and now - LD.last[l] < LD.MIN_AGAIN then return false end
+	LD.last[l] = now
+	local rec = LD.collect(l)
+	if rec == nil then return false end
+	local ok, err = pcall(app.saveUserdata, DIR, LD.FILE, { schema = SCHEMA, mod = MOD_ID, real_time = os.time(), item = rec })
+	if not ok then log("saveUserdata failed for line_detail:", tostring(err)); return false end
+	debug(string.format("line detail %d: %d stops in %.0fms", l, #rec.stops, rec.collect_ms or 0))
+	return true
 end
 
 local function lineItem(l, ctx)
@@ -1125,16 +1236,12 @@ local function lineItem(l, ctx)
 			rec.transport_modes = modes
 		end) end
 		mark("modes")
+		-- stops: configuration and terminal numbering (what every view needs). Terminal details, waiting cargo and the
+		-- overlength check are the line detail above (rev 30, #188).
 		pcall(function()
 			rec.stop_list = {}
 			rec.custom_filters = line.customFilters and true or false
 			rec.reservation_priority = num(line.reservationPriority)
-			local lineModes = {}
-			if not broken then pcall(function() lineModes = api.engine.util.line.getLineTransportModesUnion(l) end) end
-			local lineCargoIds = {}
-			for _, c in ipairs(rec.capacity or {}) do if c.cargo_type then lineCargoIds[#lineCargoIds + 1] = c.cargo_type end end
-			local lineClasses = cargoClassesOf(lineCargoIds)
-			mark("modes")
 			for i, s in ipairs(arr(line.stops)) do
 				local st = { station_group = num(s.stationGroup), station = num(s.station), terminal = num(s.terminal),
 					name = entityName(s.stationGroup),
@@ -1165,26 +1272,11 @@ local function lineItem(l, ctx)
 					local alts = {}
 					for _, a in ipairs(arr(s.alternativeTerminals)) do alts[#alts + 1] = { station = num(a.station), terminal = num(a.terminal) } end
 					st.alternatives = alts
-					mark("stop_config")
-					st.terminals = terminalsOfGroup(s.stationGroup, lineModes, lineClasses, ctx.tpNet)
-					mark("terminals")
+					st.terminals = terminalsOfGroup(s.stationGroup, nil, nil, nil, false)
 				end) end
-				if not st.gone then pcall(function()
-					-- items waiting at this stop for this line (the figure in the game's line window), per cargo the line carries
-					local w = {}
-					for _, c in ipairs(rec.capacity or {}) do
-						local q = api.engine.util.cargo.getCargoQualityDataAtStop(l, i - 1, c.cargo_type)
-						local total = num(q.countTotal)
-						if total and total > 0 then w[#w + 1] = { cargo_type = c.cargo_type, total = total, bad = num(q.countBad) or 0 } end
-					end
-					st.waiting = w
-				end) end
-				mark("waiting")
 				rec.stop_list[i] = st
 			end
 			mark("stop_config")
-			if COST.on("feat_overlength") then COST.overlength(l, rec.stop_list, sys) end
-			mark("overlength")
 		end)
 		COST.lineProf(l, rec, prof)
 		return rec
@@ -1215,7 +1307,19 @@ local function stationsBegin(player, cargoNames)
 	local ctx = { player = player, names = cargoNames, st2town = {}, st2con = {}, lineCargos = {} }
 	pcall(function() ctx.st2town = sys.stationSystem.getStation2TownMap() end)
 	pcall(function() ctx.st2con = sys.streetConnectorSystem.getStation2ConstructionMap() end)
-	return arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.STATION)), ctx
+	local list = arr(api.engine.getEntitiesWithComponent(api.type.ComponentType.STATION))
+	-- catchables cache (CACHE.catch): emptied when the number of industries or warehouses changed (one was built or
+	-- removed: what a station can load changes); a station rebuilt or extended gets a new construction (checked per
+	-- station); CATCH_STATIONS stalest stations are re-read every cycle anyway
+	local sig = nil
+	pcall(function()
+		sig = count(api.engine.getEntitiesWithComponent(api.type.ComponentType.INDUSTRY)) .. ":" ..
+			count(api.engine.getEntitiesWithComponent(api.type.ComponentType.WAREHOUSE))
+	end)
+	if sig == nil or sig ~= CACHE.catchSig then CACHE.catch = {}; CACHE.catchSig = sig end
+	CACHE.prune(CACHE.catch, list)
+	ctx.refreshCatch = CACHE.stalest(CACHE.catch, list, CACHE.CATCH_STATIONS)
+	return list, ctx
 end
 
 local function stationItem(s, ctx)
@@ -1267,20 +1371,25 @@ local function stationItem(s, ctx)
 			-- "waiting". Warehouses are not industries: they carry their own WAREHOUSE component (stockList,
 			-- construction), as gui/main/cargo_util.tl resolves it. getStationCatchables(s, true) also lists every
 			-- town building with a cargo demand (a bus stop in a town centre gets a hundred of them), so those
-			-- (TOWN_BUILDING) are left out. One cached lookup per station; the piles themselves are in the
-			-- industries section (stock_list), where warehouses are exported too (warehouse = true).
+			-- (TOWN_BUILDING) are left out. The piles themselves are in the industries section (stock_list), where
+			-- warehouses are exported too (warehouse = true). Rev 30: cached per station (CACHE.catch, see stationsBegin),
+			-- since the walk over a hundred town buildings changes only when something is built.
 			pcall(function()
+				local con = num(st2con[s])
+				local cached = CACHE.catch[s]
+				if cached and cached.con == con and not ctx.refreshCatch[s] then rec.catch = cached.rows; return end
 				local cs = {}
 				for _, e in pairs(api.engine.system.catchmentAreaSystem.getStationCatchables(s, true)) do
 					local id = num(e)
 					local ind = id and comp(e, api.type.ComponentType.INDUSTRY)
 					if ind then
-						cs[#cs + 1] = { entity = id, stock_list = num(ind.stockList) or id, kind = "industry" }
+						cs[#cs + 1] = { stock_list = num(ind.stockList) or id, kind = "industry" }
 					else
 						local wh = id and comp(e, api.type.ComponentType.WAREHOUSE)
-						if wh then cs[#cs + 1] = { entity = id, stock_list = num(wh.stockList) or id, kind = "warehouse" } end
+						if wh then cs[#cs + 1] = { stock_list = num(wh.stockList) or id, kind = "warehouse" } end
 					end
 				end
+				CACHE.catch[s] = { rows = cs, con = con, at = os.clock() }
 				rec.catch = cs
 			end)
 			pcall(function()
@@ -1318,8 +1427,6 @@ end
 -- A town is expensive (~250 ms measured in game for the whole record), so it is not one step but one step per
 -- API call: the items of the towns section are (town, part) pairs and the record is assembled in ctx.recs.
 -- Each TOWN_PARTS entry is one independent query; a failing part only loses its own fields.
-local SUPPLY_TOWNS_PER_CYCLE = 2
-local supplyCache = {}  -- town -> { rows, at }
 local TOWN_PARTS = {
 	function(t, rec, ctx)
 		local town = comp(t, api.type.ComponentType.TOWN)
@@ -1337,7 +1444,7 @@ local TOWN_PARTS = {
 	function(t, rec)
 		local h = api.engine.util.town.getTownHappinessStats(t, 3)
 		local function pair(p) p = arr(p); return { unhappy = num(p[1]), total = num(p[2]) } end
-		rec.happiness = { inside = pair(h.travellingInside), at_building = pair(h.atBuilding), by_car = pair(h.byCar), walking = pair(h.walking),
+		rec.happiness = { inside = pair(h.travellingInside), by_car = pair(h.byCar), walking = pair(h.walking),
 			to_resident = pair(h.travellingTo.resident), to_non_resident = pair(h.travellingTo.nonResident),
 			from_resident = pair(h.travellingFrom.resident), from_non_resident = pair(h.travellingFrom.nonResident) }
 		rec.top_lines = {}
@@ -1349,34 +1456,40 @@ local TOWN_PARTS = {
 		local e = api.engine.util.town.getTownEmissionDB(t)
 		rec.noise_db, rec.pollution_db, rec.area_km2 = num(e.noise), num(e.pollution), num(e.areaSquareKm)
 	end,
-	function(t, rec)
+	-- reachability: only shown in the town's side panel, so (rev 30) refreshed for the town opened on the dashboard
+	-- and for CACHE.REACH_TOWNS stalest towns per cycle; the others send their last value (CACHE.reach)
+	function(t, rec, ctx)
+		local cached = CACHE.reach[t]
+		if cached and not ctx.refreshReach[t] then rec.reach = cached.r; return end
 		local r = api.engine.util.town.getTownReachability(t)
 		rec.reach = { com_private = num(r.commercialPrivate), com_public = num(r.commercialPublic), ind_private = num(r.industrialPrivate), ind_public = num(r.industrialPublic) }
+		CACHE.reach[t] = { r = rec.reach, at = os.clock() }
 	end,
 	function(t, rec) rec.line_usage = num(api.engine.util.town.getTownLineUsage(t)) end,
 	function(t, rec, ctx)
 		rec.stock = {}
 		for ct, p in pairs(api.engine.util.town.getTownStockCargo(t)) do
 			p = arr(p)
-			rec.stock[#rec.stock + 1] = { cargo_type = num(ct), cargo = ctx.names[num(ct)], stock = num(p[1]), capacity = num(p[2]) }
+			rec.stock[#rec.stock + 1] = { cargo_type = num(ct), stock = num(p[1]), capacity = num(p[2]) }
 		end
 	end,
 	-- What the town window shows ("supplied / needed"): townBuildingSystem.getCargoSupplyAndLimit(town)
 	-- -> { cargoType = { supply, limit, group } }, decimals (the game rounds). Verified in game: v1/v2 = the window's
-	-- "supplied / needed"; v3 = an internal group id, stored but not displayed. land_use is always 0 (whole town):
-	-- the call costs ~55 ms per town in game (it walks every building), so the per-land-use variants (which only
-	-- partition the same figures) are not exported any more, and the towns are refreshed in rotation:
-	-- SUPPLY_TOWNS_PER_CYCLE towns per slow cycle (the stalest first), the others keep their last value. The figures
-	-- move slowly (rolling supply, needs grow with the town), the dashboard shows them with the snapshot time anyway.
+	-- "supplied / needed"; the third value is an internal group id, not displayed (not exported since rev 30).
+	-- land_use is always 0 (whole town): the call costs ~55 ms per town in game (it walks every building), so the
+	-- per-land-use variants (which only partition the same figures) are not exported any more, and the towns are
+	-- refreshed in rotation: CACHE.SUPPLY_TOWNS towns per slow cycle (the stalest first), the others keep their last
+	-- value. The figures move slowly (rolling supply, needs grow with the town), the dashboard shows them with the
+	-- snapshot time anyway.
 	function(t, rec, ctx)
-		local cached = supplyCache[t]
+		local cached = CACHE.supply[t]
 		if cached and not ctx.refreshSupply[t] then rec.supply = cached.rows; return end
 		local rows = {}
 		for ct, p in pairs(api.engine.system.townBuildingSystem.getCargoSupplyAndLimit(t)) do
 			p = arr(p)
-			rows[#rows + 1] = { land_use = 0, cargo_type = num(ct), v1 = num(p[1]), v2 = num(p[2]), v3 = num(p[3]) }
+			rows[#rows + 1] = { land_use = 0, cargo_type = num(ct), v1 = num(p[1]), v2 = num(p[2]) }
 		end
-		supplyCache[t] = { rows = rows, at = os.clock() }
+		CACHE.supply[t] = { rows = rows, at = os.clock() }
 		rec.supply = rows
 	end,
 	function(t, rec)
@@ -1393,21 +1506,13 @@ local function townsBeginParts(cargoNames, allSupply)
 		ctx.recs[t] = { id = t }
 		for p = 1, #TOWN_PARTS do items[#items + 1] = { t, p } end
 	end
-	-- supply rotation: towns never collected first, then the stalest
-	local order = {}
-	for _, t in ipairs(towns) do order[#order + 1] = t end
-	table.sort(order, function(a, b)
-		local ca, cb = supplyCache[a], supplyCache[b]
-		if (ca == nil) ~= (cb == nil) then return ca == nil end
-		if ca == nil then return a < b end
-		return ca.at < cb.at
-	end)
-	ctx.refreshSupply = {}
-	for i = 1, (allSupply and #order or math.min(SUPPLY_TOWNS_PER_CYCLE, #order)) do ctx.refreshSupply[order[i]] = true end
-	-- forget towns that no longer exist
-	local alive = {}
-	for _, t in ipairs(towns) do alive[t] = true end
-	for t in pairs(supplyCache) do if not alive[t] then supplyCache[t] = nil end end
+	-- rotations: towns never collected first, then the stalest; the town opened on the dashboard gets its
+	-- reachability now (its side panel is the only place that shows it)
+	CACHE.prune(CACHE.supply, towns)
+	CACHE.prune(CACHE.reach, towns)
+	ctx.refreshSupply = CACHE.stalest(CACHE.supply, towns, allSupply and #towns or CACHE.SUPPLY_TOWNS)
+	ctx.refreshReach = CACHE.stalest(CACHE.reach, towns, CACHE.REACH_TOWNS)
+	if CACHE.townWant ~= nil then ctx.refreshReach[CACHE.townWant] = true; CACHE.townWant = nil end
 	return items, ctx
 end
 
@@ -1451,7 +1556,7 @@ local function industryItem(i, ctx)
 			if ok then
 				local ct = num(st.cargoType)
 				local kind = ({ OutputStock = "out", InputStock = "in", StorageStock = "store" })[enumName("StockListType", { "InputStock", "OutputStock", "StorageStock" }, st.type) or ""] or "store"
-				rec.stock[#rec.stock + 1] = { stock_id = sid, kind = kind, cargo_type = ct, cargo = ct and cargoNames[ct] or nil, mixed = st.mixedTypes and true or false, stock = num(n) or 0, capacity = num(st.capacity) }
+				rec.stock[#rec.stock + 1] = { kind = kind, cargo_type = ct, stock = num(n) or 0, capacity = num(st.capacity) }
 			end
 		end
 	end
@@ -1525,8 +1630,15 @@ local function industryItem(i, ctx)
 					local cap = num(pc.capacity)
 					local workers = 0
 					pcall(function()
-						local se = api.engine.system.gameScriptSystem.getEntityForGameScript("::/industries/industry_workers.gs")
-						local gs = comp(se, api.type.ComponentType.GAME_SCRIPT)
+						-- the workers game script is one entity for every industry: looked up once (CACHE.workersGs),
+						-- again only if it no longer answers
+						local se = CACHE.workersGs
+						local gs = se and comp(se, api.type.ComponentType.GAME_SCRIPT)
+						if not gs then
+							se = api.engine.system.gameScriptSystem.getEntityForGameScript("::/industries/industry_workers.gs")
+							gs = comp(se, api.type.ComponentType.GAME_SCRIPT)
+							CACHE.workersGs = gs and se or nil
+						end
 						local st = gs and gs.state_native and gs.state_native:findPath({ "industriesState", i })
 						if st then local tbl = st:asTable(); workers = tbl and tbl.lastVisitors and #arr(tbl.lastVisitors) or 0 end
 					end)
@@ -3141,12 +3253,28 @@ local COMMANDS = {
 		-- validate every index against the station group as it exists now (the station may have been rebuilt)
 		local sg = comp(stop.stationGroup, api.type.ComponentType.STATION_GROUP)
 		local stations = arr(sg and sg.stations or {})
+		-- rev 30: a terminal the line's vehicles cannot use is refused, checked now on the network of this frame (the
+		-- dashboard's "incompatible" mark may be a few seconds old). Unknown (no vehicle yet, node gone) is let through,
+		-- as the game's own panel does.
+		-- not on a broken line: the engine's line utils assert on a dead station (pcall cannot catch it); unknown then
+		local lineModes, tpNet, whole = nil, nil, true
+		for _, s in ipairs(stops) do
+			local okW, w = pcall(stopWhole, s)
+			if not (okW and w == true) then whole = false end
+		end
+		if whole then
+			pcall(function() lineModes = api.engine.util.line.getLineTransportModesUnion(l) end)
+			pcall(function() tpNet = api.engine.system.transportNetworkSystem.getTpNetData() end)
+		end
 		local function check(st, tm, what)
 			st, tm = num(st), num(tm)
 			local se = stations[st + 1]
 			if se == nil then error(what .. ": station index " .. st .. " out of range") end
 			local station = comp(se, api.type.ComponentType.STATION)
-			if station == nil or arr(station.terminals)[tm + 1] == nil then error(what .. ": terminal index " .. tm .. " out of range") end
+			local term = station and arr(station.terminals)[tm + 1]
+			if term == nil then error(what .. ": terminal index " .. tm .. " out of range") end
+			local okC, c = pcall(LD.termCompatible, term, lineModes, tpNet)
+			if okC and c == false then error(what .. ": terminal not usable by this line's vehicles") end
 			return st, tm
 		end
 		local ms, mt = check(main.station, main.terminal, "main")
@@ -3236,8 +3364,12 @@ local function pollActivity(now)
 	if not ok or type(a) ~= "table" then return false end
 	if a.id ~= nil and a.id == ACTIVITY.lastId then return false end
 	ACTIVITY.lastId = a.id
+	if type(a.line) == "number" then LD.want = a.line end
+	if type(a.town) == "number" then CACHE.townWant = a.town end  -- town panel opened: its reachability next cycle
+	-- quiet (rev 30): the dashboard only refreshes the open line's detail (every 10 s), the player is not interacting,
+	-- so no relaxed budget and no slow cycle restart
+	if a.quiet == true and type(a.line) == "number" then return false end
 	ACTIVITY.until_ = now + ACTIVITY.WINDOW
-	if type(a.line) == "number" then COST.lineWant[a.line] = os.clock() end
 	return true
 end
 
@@ -3324,6 +3456,14 @@ function COST.export(now)
 		COST.add("poll", os.clock() - tp)
 	end
 	local active = now < ACTIVITY.until_
+	-- the opened line's side panel asked for its detail: one line, one frame, nothing else written in it
+	if LD.want ~= nil and slowCache ~= nil then
+		local td = os.clock()
+		local okD, wroteD = pcall(LD.run)
+		COST.add("line_detail", os.clock() - td)
+		if not okD then log("line detail failed:", tostring(wroteD)) end
+		if okD and wroteD then return end
+	end
 
 	-- slow cycle: start a job when due, then advance it a little on every frame; a finished cycle is then written
 	-- to its slow_*.lua files one per frame (slowWriteNext) before the fast snapshots start referring to it.

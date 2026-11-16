@@ -152,6 +152,22 @@ def _bool(v: Any) -> int | None:
     return 1 if v else 0
 
 
+def _merge_terminals(numbering: list, detail_json: str | None) -> str | None:
+    """Terminals of a stop = the numbering of this cycle (n, station, terminal: the station may have been rebuilt) plus
+    the detail fields the line detail file stored earlier for the same station:terminal (mod rev 30+)."""
+    if not numbering:
+        return None
+    try:
+        old = {f"{x.get('station')}:{x.get('terminal')}": x for x in (json.loads(detail_json) if detail_json else []) if isinstance(x, dict)}
+    except (TypeError, ValueError):
+        old = {}
+    out = []
+    for t in numbering:
+        d = old.get(f"{t.get('station')}:{t.get('terminal')}")
+        out.append({**d, **t} if d else t)
+    return json.dumps(out)
+
+
 class Store:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -468,6 +484,39 @@ class Store:
         self.con.commit()
         return len(rows)
 
+    def ingest_line_detail(self, snap: dict, ld: dict) -> int:
+        """Merge tf3dash_line_detail.lua (mod rev 30+: the line opened on the dashboard, collected in one frame) into
+        that line's stops: terminal details + overlength, waiting cargo. Returns the number of stops updated."""
+        it = ld.get("item")
+        if not isinstance(it, dict) or it.get("line") is None:
+            return 0
+        gid = self.game_id(snap, iso())
+        lid = int(it["line"])
+        n = 0
+        for st in as_list(it.get("stops")):
+            if not isinstance(st, dict) or st.get("stop_index") is None:
+                continue
+            row = self.con.execute("SELECT terminals FROM line_stop WHERE game_id=? AND line_id=? AND stop_index=?",
+                                   (gid, lid, int(st["stop_index"]))).fetchone()
+            if row is None:
+                continue
+            det = [x for x in as_list(st.get("terminals")) if isinstance(x, dict)]
+            try:
+                base = [x for x in (json.loads(row["terminals"]) if row["terminals"] else []) if isinstance(x, dict)]
+            except (TypeError, ValueError):
+                base = []
+            # the stop's numbering from the last cycle stays authoritative (fall back on the detail's own when empty), but
+            # stripped to n/station/terminal: the stored row also holds the previous detail, which must not win over this one
+            numbering = [{k: x[k] for k in ("n", "station", "terminal") if k in x} for x in (base or det)]
+            terms = _merge_terminals(numbering, json.dumps(det)) if numbering else None
+            waiting = [x for x in as_list(st.get("waiting")) if isinstance(x, dict) and x.get("cargo_type") is not None]
+            self.con.execute("UPDATE line_stop SET terminals=?, waiting=? WHERE game_id=? AND line_id=? AND stop_index=?",
+                             (terms, json.dumps([{"cargo_type": x["cargo_type"], "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None,
+                              gid, lid, int(st["stop_index"])))
+            n += 1
+        self.con.commit()
+        return n
+
     def ingest_models(self, snap: dict, mf: dict) -> int:
         """Replace the vehicle model catalogue (tf3dash_models.lua) of the game `snap` belongs to: every model the
         game knows with the purchase window's figures, priced for the year the file was written for."""
@@ -739,6 +788,13 @@ class Store:
                                      (sid, lid, cap["cargo_type"] + shift, cap.get("used"), cap.get("capacity")))
             stops = as_list(l.get("stop_list"))
             if stops:
+                # mod rev 30+: terminal details, waiting cargo and overlength come from the line detail file (the line
+                # opened on the dashboard), not from this cycle. Keep what it wrote when the stop still points at the
+                # same station group; older mods send everything here and simply overwrite it.
+                kept: dict[int, tuple] = {}
+                if (self._schema or 0) >= 8:
+                    for r in self.con.execute("SELECT stop_index, station_group, terminals, waiting FROM line_stop WHERE game_id=? AND line_id=?", (gid, lid)):
+                        kept[r["stop_index"]] = (r["station_group"], r["terminals"], r["waiting"])
                 self.con.execute("DELETE FROM line_stop WHERE game_id=? AND line_id=?", (gid, lid))
                 for i, s in enumerate(stops, start=1):
                     no_load = as_list(g(s, "no_load")) if isinstance(s, dict) else []
@@ -746,6 +802,12 @@ class Store:
                     terminals = [x for x in as_list(g(s, "terminals")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     alternatives = [x for x in as_list(g(s, "alternatives")) if isinstance(x, dict)] if isinstance(s, dict) else []
                     waiting = [x for x in as_list(g(s, "waiting")) if isinstance(x, dict) and x.get("cargo_type") is not None] if isinstance(s, dict) else []
+                    terminals_json = json.dumps(terminals) if terminals else None
+                    waiting_json = json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None
+                    k = kept.get(i)
+                    if k is not None and k[0] == g(s, "station_group") and not g(s, "gone"):
+                        terminals_json = _merge_terminals(terminals, k[1])
+                        waiting_json = k[2]
                     self.con.execute(
                         """INSERT OR REPLACE INTO line_stop(game_id, line_id, stop_index, station_group, station, terminal, name,
                            load_mode, min_wait, max_wait, max_add_wait, waypoints, force_unload, no_load, max_load,
@@ -756,9 +818,9 @@ class Store:
                          _bool(g(s, "force_unload")),
                          json.dumps([x for x in no_load if isinstance(x, (int, float))]) if no_load else None,
                          json.dumps([{"cargo_type": g(m, "cargo_type"), "max": g(m, "max")} for m in max_load if isinstance(m, dict)]) if max_load else None,
-                         json.dumps(terminals) if terminals else None,
+                         terminals_json,
                          json.dumps([{"station": g(a, "station"), "terminal": g(a, "terminal")} for a in alternatives]) if alternatives is not None else None,
-                         json.dumps([{"cargo_type": x["cargo_type"] + shift, "total": g(x, "total"), "bad": g(x, "bad")} for x in waiting]) if waiting else None,
+                         waiting_json,
                          1 if g(s, "gone") else None))  # station bulldozed, line still calls there (mod rev 17+)
             if isinstance(l, dict) and (l.get("custom_filters") is not None or l.get("reservation_priority") is not None):
                 self.con.execute("UPDATE line SET custom_filters=?, reservation_priority=? WHERE game_id=? AND line_id=?",
@@ -800,7 +862,7 @@ class Store:
                    is_cargo=excluded.is_cargo, is_pax=COALESCE(excluded.is_pax, station.is_pax), x=excluded.x, y=excluded.y,
                    catch=COALESCE(excluded.catch, station.catch), gone=NULL""",
                 (gid, s["id"], s.get("name"), s.get("town"), s.get("station_group"), b(s.get("cargo")), None if s.get("pax") is None else b(s.get("pax")), x, y,
-                 json.dumps([{"entity": x.get("entity"), "stock_list": x["stock_list"], "kind": "warehouse" if x.get("kind") == "warehouse" else "industry"} for x in catch], separators=(",", ":")) if "catch" in s else None),
+                 json.dumps([{"stock_list": x["stock_list"], "kind": "warehouse" if x.get("kind") == "warehouse" else "industry"} for x in catch], separators=(",", ":")) if "catch" in s else None),
             )
             waiting = as_list(s.get("waiting"))
             self.con.execute("INSERT OR REPLACE INTO station_state(snapshot_id, station_id, used, overflow, pool_capacity, terminal_capacity, lines, waiting) VALUES (?,?,?,?,?,?,?,?)",
@@ -1232,6 +1294,10 @@ class SlowFiles:
         """tf3dash_line_paths.lua: the network edges each line leg runs on."""
         return self._changed_file("line_paths", "items")
 
+    def line_detail(self) -> dict | None:
+        """tf3dash_line_detail.lua: the detail of the line opened on the dashboard (mod rev 30+)."""
+        return self._changed_file("line_detail", "item")
+
     def models(self) -> dict | None:
         """tf3dash_models.lua: the vehicle model catalogue (once per game year)."""
         return self._changed_file("models", "items")
@@ -1564,6 +1630,13 @@ def main(argv: list[str] | None = None) -> int:
                         except Exception as e:  # noqa: BLE001
                             store.con.rollback()
                             say(f"line paths ingest failed: {e!r}", "error")
+                        try:
+                            ld = slow_files.line_detail()
+                            if ld is not None:
+                                store.ingest_line_detail(snap, ld)
+                        except Exception as e:  # noqa: BLE001
+                            store.con.rollback()
+                            say(f"line detail ingest failed: {e!r}", "error")
                         try:
                             jf = slow_files.journal()
                             if jf is not None:

@@ -337,12 +337,17 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   let lastHint = 0;
   // line: the line whose detail the player opens; the mod then refreshes that line's costly checks in full
   // (vehicle length vs platforms), which it otherwise spreads over many cycles to spare the game's frame
-  function activityHint(line) {
-    const now = Date.now(), withLine = typeof line === "number" && line > 0;
-    if (!withLine && now - lastHint < 1500) return;
-    lastHint = now;
-    fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withLine ? { line } : {}) }).catch(() => {});
+  // quiet (with a line): periodic refresh of the open line's detail only; the mod neither relaxes its budget nor
+  // restarts its slow cycle for it (rev 30)
+  // town: the town whose side panel opens; the mod refreshes its reachability (only shown there) in its next cycle
+  function activityHint(line, quiet, town) {
+    const now = Date.now(), withLine = typeof line === "number" && line > 0, withTown = typeof town === "number" && town > 0;
+    if (!withLine && !withTown && now - lastHint < 1500) return;
+    if (!quiet || !withLine) lastHint = now;
+    const body = withLine ? (quiet ? { line, quiet: true } : { line }) : withTown ? { town } : {};
+    fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
     setTimeout(() => refresh(), 1200);  // the mod flushes its slow files within ~1 s of the hint
+    if (withLine) setTimeout(() => refresh(), 3500);  // the line detail waits for the collector's next pass
   }
   ["pointerdown", "keydown", "wheel"].forEach(ev => window.addEventListener(ev, () => activityHint(), { passive: true, capture: true }));
 
@@ -1112,10 +1117,16 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (state.selLine) renderLineDetail(state.selLine);
   }
 
-  let hintedLine = null;
+  // The terminal details, waiting cargo and "too short" checks of a line's stops are collected by the mod for the line
+  // whose panel is open only (mod rev 30, "line detail"): asked when the panel opens, then again every LINE_DETAIL_EVERY
+  // while it stays open on the Lines tab and the page is visible.
+  let hintedLine = null, hintedAt = 0;
+  const LINE_DETAIL_EVERY = 10000;
   async function renderLineDetail(id) {
     const l = (state.cache.lines || []).find(x => x.line_id === id); if (!l) return;
-    if (hintedLine !== id) { hintedLine = id; activityHint(id); }  // opened (not a periodic refresh): ask the mod for full checks
+    const nowH = Date.now();
+    if (hintedLine !== id) { hintedLine = id; hintedAt = nowH; activityHint(id); }
+    else if (state.tab === "lines" && document.visibilityState === "visible" && nowH - hintedAt >= LINE_DETAIL_EVERY) { hintedAt = nowH; activityHint(id, true); }
     const h = await api("/api/line_history", { id, limit: settings.history, range: settings.range });
     const el = $("#line-detail"), top = el.scrollTop;
     // a stop editor open on this line must survive the periodic refresh: keep its DOM and put it back below
@@ -1258,6 +1269,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   const termUsage = (st) => { const alts = new Set((st.alternatives || []).map(termKey)); const main = termKey(st); return { main, alts }; };
   const termTypeLabel = (tm) => tm.pax && tm.cargo ? t("term_both") : tm.pax ? t("term_pax") : tm.class_name ? tm.class_name : t("term_cargo");
   const termChip = (tm) => {
+    if (tm.pax == null && tm.cargo == null) return "";  // line detail not arrived yet: no guess
     const c = tm.class_color;
     const style = c ? `background:${rgb(c.x, c.y, c.z)};border-color:${rgb(c.x, c.y, c.z)};color:${(0.299 * c.x + 0.587 * c.y + 0.114 * c.z) > 0.6 ? "#111" : "#fff"}` : "";
     const icon = tm.pax ? cargoIcon({ cargo: "Passengers", cargo_key: "passengers" }) : (tm.class && tm.class !== "UNIVERSAL" ? `<i class="ico sm" style="--ico:url(icons/cargo_class/${esc(String(tm.class).toLowerCase())}.png)"></i>` : ico("cargo", "sm"));
@@ -1270,10 +1282,13 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     return `<span class="${p > 0 ? "info" : "bad"}">${p > 0 ? "+" : "−"}${Math.abs(p)} %</span>`;
   };
   // edit block: one row per terminal: [n] type-chip  ±%  length  [x] enabled  (★) preferred
+  // detail fields (type, length, %) arrive with the line detail (mod rev 30+): until then the grid says so
+  const termHasDetail = (terms) => terms.some(x => x.pax != null || x.cargo != null);
   const termGrid = (st) => {
     const terms = st.terminals || []; if (!terms.length) return "";
+    const waitDetail = !termHasDetail(terms) ? `<div class="muted tg-wait">${t("detail_loading")}</div>` : "";
     const { main, alts } = termUsage(st);
-    return `<div class="termgrid" data-stop="${st.stop_index}"><div class="tg-title">${ico("terminal", "sm")}${t("terminals")}</div>${terms.map(tm => {
+    return `<div class="termgrid" data-stop="${st.stop_index}"><div class="tg-title">${ico("terminal", "sm")}${t("terminals")}</div>${waitDetail}${terms.map(tm => {
       const k = termKey(tm), isMain = k === main, on = isMain || alts.has(k);
       return `<div class="tg-row ${on ? "on" : ""} ${isMain ? "main" : ""}" data-k="${k}">
         <span class="tg-n">${tm.n}</span><span class="tg-type">${termChip(tm)}${tm.overlength ? ico("warning", "sm", t("term_too_short")) : ""}</span>
@@ -1380,7 +1395,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
       e.stopPropagation(); const seg = b.closest(".lm-seg");
       $$(".lm-btn", seg).forEach(x => x.classList.toggle("active", x === b)); $(".stop-in", seg).value = b.dataset.m;
     }));
-    $$(".stop-edit", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = { line: l.line_id, stop: +b.dataset.stop }; renderStops(l, root); }));
+    $$(".stop-edit", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = { line: l.line_id, stop: +b.dataset.stop }; hintedAt = Date.now(); activityHint(l.line_id); renderStops(l, root); }));
     $$(".stop-cancel", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); state.editStop = null; renderStops(l, root); }));
     bindTermGrid(root);
     $$(".cargo-pick", root).forEach(b => b.addEventListener("click", e => { e.stopPropagation(); const st = stops.find(x => x.stop_index === +b.dataset.stop); openCargoPicker(l, st, () => renderStops(l, root)); }));
@@ -1476,8 +1491,10 @@ const rgbLit = (r, g, b, minY = 0.42) => {
     if (state.selTown) renderTownDetail(state.selTown);
   }
 
+  let hintedTown = null;
   async function renderTownDetail(id) {
     const tw = (state.cache.towns || []).find(x => x.town_id === id); if (!tw) return;
+    if (hintedTown !== id) { hintedTown = id; activityHint(undefined, false, id); }  // opened: fresh reachability (rev 30)
     const h = await api("/api/town_history", { id, limit: settings.history, range: settings.range });
     const hap = [[t("hap_inside"), tw.hap_inside_unhappy, tw.hap_inside_total], [t("hap_res_out"), tw.hap_from_res_unhappy, tw.hap_from_res_total], [t("hap_res_in"), tw.hap_to_res_unhappy, tw.hap_to_res_total], [t("hap_visitors"), (tw.hap_to_nonres_unhappy || 0) + (tw.hap_from_nonres_unhappy || 0), (tw.hap_to_nonres_total || 0) + (tw.hap_from_nonres_total || 0)], [t("hap_car"), tw.hap_car_unhappy, tw.hap_car_total], [t("hap_walk"), tw.hap_walk_unhappy, tw.hap_walk_total]];
     const el = $("#town-detail"), top = el.scrollTop;
@@ -2563,7 +2580,7 @@ const rgbLit = (r, g, b, minY = 0.42) => {
   // ------------------------------------------------------------ cost gauge (Settings)
   // The mod measures its own time in each game frame (mod rev 24+) and reports it once a minute; the gauge shows the
   // mod's share of the game's frame, then each part with what it is for, so a player sees what to turn off first.
-  const COST_PARTS = ["slow_collect", "slow_write", "fast_build", "fast_write", "geo", "geo_check", "heightmap", "catalogue", "journal", "line_paths", "poll"];
+  const COST_PARTS = ["slow_collect", "slow_write", "fast_build", "fast_write", "geo", "geo_check", "heightmap", "catalogue", "journal", "line_paths", "line_detail", "poll"];
   let costReport = "";
   // feature switches (mod rev 25+): what the mod collects. Set in the mod settings at load; switched here for this game
   // (set_feature command, so only with "Permit game control"), until the save is loaded again.

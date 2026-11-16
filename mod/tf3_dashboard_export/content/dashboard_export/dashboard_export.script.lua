@@ -220,6 +220,23 @@ local function comp(e, ctype)
 	return api.engine.getComponent(e, ctype)
 end
 
+-- tpNet:getNodeData does not bounds-check its node: an index the entity's transport network no longer has (track or
+-- street rebuilt or shortened) is a null read inside the engine (TransportFever3+0x30B0C83), solution taken from 
+-- https://mod.io/g/transportfever3/m/problem-locator-fehlerstellen-finder
+local function nodeValid(node)
+	if node == nil then return false end
+	local entity, index = node.entity, node.index
+	if type(index) ~= "number" or index < 0 then return false end
+	local tn = comp(entity, api.type.ComponentType.TRANSPORT_NETWORK)
+	return tn ~= nil and tn.nodes ~= nil and index < #tn.nodes
+end
+
+-- keep copies of node ids: ids from components can point into game memory and go stale 
+-- (problem-locator-fehlerstellen-finder ownNode)
+local function ownNode(node)
+	return api.type.NodeId.new(node.entity, node.index)
+end
+
 local function arr(t)
 	-- copy a possibly userdata-backed sequence into a plain array
 	local out = {}
@@ -983,10 +1000,10 @@ local function terminalsOfGroup(groupEntity, lineModes, lineCargoClasses, tpNet)
 			end)
 			pcall(function()
 				-- transport modes usable on the terminal's edge vs the line's modes (line_util.isLineCompatibleWithTransportMode)
-				-- tpNet is a copy taken when the section began, frames ago: the node's entity (the station's track or
-				-- street, type index 49 in the crash report) may have been bulldozed since. Check both ends.
-				if tpNet == nil or not exists(term.vehicleNodeId and term.vehicleNodeId.entity) then return end
-				local nd = tpNet:getNodeData(term.vehicleNodeId)
+				-- tpNet is re-read at the start of every line step (lineItem), never reused across frames; the node must
+				-- still exist in its entity's transport network before getNodeData (see nodeValid).
+				if tpNet == nil or not nodeValid(term.vehicleNodeId) then return end
+				local nd = tpNet:getNodeData(ownNode(term.vehicleNodeId))
 				local edgeId = nd and nd.ports and nd.ports[1] and nd.ports[1].edgeId
 				local tn = edgeId and comp(edgeId.entity, api.type.ComponentType.TRANSPORT_NETWORK)
 				if not tn then return end
@@ -1057,6 +1074,10 @@ end
 local function lineItem(l, ctx)
 	local sys = api.engine.system
 	local cargoNames = ctx.names
+	-- each step runs in its own frame: the network may have changed since the previous one, re-read it
+	-- (problem-locator-fehlerstellen-finder re-reads getTpNetData after every yield for the same reason)
+	ctx.tpNet = nil
+	pcall(function() ctx.tpNet = api.engine.system.transportNetworkSystem.getTpNetData() end)
 	do
 		local line = comp(l, api.type.ComponentType.LINE)
 		if not line then return nil end

@@ -589,6 +589,17 @@ class Store:
                     continue
                 lid = int(ln["id"])
                 for si, ser in enumerate(as_list(ln.get("series"))):
+                    if isinstance(ser, dict) and isinstance(ser.get("xs"), str):
+                        # mod rev 31+: { xs = "326,327,...", ys = "0,1368991,..." }, no per-point label (the
+                        # server names the columns from the journal history)
+                        xs, ys = ser["xs"].split(","), str(ser.get("ys") or "").split(",")
+                        for k in range(min(len(xs), len(ys))):
+                            try:
+                                x, y = int(xs[k]), int(ys[k])
+                            except ValueError:
+                                continue
+                            rows.append((gid, lid, si, k, x, None, y, now))
+                        continue
                     for k, p in enumerate(as_list(ser)):
                         p = as_list(p)
                         if len(p) >= 2 and isinstance(p[1], (int, float)):

@@ -392,10 +392,14 @@ local function collectJournal(player, gameTimeMs)
 	-- per line: the game's line "Balance" chart (income / running costs) at one column per financial year since the
 	-- start, i.e. the line window's chart with the time slider all the way out (the window caps it at 50 years and
 	-- shows 5 by default). The engine gives series[i] = { {x...}, {y...} } (checked in game 15 October 2026: series 1
-	-- = income, 2 = running costs, both positive); exported as points { x, y, label } with the game's column label.
+	-- = income, 2 = running costs, both positive). Rev 31: each series is written as two comma-joined strings
+	-- { xs = "326,327,...", ys = "0,1368991,..." } instead of one { x, y, label } table per point: 156 lines x 2 series
+	-- x 230 years were 72 000 small tables, 2.7 MB, and saveUserdata took ~280 ms of one frame (measured 16 November
+	-- 2026: journal max 323 ms, collection 39 ms). The column labels are the journal history's headers on the
+	-- collector side (_fy_labels), so the per-point label is no longer sent.
 	pcall(function()
 		local lines = {}
-		local labels = {}
+		local function int(v) v = num(v); return v and string.format("%.0f", v) or "" end
 		for _, l in ipairs(arr(api.engine.system.lineSystem.getLinesForPlayer(player))) do
 			pcall(function()
 				local ch = api.engine.util.finance.getAccountChart(l, cfg)
@@ -403,16 +407,10 @@ local function collectJournal(player, gameTimeMs)
 				for i, ser in ipairs(arr(ch.series)) do
 					local sa = arr(ser)
 					local xs, ys = arr(sa[1]), arr(sa[2])
-					local pts = {}
-					for k = 1, math.min(#xs, #ys) do
-						local x = num(xs[k])
-						if x and labels[x] == nil then
-							local okL, lab = pcall(api.engine.util.chart.getChartLabel, cfg, math.floor(x), false)
-							labels[x] = okL and tostring(lab) or false
-						end
-						pts[#pts + 1] = { x, num(ys[k]), x and labels[x] or nil }
-					end
-					s[i] = pts
+					local n = math.min(#xs, #ys)
+					local xo, yo = {}, {}
+					for k = 1, n do xo[k] = int(xs[k]); yo[k] = int(ys[k]) end
+					s[i] = { xs = table.concat(xo, ","), ys = table.concat(yo, ","), n = n }
 				end
 				local xm = {}
 				for _, x in ipairs(arr(ch.xMarkers)) do xm[#xm + 1] = num(x) end
@@ -430,9 +428,7 @@ local function collectJournal(player, gameTimeMs)
 		if f then
 			local parts = {}
 			for i, ser in ipairs(f.series) do
-				local pts = {}
-				for k = math.max(1, #ser - 3), #ser do pts[#pts + 1] = tostring(ser[k][3] or ser[k][1]) .. ":" .. tostring(ser[k][2]) end
-				parts[#parts + 1] = "s" .. i .. "(" .. #ser .. ") " .. table.concat(pts, " ")
+				parts[#parts + 1] = "s" .. i .. "(" .. tostring(ser.n) .. ") ..." .. ser.ys:sub(-40)
 			end
 			log(string.format("journal: %d line charts; line %s groups %s, x markers %d (%s .. %s); %s", #out.lines, tostring(f.id), tostring(f.groups),
 				#f.x_markers, tostring(f.x_markers[1]), tostring(f.x_markers[#f.x_markers]), table.concat(parts, " | ")))

@@ -2,6 +2,11 @@
 
 Mod revision and companion version are released together (see README, Install). Public notes on mod.io carry the latest entry only.
 
+## Companion 0.20.1 - 17 November 2026 (mod revision 31)
+
+- Lighter journal export. The [mod](https://mod.io/g/transportfever3/m/second-screen-dashboard) wrote each line's finance charts as one small table per point; mod revision 31 writes each chart as two comma-joined strings (dates, amounts). On a 156-line save the journal file went from 2.7 MB to 0.9 MB and the longest frame spent writing it from 323 ms to 88-126 ms (measured 17 November 2026, one session each, same save), so the hitch every time the journal is written is much shorter. Nothing changes on screen.
+- Mod revision 31 needs companion 0.20.1: older companions show the lines' finance charts empty. Companion 0.20.1 still reads older mod revisions, so it can be installed first.
+
 ## Companion 0.20.0 - 16 November 2026 (mod revision 30)
 
 - Crash while editing a station with the lines export on (mostly on big saves, sometimes when changing a bus, tram or cargo stop). The lines section of the [mod](https://mod.io/g/transportfever3/m/second-screen-dashboard) is spread over many frames to keep the game smooth; it read the transport network once at its start, then used that copy for every terminal of every line to tell whether the line's vehicles can use it. A station rebuilt in the meantime most likely left the copy pointing at network nodes that no longer existed. Mod revision 30 no longer reads the network in the continuous export at all. Reported by consp (GitHub #188), whose log and diagnosis pointed to the stale copy.
